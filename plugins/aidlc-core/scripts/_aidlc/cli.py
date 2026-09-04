@@ -4,7 +4,9 @@ import argparse
 import json
 import sys
 
+from .commands import cmd_check_json
 from .commands import cmd_check_okf
+from .commands import cmd_check_python
 from .commands import cmd_gate
 from .commands import cmd_guard
 from .commands import cmd_improve
@@ -68,6 +70,24 @@ def build_parser() -> argparse.ArgumentParser:
                                 "du projet est non conforme.")
     check_okf.add_argument("--file",
                            help="Chemin du fichier touche (mode --touched ; defaut : stdin du hook).")
+
+    check_python = sub.add_parser("check-python",
+                                  help="Compile tout Python d'un dossier (exit 1 si erreur de syntaxe).")
+    check_python.add_argument("dir", nargs="?",
+                              help="Dossier racine a parcourir (defaut : racine du projet courant).")
+    check_python.add_argument("--touched", action="store_true",
+                              help="Mode hook PostToolUse : compile le fichier .py ecrit, non bloquant.")
+    check_python.add_argument("--file",
+                              help="Chemin du fichier touche (mode --touched ; defaut : stdin du hook).")
+
+    check_json = sub.add_parser("check-json",
+                                help="Parse tout JSON d'un dossier (exit 1 si fichier invalide).")
+    check_json.add_argument("dir", nargs="?",
+                            help="Dossier racine a parcourir (defaut : racine du projet courant).")
+    check_json.add_argument("--touched", action="store_true",
+                            help="Mode hook PostToolUse : parse le fichier .json ecrit, non bloquant.")
+    check_json.add_argument("--file",
+                            help="Chemin du fichier touche (mode --touched ; defaut : stdin du hook).")
     return parser
 
 
@@ -89,7 +109,9 @@ def main(argv=None) -> int:
     handlers = {
         "validate": cmd_validate, "score": cmd_score, "gate": cmd_gate,
         "review-request": cmd_review_request, "status": cmd_status,
-        "scaffold": cmd_scaffold, "improve": cmd_improve, "check-okf": cmd_check_okf,
+        "scaffold": cmd_scaffold, "improve": cmd_improve,
+        "check-okf": cmd_check_okf, "check-python": cmd_check_python,
+        "check-json": cmd_check_json,
     }
     try:
         return handlers[args.command](root, args)

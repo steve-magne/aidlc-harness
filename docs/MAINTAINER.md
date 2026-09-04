@@ -139,9 +139,10 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 ### 2.5 Vérifier avant de publier
 
 ```bash
-# 1. Tous les JSON parsent (pipeline, marketplaces, manifests, checks), le Python compile
-python3 -c "import json,glob;[json.load(open(p)) for p in glob.glob('plugins/**/*.json',recursive=True)+glob.glob('.claude-plugin/*.json')]" && echo "JSON OK"
-python3 -m py_compile plugins/aidlc-core/scripts/aidlc.py && echo "py OK"
+# 1. Hygiène du dépôt — tout Python compile, tout JSON parse (règles non négociables,
+#    portes du moteur, exit 1 si fichier fautif ; rien n'est écrit)
+python3 plugins/aidlc-core/scripts/aidlc.py check-python
+python3 plugins/aidlc-core/scripts/aidlc.py check-json
 
 # 2. L'auto-test du harnais passe — le seul test du projet ; il vérifie aussi la conformité
 #    OKF v0.2 des bundles docs/ et knowledge/ (frontmatter, fichiers réservés, dates du journal)
@@ -151,7 +152,8 @@ python3 plugins/aidlc-core/scripts/aidlc.py --selftest
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
 
-# 3. Le plugin de l'étape est valide pour Claude Code
+# 3. Le plugin de l'étape est valide pour Claude Code (la CI .github/workflows/ci.yml
+#    rejoue la validation sur chaque plugin du dépôt à chaque PR)
 claude plugin validate plugins/aidlc-core
 claude plugin validate plugins/aidlc-<stage>
 
@@ -189,7 +191,7 @@ vous incrémentez `aidlc-core` (0.1.0 → 0.2.0) et le nouveau plugin naît en 0
 
 ### 3.2 Checklist de publication
 
-1. Les vérifications de la section 2.5 passent (selftest, `claude plugin validate`, JSON).
+1. Les vérifications de la section 2.5 passent (check-python, check-json, selftest, `claude plugin validate`).
 2. Les versions sont incrémentées pour **tous** les plugins modifiés, y compris `aidlc-core` dès
    que `pipeline.json` change.
 3. `.claude-plugin/marketplace.json` liste chaque plugin d'étape avec un `source` relatif
@@ -263,6 +265,8 @@ Depuis la racine du dépôt :
 ```bash
 python3 plugins/aidlc-core/scripts/aidlc.py status                 # tableau de bord
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
+python3 plugins/aidlc-core/scripts/aidlc.py check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
+python3 plugins/aidlc-core/scripts/aidlc.py check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage>       # génère le plugin d'une étape planned
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage> --force   # écrase et régénère
 python3 plugins/aidlc-core/scripts/aidlc.py --selftest             # auto-test (doit passer avant chaque release)

@@ -124,7 +124,8 @@ Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'e
 (chemin stable utilisé par les hooks et les skills) délègue au paquet `_aidlc/` du même
 répertoire, un module par concern — `util` (racines et IO), `checks` (validation des livrables),
 `maturity` (scores, porte, revue), `scaffold`, `improve`, `hookslog`, `okf` (conformance et
-correctifs des bundles), `selftest`, `commands` (gestionnaires de sous-commandes) et `cli`
+correctifs des bundles), `syntax` (hygiène du dépôt : tout Python compile, tout JSON parse),
+`selftest`, `commands` (gestionnaires de sous-commandes) et `cli`
 (parseur et dispatch). L'ensemble résout deux racines : le **projet consommateur**
 (`CLAUDE_PROJECT_DIR`, sinon le répertoire courant) pour les livrables et `.aidlc/`, et le
 **harnais** (`CLAUDE_PLUGIN_ROOT`, sinon auto-localisation de `pipeline.json` à côté du moteur)
@@ -146,6 +147,10 @@ les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 | `check-okf <dir>` | vérifie la conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet (`knowledge/`, et `docs/` s'il existe), non bloquant, retour en contexte |
 | `check-okf --stop` | mode hook `Stop` : porte de sortie — refuse la fermeture de session (deny) si un bundle du projet est non conforme, et enregistre le refus dans la file d'amélioration |
+| `check-python` | compile tout Python du dépôt (règle 6, `py_compile`, sans rien écrire) ; exit 1 si erreur de syntaxe |
+| `check-python --touched` | mode hook `PostToolUse` : compile le fichier `.py` écrit — retour en contexte, non bloquant, silencieux hors Python |
+| `check-json` | parse tout JSON du dépôt (règle 6) ; exit 1 si fichier invalide |
+| `check-json --touched` | mode hook `PostToolUse` : parse le fichier `.json` écrit — retour en contexte, non bloquant, silencieux hors JSON |
 | `--selftest` | auto-test par assertions sur un répertoire temporaire |
 
 Règle non négociable du dépôt : toute nouvelle logique déterministe devient une sous-commande
@@ -179,6 +184,12 @@ Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des ses
   `log.md` mal daté remontent immédiatement en contexte additionnel, comme la validation des
   livrables. Informative en session, la passe est une porte dure en ligne de commande ou en CI
   (`check-okf`, exit 1).
+- `PostToolUse` sur `Write|Edit` appelle aussi `check-python --touched` et `check-json --touched` :
+  un fichier `.py`/`.json` écrit est compilé / parsé au fil de l'eau — une erreur de syntaxe ou
+  un JSON invalide remonte en contexte additionnel, sans casser la session. Portée : le fichier
+  écrit, car la syntaxe est sans état cross-fichier (un concept OKF sans frontmatter, lui,
+  invalide tout son bundle) ; l'état complet du dépôt reste la porte dure `check-python` /
+  `check-json` (exit 1) en ligne de commande et en CI.
 - `PreToolUse` sur `Write|Edit` appelle `guard`. Il refuse catégoriquement qu'un agent écrive
   dans `.aidlc/maturity.json` ou dans `.aidlc/reviews/*.json`. Un modèle ne doit pas pouvoir
   éditer sa propre note : l'intégrité de la mesure conditionne tout le reste.

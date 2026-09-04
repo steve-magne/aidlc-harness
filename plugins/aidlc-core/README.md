@@ -108,8 +108,8 @@ Chaque skill est un scénario d'agent complet (frontmatter + instructions) :
 Le point d'entrée `scripts/aidlc.py` (chemin stable des hooks et des skills) délègue au paquet
 `_aidlc/` : **toute** la logique non-agentique du harness y vit, bibliothèque standard Python
 uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `improve`,
-`hookslog`, `okf`, `commands`, `cli`, plus `selftest`). Sorties machine : JSON sur **stdout** ;
-messages humains sur **stderr**.
+`hookslog`, `okf`, `syntax`, `commands`, `cli`, plus `selftest`). Sorties machine : JSON sur
+**stdout** ; messages humains sur **stderr**.
 
 | Sous-commande | Rôle |
 | --- | --- |
@@ -126,6 +126,10 @@ messages humains sur **stderr**.
 | `check-okf <dir>` | conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet touchés par l'écriture, non bloquant |
 | `check-okf --stop` | mode hook `Stop` : refuse la fermeture de session (deny) si un bundle du projet est non conforme ; enregistre le refus dans la file d'amélioration |
+| `check-python` | compile tout Python du dépôt (règle 6, `py_compile`, sans rien écrire — pyc jetables) ; exit 1 si erreur de syntaxe |
+| `check-python --touched` | mode hook `PostToolUse` : compile le fichier `.py` écrit — retour en contexte, non bloquant, silencieux hors Python |
+| `check-json` | parse tout JSON du dépôt (règle 6) ; exit 1 si fichier invalide |
+| `check-json --touched` | mode hook `PostToolUse` : parse le fichier `.json` écrit — retour en contexte, non bloquant, silencieux hors JSON |
 | `--selftest` | auto-test du projet (le seul test, il doit passer) |
 
 ## Les hooks — branchement sur le cycle de vie des sessions
@@ -151,6 +155,12 @@ messages humains sur **stderr**.
   frontmatter, un `index.md` incohérent ou un `log.md` non daté remontent immédiatement en
   contexte. La condition de sortie en session interactive est le hook `Stop`
   (`check-okf --stop`) ; en CI, `check-okf` (exit 1) est la porte dure.
+- `PostToolUse` (matcher `Write|Edit`) → `aidlc.py check-python --touched` et
+  `aidlc.py check-json --touched` : un fichier `.py`/`.json` écrit est compilé/parsé au fil de
+  l'eau — une erreur de syntaxe ou un JSON invalide remonte immédiatement en contexte
+  additionnel, sans casser la session. Portée : le fichier écrit (la syntaxe est sans état
+  cross-fichier) ; l'état complet du dépôt reste la porte `check-python` / `check-json` en CI
+  (exit 1).
 
 ## Le cycle de vie d'une étape
 
