@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+from .commands import cmd_check_okf
+from .commands import cmd_gate
+from .commands import cmd_guard
+from .commands import cmd_improve
+from .commands import cmd_log
+from .commands import cmd_review_request
+from .commands import cmd_scaffold
+from .commands import cmd_score
+from .commands import cmd_status
+from .commands import cmd_validate
+from .selftest import selftest
+from .util import workspace_root
+"""Parseur de commandes et bascule du moteur — appele par le point d'entree
+scripts/aidlc.py (des sous-commandes exposees par commands)."""
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="aidlc.py", description="Moteur deterministe du harness AI-DLC.")
+    parser.add_argument("--selftest", action="store_true",
+                        help="Lance l'auto-test integre et sort.")
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("log", help="Journalise un evenement de hook lu sur stdin.")
+    sub.add_parser("guard", help="Protege .aidlc/ des ecritures d'agents (hook PreToolUse).")
+
+    validate = sub.add_parser("validate", help="Valide un livrable contre son checks.json.")
+    validate.add_argument("stage", nargs="?")
+    validate.add_argument("--file", help="Fichier a valider (defaut : livrable de l'etape).")
+    validate.add_argument("--json", action="store_true", help="JSON seul, sans resume humain.")
+    validate.add_argument("--touched", action="store_true",
+                          help="Mode hook PostToolUse : silencieux si le fichier n'est pas un livrable.")
+
+    score = sub.add_parser("score", help="Enregistre une revue de maturite.")
+    score.add_argument("stage")
+    score.add_argument("--file", required=True, help="review.json produit par le reviewer.")
+
+    gate = sub.add_parser("gate", help="Decide si l'etape est franchie (exit 2 si bloquant).")
+    gate.add_argument("stage")
+
+    request = sub.add_parser("review-request", help="Prepare la revue humaine d'une etape.")
+    request.add_argument("stage")
+
+    status = sub.add_parser("status", help="Tableau de bord du pipeline.")
+    status.add_argument("--json", action="store_true")
+
+    scaffold_cmd = sub.add_parser("scaffold", help="Genere le plugin d'une etape planifiee.")
+    scaffold_cmd.add_argument("stage")
+    scaffold_cmd.add_argument("--force", action="store_true",
+                              help="Ecrase un plugin existant.")
+
+    improve_cmd = sub.add_parser("improve", help="Diagnostic d'auto-amelioration (JSON).")
+    improve_cmd.add_argument("--stage", help="Restreindre a une etape.")
+
+    check_okf = sub.add_parser("check-okf",
+                               help="Conformance OKF v0.2 d'un bundle (exit 1 si non conforme).")
+    check_okf.add_argument("dir", nargs="?",
+                           help="Dossier racine du bundle (ex: knowledge, docs).")
+    check_okf.add_argument("--touched", action="store_true",
+                           help="Mode hook PostToolUse : gate les bundles OKF du projet.")
+    check_okf.add_argument("--stop", action="store_true",
+                           help="Mode hook Stop : refuse la cloture de session si un bundle "
+                                "du projet est non conforme.")
+    check_okf.add_argument("--file",
+                           help="Chemin du fichier touche (mode --touched ; defaut : stdin du hook).")
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.selftest:
+        return selftest()
+    if not args.command:
+        parser.print_help(sys.stderr)
+        return 1
+
+    root = workspace_root()
+    if args.command == "log":
+        return cmd_log(root, sys.stdin.read())
+    if args.command == "guard":
+        return cmd_guard(root, sys.stdin.read())
+
+    handlers = {
+        "validate": cmd_validate, "score": cmd_score, "gate": cmd_gate,
+        "review-request": cmd_review_request, "status": cmd_status,
+        "scaffold": cmd_scaffold, "improve": cmd_improve, "check-okf": cmd_check_okf,
+    }
+    try:
+        return handlers[args.command](root, args)
+    except FileNotFoundError as exc:
+        sys.stderr.write(f"Fichier introuvable : {exc}\n")
+        return 1
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(f"JSON invalide : {exc}\n")
+        return 1

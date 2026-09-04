@@ -1,3 +1,12 @@
+---
+type: Glossary
+title: Glossaire du harness AI-DLC
+description: Vocabulaire du dépôt aidlc-harness — un terme employé dans un livrable doit correspondre à une entrée de ce glossaire.
+tags: [glossary, vocabulary]
+stages: [plan, design, build, test, deploy, maintain]
+generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+---
+
 # Glossaire
 
 Vocabulaire du dépôt `aidlc-harness`. Un terme employé dans un livrable doit correspondre à une
@@ -7,9 +16,10 @@ Les identifiants techniques restent en anglais, la prose reste en français.
 ---
 
 **ADR** (*Architecture Decision Record*) — Document court qui acte une décision d'architecture :
-le contexte, la décision, les alternatives écartées, les conséquences. Type de source `adr` dans
-`knowledge/index.json`. Une décision de livrable qui cite un ADR est traçable ; une décision qui
-n'en cite aucun ne l'est pas.
+le contexte, la décision, les alternatives écartées, les conséquences. Concept de type OKF
+`Architecture Decision` dans `knowledge/sources/` (exemple :
+[ADR-0001](sources/adr-0001-socle-agentique.md)). Une décision de livrable qui cite un ADR est
+traçable ; une décision qui n'en cite aucun ne l'est pas.
 
 **Agent** — Session Claude Code spécialisée, décrite par un fichier Markdown dans `agents/` d'un
 plugin. Le harness en définit trois transverses (`orchestrator`, `reviewer`, `librarian`) et un
@@ -23,10 +33,11 @@ ici : `plan`, `design`, `build`, `test`, `deploy`, `maintain`.
 *completeness* (toutes les sections utiles sont remplies), *precision* (testable, non ambigu,
 chiffré), *traceability* (cite ses entrées et ses sources de vérité), *autonomy* (peu
 d'intervention humaine dans le journal de session). Détail axe par axe dans
-`docs/ARCHITECTURE.md`.
+[docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
-**Base de connaissance** — Le dossier `knowledge/`. Mémoire longue de l'organisation, par
-opposition aux livrables qui ne valent que pour un cycle.
+**Base de connaissance** — Le dossier `knowledge/`, un bundle OKF v0.2 (concepts à frontmatter,
+sommaire `index.md`, journal `log.md`). Mémoire longue de l'organisation, par opposition aux
+livrables qui ne valent que pour un cycle.
 
 **Check déterministe** — Règle de validation appliquée par `aidlc.py validate` sans aucun
 jugement de modèle : présence d'une section, volume de texte, expression interdite, citation d'une
@@ -45,9 +56,11 @@ humain responsable.
 **File d'amélioration** — `.aidlc/improvement-queue.jsonl`. Reçoit la justification de chaque
 refus humain. C'est le point d'entrée de la boucle de self-improvement.
 
-**Frontmatter** — Bloc YAML délimité par `---` en tête d'un livrable Markdown. Porte les
+**Frontmatter** — Bloc YAML délimité par `---` en tête d'un document Markdown. Porte les
 métadonnées obligatoires (`stage`, `version`, `status`, `author`, `date`) vérifiées par
-`required_frontmatter`.
+`required_frontmatter`. Les concepts de la base de connaissance portent un frontmatter OKF
+(`type` obligatoire, familles de confiance et de provenance facultatives) — voir
+[conventions.md](conventions.md).
 
 **Garde-fou** (*guard*) — Sous-commande `aidlc.py guard`, branchée sur le hook `PreToolUse`. Elle
 refuse qu'un agent écrive dans `.aidlc/maturity.json` ou `.aidlc/reviews/*.json` : un modèle ne
@@ -69,7 +82,8 @@ session et de la file d'amélioration : on y ajoute une ligne sans jamais relire
 fichier.
 
 **Librarian** — Agent qui sert la base de connaissance. Il compose un briefing ciblé par étape à
-partir de `knowledge/index.json` et des livrables amont. Lecture seule en dehors de `knowledge/`.
+partir des concepts du bundle `knowledge/` (filtrés par leur extension `stages`), du glossaire et
+des livrables amont. Lecture seule en dehors de `knowledge/`.
 
 **Livrable** (*deliverable*) — Le fichier produit par une étape, rangé dans
 `deliverables/<stage>/`. Seul objet qui circule entre deux étapes : rien ne se transmet en dehors
@@ -84,6 +98,12 @@ humaine approuvée. Il ne suspend ni la validation ni la notation.
 
 **Note globale** (*overall*) — Moyenne arithmétique des quatre axes, arrondie au dixième.
 Toujours recalculée par `aidlc.py score` : la valeur proposée par le reviewer est ignorée.
+
+**OKF** (*Open Knowledge Format*) — Format ouvert et versionné de représentation de la
+connaissance : des concepts Markdown à frontmatter YAML (`type` obligatoire), organisés en bundle
+avec un sommaire `index.md` et un journal `log.md`. Ce dépôt contient deux bundles OKF v0.2 :
+`docs/` et `knowledge/`. Les familles de métadonnées (provenance, confiance, cycle de vie) sont
+définies dans la spec : https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
 
 **Orchestrator** — Agent qui pilote le pipeline : il détermine l'étape courante, lance la skill de
 l'étape, déclenche le reviewer, puis la porte. Il ne rédige jamais un livrable lui-même.
@@ -135,8 +155,8 @@ la recette du livrable ; `aidlc-core` en expose cinq transverses (`run`, `status
 `new-stage`, `improve`).
 
 **Source de vérité** — Fichier qui fait autorité sur un sujet et que l'on ne duplique jamais :
-`pipeline.json` pour les étapes, `checks.json` pour les exigences d'un livrable,
-`knowledge/index.json` pour les références, ce glossaire pour le vocabulaire.
+`pipeline.json` pour les étapes, `checks.json` pour les exigences d'un livrable, les concepts du
+bundle `knowledge/` pour les références du projet, ce glossaire pour le vocabulaire.
 
 **Statut d'étape** — Champ `status` de `pipeline.json` : `implemented` si le plugin existe,
 `planned` si l'étape est déclarée mais reste à générer.

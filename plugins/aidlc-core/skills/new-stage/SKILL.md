@@ -76,7 +76,8 @@ Lis aussi, comme référence de ce que « bon » veut dire :
 9. « De quels documents amont cette étape dépend-elle ? » (chemins dans `deliverables/`)
 10. « Le livrable doit-il **citer** ses entrées explicitement ? » -> `must_reference_inputs`.
 11. « Quelles sources de vérité hors pipeline faut-il consulter ? » (normes, ADR, glossaire,
-    référentiels) -> à inscrire dans `knowledge/index.json`.
+    référentiels) -> à verser comme concepts OKF dans `knowledge/` : frontmatter avec `stages`,
+    mise à jour du sommaire `index.md` et du journal `log.md`.
 
 ## 4. Questions — la structure
 
@@ -170,7 +171,9 @@ Le scaffold produit des squelettes. C'est toi qui les rends utiles, avec le cont
    validation à l'orchestrateur (`/aidlc-core:run <stage>`) qui la rejoue avant la revue.
 4. **`plugins/aidlc-<stage>/agents/<stage>-analyst.md`** — le profil de l'interlocuteur : il dialogue
    avec le `human_role`, ne devine pas, interroge le `librarian` pour le contexte existant.
-5. **`knowledge/index.json`** — ajoute les sources de vérité citées au bloc 3.11.
+5. **`knowledge/` (bundle OKF)** — verse les sources de vérité citées au bloc 3 (question 11) en
+   concepts : frontmatter `type`/`stages`, mise à jour de `knowledge/index.md` et de
+   `knowledge/log.md`.
 
 ## 10. Vérifier avant de rendre
 
@@ -203,5 +206,5 @@ ou trois tours ici valent mieux que dix livrables refusés plus tard.
 
 Tu t'arrêtes si : l'étape est déjà `implemented`, l'humain ne valide pas la fiche du bloc 7, le
 scaffold refuse d'écraser un dossier, ou un JSON généré ne parse pas. Tu ne génères jamais un plugin
-sur des réponses devinées, et tu n'écris jamais de second script — toute logique déterministe
-appartient à `aidlc.py`.
+sur des réponses devinées, et tu n'écris jamais de second point d'entrée — toute logique
+déterministe appartient au moteur `scripts/` (`aidlc.py` + paquet `_aidlc/`).

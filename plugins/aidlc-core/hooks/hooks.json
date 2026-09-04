@@ -1,5 +1,5 @@
 {
-  "description": "Harness AI-DLC : journalisation JSONL de toutes les sessions, validation automatique des livrables touchés, garde-fou d'intégrité sur les scores de maturité.",
+  "description": "Harness AI-DLC : journalisation JSONL de toutes les sessions, validation automatique des livrables touchés, conformité OKF des bundles de connaissance à chaque écriture et porte de sortie de session, garde-fou d'intégrité sur les scores de maturité.",
   "hooks": {
     "SessionStart": [
       {
@@ -54,6 +54,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py\" check-okf --stop",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -75,6 +84,16 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py\" validate --touched",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py\" check-okf --touched",
             "timeout": 10
           }
         ]

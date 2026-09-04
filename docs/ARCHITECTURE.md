@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Architecture du harness AI-DLC
+description: Référence de conception du dépôt aidlc-harness — intention, composants, cycle de vie d'une étape, grille de maturité, mode autonome et boucle de self-improvement.
+tags: [architecture, harness]
+generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+---
+
 # Architecture du harness AI-DLC
 
 Ce document est la référence de conception du dépôt `aidlc-harness`. Il décrit ce que fait le
@@ -110,14 +118,18 @@ Ajouter une exigence à une étape, c'est éditer un fichier JSON, pas écrire d
 levier principal du self-improvement : une faiblesse récurrente détectée par le reviewer se
 traduit par une règle supplémentaire dans le `checks.json` de l'étape.
 
-### 3.3 `plugins/aidlc-core/scripts/aidlc.py` — la seule logique déterministe
+### 3.3 `plugins/aidlc-core/scripts/` — la seule logique déterministe
 
-Un unique script en bibliothèque standard Python, sans dépendance externe. Il résout deux racines
-: le **projet consommateur** (`CLAUDE_PROJECT_DIR`, sinon le répertoire courant) pour les
-livrables et `.aidlc/`, et le **harnais** (`CLAUDE_PLUGIN_ROOT`, sinon auto-localisation de
-`pipeline.json` à côté du script) pour le pipeline et les contrats. Toutes les sorties machine sont
-en JSON sur la sortie standard, les messages destinés à l'humain sur la sortie d'erreur. Ses
-sous-commandes :
+Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'entrée `aidlc.py`
+(chemin stable utilisé par les hooks et les skills) délègue au paquet `_aidlc/` du même
+répertoire, un module par concern — `util` (racines et IO), `checks` (validation des livrables),
+`maturity` (scores, porte, revue), `scaffold`, `improve`, `hookslog`, `okf` (conformance et
+correctifs des bundles), `selftest`, `commands` (gestionnaires de sous-commandes) et `cli`
+(parseur et dispatch). L'ensemble résout deux racines : le **projet consommateur**
+(`CLAUDE_PROJECT_DIR`, sinon le répertoire courant) pour les livrables et `.aidlc/`, et le
+**harnais** (`CLAUDE_PLUGIN_ROOT`, sinon auto-localisation de `pipeline.json` à côté du moteur)
+pour le pipeline et les contrats. Toutes les sorties machine sont en JSON sur la sortie standard,
+les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 
 | Commande | Rôle |
 | -------- | ---- |
@@ -131,21 +143,42 @@ sous-commandes :
 | `status` | tableau de bord de l'avancement du pipeline |
 | `scaffold <stage>` | génère le plugin complet d'une étape déclarée mais non implémentée |
 | `improve` | agrège journaux, scores et refus en un diagnostic JSON |
+| `check-okf <dir>` | vérifie la conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
+| `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet (`knowledge/`, et `docs/` s'il existe), non bloquant, retour en contexte |
+| `check-okf --stop` | mode hook `Stop` : porte de sortie — refuse la fermeture de session (deny) si un bundle du projet est non conforme, et enregistre le refus dans la file d'amélioration |
 | `--selftest` | auto-test par assertions sur un répertoire temporaire |
 
-Règle non négociable du dépôt : toute nouvelle logique déterministe devient une sous-commande de
-ce script. On n'ajoute pas de second script.
+Règle non négociable du dépôt : toute nouvelle logique déterministe devient une sous-commande
+exposée par ce point d'entrée, dans le module du paquet `_aidlc/` qui possède déjà le concern
+(ou un nouveau module si c'est un concern nouveau). On n'ajoute pas de second point d'entrée ni
+de fichier hors de `scripts/`.
 
 ### 3.4 Les hooks
 
 Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des sessions Claude Code.
 
-- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop` appellent `log`.
+- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop` appellent `log`.
   C'est la matière première de l'axe *autonomy* et du diagnostic `improve` : on sait combien de
   tours, quels outils, quelles relances ont été nécessaires pour produire un livrable.
+- `Stop` appelle `log` puis `check-okf --stop`. La fermeture de session est la **condition de
+  sortie** du bundle de connaissance : si `knowledge/` (ou `docs/`, quand il existe) n'est pas
+  conforme OKF v0.2, le hook refuse l'arrêt (`permissionDecision: deny`) et affiche la liste des
+  problèmes à corriger ; corrigez puis redemandez l'arrêt. Portée observée du contrat : en
+  session **interactive**, l'arrêt refusé ramène le contrôle à la session ; en mode **headless**
+  (`claude -p`), le refus est émis et enregistré mais le processus se termine quand même
+  (code 0) — la porte dure des pipelines sans session est l'étape CI `check-okf` (exit 1).
+  Bundle conforme ou absent, la session se ferme normalement. Chaque refus est enregistré dans
+  `.aidlc/improvement-queue.jsonl` (`kind: okf_stop`, session concernée) : c'est une entrée du
+  diagnostic `improve` (§7).
 - `PostToolUse` sur `Write|Edit` appelle `validate --touched`. L'agent reçoit immédiatement, en
   contexte additionnel, la liste de ce qui manque à son livrable. Le contrôle est informatif :
   il corrige au fil de l'eau au lieu de sanctionner à la fin.
+- `PostToolUse` sur `Write|Edit` appelle aussi `check-okf --touched` : toute écriture dans un
+  bundle OKF du projet — `knowledge/`, et `docs/` quand il existe (dépôt du harnais) — est
+  contrôlée au fil de l'eau. Un concept sans frontmatter, un `index.md` incohérent ou un
+  `log.md` mal daté remontent immédiatement en contexte additionnel, comme la validation des
+  livrables. Informative en session, la passe est une porte dure en ligne de commande ou en CI
+  (`check-okf`, exit 1).
 - `PreToolUse` sur `Write|Edit` appelle `guard`. Il refuse catégoriquement qu'un agent écrive
   dans `.aidlc/maturity.json` ou dans `.aidlc/reviews/*.json`. Un modèle ne doit pas pouvoir
   éditer sa propre note : l'intégrité de la mesure conditionne tout le reste.
@@ -161,9 +194,9 @@ cher que l'absence de trace.
 - **`reviewer`** — note le livrable sur les quatre axes de la grille de maturité, émet un verdict,
   écrit un `review.json` et appelle `aidlc.py score`. Il doit justifier chaque note par une
   citation du livrable. Il n'a pas le droit d'écrire dans `.aidlc/`.
-- **`librarian`** — sert la base de connaissance. Il répond à la question « quel contexte pour
-  l'étape X » en lisant `knowledge/index.json` et les livrables amont. Lecture seule en dehors de
-  `knowledge/`.
+- **`librarian`** — sert la base de connaissance, un bundle OKF v0.2. Il répond à la question
+  « quel contexte pour l'étape X » en lisant les concepts de `knowledge/` (filtrés par leur champ
+  `stages`), le glossaire et les livrables amont. Lecture seule en dehors de `knowledge/`.
 
 ### 3.6 Les skills
 
@@ -178,10 +211,17 @@ rédaction du livrable, les questions à poser à l'humain, et l'obligation de l
 ### 3.7 `knowledge/` — la base de connaissance
 
 `knowledge/` vit dans le **projet consommateur** (c'est la mémoire du projet : normes internes,
-ADR, retours d'expérience). `knowledge/index.json` recense les sources de vérité consultables. Le
-librarian s'en sert pour composer un briefing ciblé par étape. Dans ce dépôt, `knowledge/` documente
-le harnais lui-même et sert de projet d'essai. Voir `knowledge/README.md` pour la procédure d'ajout
-d'une source.
+ADR, retours d'expérience). C'est un **bundle OKF v0.2** : chaque fichier Markdown non réservé est
+un concept à frontmatter YAML (`type` obligatoire, extension `stages` pour le routage par étape),
+`index.md` en est le sommaire, `log.md` le journal des changements. Le librarian sert un briefing
+ciblé par étape en filtrant les concepts sur `stages` et en y ajoutant les entrées déclarées dans
+`pipeline.json`. Dans ce dépôt, `knowledge/` documente le harnais lui-même et sert de projet
+d'essai. Chaque écriture dans le bundle est contrôlée par le hook `PostToolUse` (§3.4) ; en
+session, le hook `Stop` refuse l'arrêt tant que le bundle est non conforme (portée interactive :
+l'arrêt est refusé et le contrôle revient en session ; en headless `-p`, le refus est enregistré
+sans bloquer — §3.4) ; la porte dure universelle est l'étape CI `check-okf` (exit 1). Voir
+`knowledge/conventions.md` pour l'organisation du bundle et la procédure de versement d'un
+concept.
 
 ### 3.8 État runtime
 
@@ -202,7 +242,7 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 ## 4. Cycle de vie d'une étape
 
 ```
-  pipeline.json                              knowledge/index.json
+  pipeline.json                              knowledge/ (OKF)
         |                                             |
         v                                             v
  +--------------+       « quel contexte ? »     +-----------+
@@ -327,7 +367,8 @@ ci-dessous donne son critère de discrimination explicite.
 - **3** toutes les entrées de l'étape sont citées, mais on ne sait pas quelle partie du livrable
   amont justifie quelle décision : la référence est globale, pas locale.
 - **4** chaque décision structurante renvoie explicitement à son origine — chemin du livrable
-  amont, section citée, ou identifiant d'une source de `knowledge/index.json`.
+  amont, section citée, ou chemin d'un concept du bundle `knowledge/` (glossaire, conventions,
+  ADR).
 - **5** en plus, les écarts assumés par rapport à l'amont sont listés et justifiés un par un.
 
 > **3 ou 4 ?** Poser la question : *peut-on remonter d'une décision vers sa source sans deviner ?*
@@ -414,6 +455,20 @@ instructions, à partir de ce que ses journaux montrent.
  accord humain explicite  ->  application  ->  run suivant
 ```
 
+Le **gate OKF de sortie** (section 3.4) emprunte le même chemin : quand le hook `Stop` refuse la
+fermeture d'une session parce qu'un bundle est non conforme, `check-okf --stop` copie les erreurs
+et l'identifiant de la session dans `.aidlc/improvement-queue.jsonl` (entrées `kind: okf_stop`).
+Le diagnostic `improve` les isole des refus humains, corrèle chaque refus avec les sessions qui
+ont écrit dans le bundle : le hook `check-okf --touched` journalise chaque écriture dans un
+bundle non conforme (session, fichier, horodatage, dans `.aidlc/logs/`), ce qui permet de
+retrouver la session **auteure** même quand l'arrêt refusé est celui d'une autre session. Le
+diagnostic propose — pour les concepts dont seul le frontmatter est
+en cause — un **correctif déterministe vérifié en mémoire** (ajout d'un frontmatter, fermeture,
+clé `type`) ; le type par défaut et le titre dérivé restent soumis à confirmation humaine. Pour
+le sommaire `index.md` (fichier réservé), il propose de même les concepts **orphelins** —
+préparés dans le bundle mais absents de la liste — avec titre et description repris du
+frontmatter de chaque concept.
+
 Règle de répartition du correctif :
 
 - Un défaut **détectable mécaniquement** (section manquante, volume insuffisant, entrée non
@@ -423,6 +478,9 @@ Règle de répartition du correctif :
   corrige dans le `SKILL.md`.
 - Un défaut de **structure** (le plan du livrable ne guide pas vers la bonne information) se
   corrige dans le template.
+- Un défaut de **forme du bundle de connaissance** (concept sans frontmatter, frontmatter
+  ouvert, clé `type` absente) se corrige dans le concept `knowledge/` lui-même : le script
+  propose un diff prêt à appliquer, jamais un relâchement de la passe.
 
 Le script produit le diagnostic ; l'analyse fine et la proposition de correctif sont le travail de
 l'agent. Aucun correctif n'est appliqué sans accord humain explicite : la boucle propose, elle ne

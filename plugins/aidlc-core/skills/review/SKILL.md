@@ -47,7 +47,7 @@ Invoque le sous-agent `reviewer` (agent `aidlc-core:reviewer`) avec, dans son pr
 - les chemins et le contenu des `inputs` de l'étape (indispensable pour noter la traçabilité) ;
 - le contrat de l'étape (`${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`) et les `warnings` de la
   validation ;
-- le contexte de `knowledge/index.json` (via le sous-agent `librarian` si l'étape en dépend) ;
+- le contexte du bundle `knowledge/` (via le sous-agent `librarian` si l'étape en dépend) ;
 - le nombre de tours et d'allers-retours humains de la session, extraits des logs :
   `.aidlc/logs/<session_id>.jsonl` — c'est la matière de l'axe `autonomy` ;
 - la consigne explicite : **chaque note doit être justifiée par une citation du livrable**.

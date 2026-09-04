@@ -62,8 +62,9 @@ Pour chaque chemin listé dans `inputs` :
 ## 4. Charger le contexte
 
 Délègue au sous-agent `librarian` la question : « quel contexte pour l'étape `<stage>` ? ».
-Il lit `knowledge/index.json`, `knowledge/glossary.md` et les livrables amont, et te rend une
-synthèse des sources de vérité à citer. Transmets cette synthèse à la skill de l'étape.
+Il lit le bundle OKF `knowledge/` — concepts filtrés par leur `stages`, glossaire, sommaire
+`index.md` — et les livrables amont, et te rend une synthèse des sources de vérité à citer.
+Transmets cette synthèse à la skill de l'étape.
 
 ## 5. Produire le livrable
 

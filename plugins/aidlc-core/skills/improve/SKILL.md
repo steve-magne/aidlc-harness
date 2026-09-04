@@ -33,7 +33,10 @@ Sans argument d'étape, lance-la sans `--stage` pour couvrir tout le pipeline.
 
 Le script agrège `.aidlc/logs/*.jsonl`, `.aidlc/maturity.json` et `.aidlc/improvement-queue.jsonl`,
 et sort un JSON : nombre de tours, outils les plus utilisés, erreurs de validation récurrentes, axes
-de score les plus faibles, refus humains et leurs justifications.
+de score les plus faibles, refus humains et leurs justifications. Depuis que le gate OKF bloque la
+sortie de session, la section `okf` du diagnostic isole les refus du gate (`refusals` : session,
+bundle, fichiers fautifs, corrélés aux sessions qui ont écrit) et porte une proposition de
+correctif de frontmatter vérifiée en mémoire (`proposals`) pour les concepts encore fautifs.
 
 **Le script ne fait que compter. L'analyse, c'est toi.** N'ajoute pas de traitement dans `aidlc.py`
 pour ce que tu peux lire dans le JSON.
@@ -57,7 +60,7 @@ Pour chaque axe faible, remonte à la cause dans les logs et les refus. Grille d
 |---|---|---|
 | `completeness` bas, même section vide à chaque run | la section n'est pas dans les checks, ou le template ne dit pas quoi y mettre | `checks.json` (`required_sections`, `min_items_per_section`), `templates/` |
 | `precision` bas, findings du type « vague », « non testable » | le SKILL.md ne demande pas de chiffres ni de critères observables | `skills/<stage>/SKILL.md`, `required_patterns` |
-| `traceability` bas | `must_reference_inputs` absent, ou `knowledge/index.json` incomplet | `checks.json`, `knowledge/index.json` |
+| `traceability` bas | `must_reference_inputs` absent, ou le bundle `knowledge/` manque de concepts utiles (ou de `stages` sur ceux qui existent) | `checks.json`, `knowledge/` |
 | `autonomy` bas, beaucoup de tours dans les logs | l'agent pose les questions dans le désordre, ou une par une alors qu'elles sont liées | `agents/<stage>-analyst.md`, `skills/<stage>/SKILL.md` |
 | même erreur de `validate` à chaque run | le template ne guide pas vers ce que le check exige | `templates/` |
 | refus humain répété sur le même motif | le critère du relecteur n'est ni dans les checks ni dans le SKILL.md | selon le motif |
@@ -68,6 +71,35 @@ ne la couvre pas ».
 
 Si tu n'as pas de preuve, dis-le : « données insuffisantes, il faut N runs de plus ». Un diagnostic
 inventé est pire qu'aucun diagnostic. En dessous de deux runs enregistrés, ne conclus pas.
+
+## 3bis. Quand c'est le gate OKF qui a refusé
+
+Le gate OKF de sortie (hook `Stop`, `check-okf --stop`) refuse l'arrêt d'une session interactive
+dont le bundle `knowledge/` n'est pas conforme (en headless `claude -p`, il émet et enregistre le
+refus sans bloquer — la porte dure y est la CI). Le refus est journalisé dans la file
+(`kind: okf_stop`) ; le diagnostic le corrèle aux sessions fautives : chaque écriture dans un
+bundle non conforme est journalisée par le hook `check-okf --touched` (session, fichier,
+horodatage, dans `.aidlc/logs/`), donc `implicated` nomme la session qui a **écrit** le fichier,
+pas celle qui a tenté de fermer.
+
+1. Si `diag["okf"]["refusals"]` est vide, rien à faire pour ce bloc.
+2. Pour chaque refus : lis `session_id` (celle qui a fermé) et `implicated` (fichiers + sessions
+   auteures + horodatage), puis ouvre la session fautive dans `.aidlc/logs/` pour comprendre
+   *pourquoi* le concept a été écrit sans frontmatter (recette oubliée ? template absent ?).
+3. Ouvre le concept fautif. S'il est encore non conforme, `diag["okf"]["proposals"]` porte un
+   correctif déterministe (`edits` : ligne d'insertion + texte, `preview` : tête réparée).
+   Présente-le avec le gabarit du bloc 4, `Fichier : knowledge/<concept>`. La `note` du script
+   rappelle que le `type` par défaut (`Reference`) et le titre dérivé sont à confirmer.
+4. Si le concept est déjà corrigé, ne propose rien : dis-le. Le sommaire `index.md`, lui, reçoit
+   une proposition `index_entries` quand des concepts sont **orphelins** (présents dans le
+   bundle, absents de la liste) : titre et description repris du frontmatter de chaque concept,
+   entrées ajoutées en queue de liste — l'ordonnancement par sections reste manuel. `log.md` et
+   les erreurs de forme (flux déséquilibrés) n'ont pas de correctif automatique — réparation
+   manuelle.
+
+Le correctif porte sur un **concept du bundle**, pas sur un livrable d'étape : la règle « jamais
+le livrable » ne s'y applique pas — le bundle EST la source à corriger. L'accord humain explicite
+reste exigé avant toute application.
 
 ## 4. Proposer un diff — précis, minimal, unique
 
@@ -87,7 +119,8 @@ Règles de proposition :
 - **Trois propositions maximum**, classées par impact. Un correctif appliqué et mesuré vaut mieux
   que dix suggestions.
 - On corrige le **harness** (`skills/`, `templates/`, `checks.json`, `agents/`), jamais le livrable
-  déjà noté — réécrire le livrable masquerait le problème sans le résoudre.
+  déjà noté — réécrire le livrable masquerait le problème sans le résoudre. Exception assumée : un
+  concept `knowledge/` cassé (gate OKF) se corrige dans le bundle, avec accord (bloc 3bis).
 - On ne **relâche jamais** un check pour faire monter un score. Si un check est jugé trop strict par
   l'humain, c'est lui qui le dit, et sa justification est citée.
 - On ne touche ni à `maturity_threshold` ni à `consecutive_runs_to_autonomy` : baisser la barre n'est
