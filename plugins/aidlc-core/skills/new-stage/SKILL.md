@@ -10,6 +10,18 @@ C'est la pièce maîtresse du harness : le moment où un humain métier transfè
 une étape automatisable. Tu **mènes un entretien**, tu ne devines pas. Une étape mal spécifiée
 produira des livrables mal notés pendant des mois.
 
+## Conventions — cette skill est une skill d'auteur
+
+Tu travailles dans le **dépôt auteur du harnais** (celui qui contient `plugins/` et
+`.claude-plugin/marketplace.json`), pas dans un projet consommateur. Le plugin `aidlc-core`
+installé est `${CLAUDE_PLUGIN_ROOT}` ; la racine du dépôt auteur est `${CLAUDE_PLUGIN_ROOT}/../..`
+— vérifie qu'elle contient bien `plugins/` et `.claude-plugin/`, sinon arrête-toi : on ne conçoit
+pas de nouvelle étape depuis une copie installée du harnais.
+
+Le pipeline à lire et à modifier est celui du noyau : `${CLAUDE_PLUGIN_ROOT}/pipeline.json`. Le
+script unique se lance par `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"`. Les chemins
+`plugins/aidlc-<stage>/…` cités plus bas sont relatifs à la racine du dépôt auteur.
+
 ## Règle du dialogue
 
 - Une question à la fois, ou par petits blocs de deux ou trois questions liées.
@@ -24,10 +36,10 @@ produira des livrables mal notés pendant des mois.
 ## 0. Préparer le terrain
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py status
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status
 ```
 
-Lis `pipeline.json` et l'étape ciblée.
+Lis `${CLAUDE_PLUGIN_ROOT}/pipeline.json` et l'étape ciblée.
 
 - L'étape existe avec `"status": "planned"` -> tu as déjà son `deliverable`, ses `inputs`, son
   `human_role` et son `plugin`. Ce sont des propositions : fais-les valider au bloc 1.
@@ -127,18 +139,19 @@ modèle exact des autres :
 ```json
 {"id":"<stage>","name":"<Nom>","plugin":"aidlc-<stage>","skill":"aidlc-<stage>:<stage>",
  "deliverable":"deliverables/<stage>/<fichier>","inputs":["..."],
- "checks":"plugins/aidlc-<stage>/checks.json","human_role":"<rôle>","status":"planned"}
+ "checks":"checks/<stage>.json","human_role":"<rôle>","status":"planned"}
 ```
 
 Puis :
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" scaffold <stage>
 ```
 
 Le script crée `plugins/aidlc-<stage>/` (plugin.json, `agents/<stage>-analyst.md`,
 `skills/<stage>/SKILL.md`, le template, `checks.json`), bascule `status` à `implemented` dans
-`pipeline.json` et ajoute l'entrée dans `.claude-plugin/marketplace.json`.
+`${CLAUDE_PLUGIN_ROOT}/pipeline.json`, crée le miroir `${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`
+et ajoute l'entrée dans `.claude-plugin/marketplace.json` (racine du dépôt auteur).
 Il refuse d'écraser un dossier existant sans `--force` : si tu tombes sur ce refus, **ne force pas
 de ta propre initiative**, demande.
 
@@ -153,8 +166,8 @@ Le scaffold produit des squelettes. C'est toi qui les rends utiles, avec le cont
    ligne d'intention. Les marqueurs à remplir sont entre chevrons (`<…>`) et sont le **seul**
    endroit du dépôt où un marqueur de remplissage est autorisé.
 3. **`plugins/aidlc-<stage>/skills/<stage>/SKILL.md`** — la recette : les questions du bloc 6.20 à
-   poser au métier, la structure attendue, l'obligation de citer les entrées, et l'obligation de
-   lancer `python3 plugins/aidlc-core/scripts/aidlc.py validate <stage>` avant de rendre.
+   poser au métier, la structure attendue, l'obligation de citer les entrées, et la remise de la
+   validation à l'orchestrateur (`/aidlc-core:run <stage>`) qui la rejoue avant la revue.
 4. **`plugins/aidlc-<stage>/agents/<stage>-analyst.md`** — le profil de l'interlocuteur : il dialogue
    avec le `human_role`, ne devine pas, interroge le `librarian` pour le contexte existant.
 5. **`knowledge/index.json`** — ajoute les sources de vérité citées au bloc 3.11.
@@ -162,8 +175,8 @@ Le scaffold produit des squelettes. C'est toi qui les rends utiles, avec le cont
 ## 10. Vérifier avant de rendre
 
 ```bash
-python3 -c "import json;[json.load(open(p)) for p in ['pipeline.json','.claude-plugin/marketplace.json']]" && echo "JSON racine OK"
-python3 plugins/aidlc-core/scripts/aidlc.py status
+python3 -c "import json;[json.load(open(p)) for p in ['${CLAUDE_PLUGIN_ROOT}/pipeline.json','.claude-plugin/marketplace.json']]" && echo "JSON racine OK"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status
 ```
 
 Vérifie de la même façon que `plugins/aidlc-<stage>/checks.json` et

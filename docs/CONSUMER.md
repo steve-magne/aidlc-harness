@@ -1,0 +1,282 @@
+# Consommer le harnais AI-DLC dans votre projet
+
+Ce guide s'adresse à une **équipe de projet** qui veut produire ses livrables de cadrage avec le
+harnais agentique AI-DLC : un pipeline d'étapes (Plan → Design → Build → Test → Deploy → Maintain)
+piloté par des agents Claude Code, validé par des contrôles déterministes, noté par un agent
+*reviewer* et gardé par des portes de qualité qui exigent votre signature tant que l'étape n'est
+pas autonome.
+
+Aujourd'hui, **l'étape Plan est la seule implémentée** : elle produit le livrable de cadrage
+`deliverables/plan/intent.md`. Les autres étapes apparaissent au tableau de bord comme
+« planifiées » ; elles sont conçues et générées par l'équipe qui maintient le harnais, pas par le
+projet consommateur.
+
+---
+
+## 1. Ce que vous installez, et où atterrissent les fichiers
+
+Le harnais est distribué comme un **marketplace de plugins Claude Code** nommé `aidlc`, qui
+contient pour l'instant deux plugins :
+
+| Plugin | Rôle |
+| --- | --- |
+| `aidlc-core` | Le noyau : pipeline, contrats `checks/<stage>.json`, script déterministe `aidlc.py`, orchestrateur, reviewer, librarian, hooks de journalisation et de garde-fous. |
+| `aidlc-plan` | L'étape Plan : agent de dialogue avec le Product Owner, recette de la skill `plan`, squelette du livrable, contrat `checks.json`. |
+
+Deux racines sont à distinguer :
+
+- **Le harnais (les plugins)** — une fois installés, Claude Code copie les plugins dans son cache
+  (`~/.claude/plugins/cache/…`) ; le pipeline, les contrats et le script y vivent. **Vous n'y
+  écrivez rien.**
+- **Votre projet** — c'est là que sont produits les livrables (`deliverables/`) et l'état runtime
+  (`.aidlc/`). **Aucun livrable n'est écrit dans le dépôt du harnais** : tout ce qui compte pour
+  vous atterrit dans votre projet.
+
+Quand un agent ou un hook appelle `aidlc.py`, le script résout lui-même les deux racines :
+`CLAUDE_PROJECT_DIR` (votre projet, défini par la session Claude Code) et `CLAUDE_PLUGIN_ROOT` (la
+copie installée du plugin).
+
+## 2. Prérequis
+
+- **Claude Code** — une version récente, qui gère les marketplaces de plugins et les hooks.
+- **Python 3** — le harnais n'utilise que la bibliothèque standard : aucune dépendance à installer,
+  aucun `pip install`.
+- **L'accès au dépôt `aidlc-harness`** — par un chemin local ou par son URL git (GitHub, GitLab,
+  etc.).
+
+## 3. Installer les plugins
+
+Depuis la racine de votre projet (l'enregistrement du marketplace est lié à votre
+machine/utilisateur, mais lancer l'installation **dans le projet** permet de choisir la portée
+« Ce projet ») :
+
+```bash
+# 1. Enregistrer le dépôt aidlc-harness comme marketplace nommé « aidlc ».
+#    Par chemin local :
+claude plugin marketplace add /chemin/vers/aidlc-harness
+#    Ou par dépôt git (selon l'hébergement du harnais) :
+claude plugin marketplace add https://github.com/<organisation>/aidlc-harness.git
+
+# 2. Installer les deux plugins (choisir « Ce projet » comme portée au prompt
+#    d'installation, si le harnais ne concerne que ce projet) :
+claude plugin install aidlc-core@aidlc
+claude plugin install aidlc-plan@aidlc
+
+# 3. Vérifier :
+claude plugin list
+```
+
+Si l'installation affiche « Run /reload-plugins to activate », lancez `/reload-plugins` dans la
+session, ou fermez et rouvrez Claude Code.
+
+> **Portée d'installation.** En portée « Ce projet », les hooks du harnais (journalisation,
+> validation, garde-fous) ne s'activent que dans les sessions ouvertes dans ce projet — c'est le
+> choix recommandé pour un essai. En portée « utilisateur », ils s'activent dans tous vos projets,
+> y compris ceux qui ne consomment pas le harnais (la journalisation y créerait un dossier
+> `.aidlc/`).
+
+## 4. Premier run : produire le livrable Plan
+
+Ouvrez une session Claude Code **à la racine de votre projet**, puis lancez l'étape :
+
+```
+/aidlc-core:run plan
+```
+
+(Sans argument, `/aidlc-core:run` prend automatiquement la prochaine étape à traiter — ici `plan`.)
+
+Ce qui se passe, dans l'ordre :
+
+1. **L'orchestrateur** lit le pipeline (dans le plugin installé), vérifie que l'étape est
+   implémentée et que ses entrées amont existent (l'étape Plan n'en a aucune), puis délègue à la
+   skill `aidlc-plan:plan`.
+2. **L'agent plan-analyst** mène l'entretien de cadrage avec le Product Owner : huit sections,
+   questions **par salves de trois à cinq**, une quinzaine de minutes. Il ne devine jamais (une
+   information manquante se demande, sinon elle est marquée « hypothèse à confirmer »), relance sur
+   les chiffres et refuse la solution technique — le « comment » appartient à l'étape Design.
+3. **L'écriture du livrable** `deliverables/plan/intent.md` déclenche à chaque modification un hook
+   `PostToolUse` du plugin `aidlc-core` : la validation déterministe tourne contre le contrat
+   `checks.json` de l'étape (sections présentes au caractère près, mots interdits, frontmatter,
+   nombre de puces, 250 à 2000 mots) et renvoie immédiatement les `errors`/`warnings`. L'agent
+   corrige jusqu'au vert — aucun livrable ne se rend avec des erreurs de validation.
+4. **L'orchestrateur rejoue la validation**, puis délègue la revue : l'agent *reviewer* note le
+   livrable de 0 à 5 sur quatre axes — `completeness`, `precision`, `traceability`, `autonomy` —
+   chaque note justifiée par une citation, verdict `accepted` ou `rejected`, et enregistre le score
+   dans `.aidlc/maturity.json`.
+5. **La porte** (`gate`) s'ouvre seulement si la validation passe, le verdict est `accepted` et le
+   score est au moins `4.0` (le seuil). Tant que l'étape n'est pas autonome, **la revue humaine est
+   exigée** : la porte reste fermée et l'orchestrateur vous laisse la main (section suivante).
+
+Pendant tout le run, les hooks journalisent la session dans `.aidlc/logs/<session>.jsonl` et un
+garde-fou `PreToolUse` refuse que quiconque — agent compris — écrive dans `.aidlc/maturity.json`
+ou `.aidlc/reviews/`.
+
+### Le tableau de bord
+
+À tout moment, demandez l'état du pipeline dans la session :
+
+```
+/aidlc-core:status
+```
+
+Exemple de sortie en début de vie d'un projet consommateur :
+
+```
+AI-DLC — tableau de bord (/chemin/de/votre/projet)
+Seuil de maturite : 4.0 | Etape courante : plan
+
+ETAPE      PLUGIN      LIVRABLE  VALIDE  SCORE  AUTO  PROCHAINE ACTION
+plan       implemented non      -       -      non   Produire le livrable : skill aidlc-plan:plan
+design     planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold design
+build      planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold build
+test       planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold test
+deploy     planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold deploy
+maintain   planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold maintain
+```
+
+Les lignes `design` → `maintain` affichent une action **réservée à l'équipe qui maintient le
+harnais** : un projet consommateur ne scaffolde pas d'étape, il attend que le plugin correspondant
+soit publié dans le marketplace (voir « Mises à jour »).
+
+## 5. La revue humaine : lire, signer, ou refuser
+
+C'est le moment où **vous** entrez dans le circuit. Le rôle humain de l'étape Plan est le
+**Product Owner / Business Analyst** : c'est lui qui détient le besoin, c'est lui qui signe.
+
+### 5.1 L'orchestrateur s'arrête et prépare la revue
+
+Quand la porte demande une revue humaine, l'orchestrateur (ou vous, par
+`/aidlc-core:run plan`) appelle la demande de revue, qui écrit un gabarit et affiche les consignes :
+
+```
+.aidlc/reviews/plan-1.template.json
+```
+
+Le fichier `plan-1` signifie : étape `plan`, run n° 1. Le numéro s'incrémente à chaque nouvelle
+revue du reviewer.
+
+### 5.2 Vous relisez le livrable
+
+1. Ouvrez `deliverables/plan/intent.md` et vérifiez les quatre points que le script vous rappelle :
+   1. le livrable répond au **besoin réel**, pas seulement au gabarit ;
+   2. les **critères d'acceptation** sont testables et chiffrés ;
+   3. les **entrées amont** (ici : le contexte métier que vous avez donné) sont citées et
+      correctement interprétées ;
+   4. il n'y a aucun **engagement implicite** non assumé (délai, coût, périmètre).
+
+### 5.3 Vous signez
+
+Copiez le gabarit vers le fichier de revue définitif et renseignez-le :
+
+```bash
+cp .aidlc/reviews/plan-1.template.json .aidlc/reviews/plan-1.json
+```
+
+```json
+{
+  "stage": "plan",
+  "run": 1,
+  "approved": true,
+  "reviewer": "Votre Prénom Nom",
+  "justification": "Le problème, le périmètre et les critères d'acceptation correspondent au besoin exprimé.",
+  "ts": "2026-09-04T10:00:00+00:00"
+}
+```
+
+Puis dites à Claude, dans la session : **« la revue humaine est signée, rouvre la porte »**.
+L'orchestrateur relance `gate` : la porte s'ouvre, l'étape est franchie et il vous propose l'étape
+suivante (`design` — planifiée, donc à attendre du mainteneur du harnais).
+
+### 5.4 Vous refusez
+
+Si le livrable n'est pas acceptable, mettez `"approved": false`. La **justification est
+obligatoire** : elle est copiée automatiquement dans `.aidlc/improvement-queue.jsonl` et alimente
+la boucle d'amélioration du harnais (la skill `aidlc-core:improve` du dépôt d'origine). La porte
+reste fermée ; reprenez le livrable (`/aidlc-core:run plan`, qui entre alors en mode « reprise »),
+puis une nouvelle revue du reviewer ouvrira un run n° 2 (`plan-2`).
+
+### Qui peut signer ?
+
+**Uniquement un humain.** Le hook `PreToolUse` refuse les écritures d'agents dans
+`.aidlc/reviews/` : Claude ne peut ni remplir le fichier à votre place ni le modifier après
+signature. La signature se reconnaît par la présence du fichier `<stage>-<run>.json` — le
+`.template.json` seul ne vaut pas signature.
+
+### Quand la revue humaine n'est-elle plus exigée ?
+
+Après **3 runs consécutifs** au-dessus du seuil (4.0) **et approuvés** par une revue humaine,
+l'étape passe en `autonomous` : le tableau de bord affiche `AUTO = oui` et les runs suivants n'exigent
+plus votre signature à chaque passage. Le seuil et le nombre de runs sont configurables dans
+`pipeline.json` du harnais.
+
+## 6. Les commandes utiles en ligne de commande
+
+Dans une session Claude Code, le plugin expose le script dans l'environnement (`CLAUDE_PLUGIN_ROOT`
+n'existe que dans la session) :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status            # tableau de bord
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate plan         # porte : exit 0 = franchie, exit 2 = bloquée
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request plan   # prépare la revue humaine (gabarit + consignes)
+```
+
+Conventions : les sorties machine sont du **JSON sur stdout**, les messages humains sur **stderr**.
+Le code de sortie de `gate` (0/2) est exploitable par un hook `Stop` ou une CI. Les opérations
+`run` et `review` sont des skills, pas des sous-commandes : passez par `/aidlc-core:run` et
+`/aidlc-core:review`.
+
+## 7. Ce que vous devez versionner dans votre projet
+
+| Chemin (relatif au projet) | Contenu | Versionner ? |
+| --- | --- | --- |
+| `deliverables/plan/intent.md` | Le livrable de l'étape | **Oui** — c'est la matière première de l'étape Design. |
+| `.aidlc/maturity.json` | L'historique des scores (audit de maturité) | Recommandé — trace de l'évolution. |
+| `.aidlc/reviews/*.json` | Les revues humaines signées | Recommandé — trace de la décision humaine. |
+| `.aidlc/logs/` | Les journaux JSONL de sessions | Au choix — volumineux ; utiles à la boucle d'amélioration. |
+| `.aidlc/tmp/` | Fichiers de travail du reviewer | Non — à ignorer. |
+
+Suggestion de `.gitignore` pour un projet consommateur :
+
+```gitignore
+.aidlc/tmp/
+.aidlc/logs/
+```
+
+## 8. Mises à jour et désinstallation
+
+Le harnais évolue côté mainteneur (nouvelles étapes, contrats, corrections). Pour récupérer les
+changements dans votre projet :
+
+```bash
+# Recharger le catalogue du marketplace
+claude plugin marketplace update aidlc
+
+# Installer un nouveau plugin d'étape publié (ex. Design)
+claude plugin install aidlc-design@aidlc
+
+# Mettre à jour un plugin déjà installé (nouvelle version du noyau, contrats corrigés…)
+claude plugin update aidlc-core
+```
+
+Les plugins mis à jour se chargent à la prochaine session (ou après `/reload-plugins`). Côté
+mainteneur, l'ajout d'une étape et la publication des mises à jour sont décrits dans
+[docs/MAINTAINER.md](MAINTAINER.md) : retenez qu'une mise à jour n'arrive chez vous que si le
+mainteneur a **incrémenté la version** du plugin — sans bump, un push du dépôt ne change rien.
+
+Pour revenir en arrière :
+
+```bash
+claude plugin uninstall aidlc-plan
+claude plugin uninstall aidlc-core
+claude plugin marketplace remove aidlc
+```
+
+## 9. En cas de problème
+
+| Symptôme | Cause probable | Remède |
+| --- | --- | --- |
+| Les livrables n'apparaissent pas dans votre dépôt | La session Claude Code n'est pas ouverte à la racine du projet | Ouvrez Claude Code dans le répertoire du projet (`CLAUDE_PROJECT_DIR`). |
+| Les hooks ne se déclenchent pas (pas de validation à l'écriture) | Plugin `aidlc-core` absent ou désactivé dans la session | `claude plugin list` ; `/reload-plugins` ou relancez Claude Code. |
+| « Etape inconnue » ou comportement obsolète | Marketplace périmé en cache | `claude plugin marketplace update aidlc`. |
+| `CLAUDE_PLUGIN_ROOT` n'est pas défini | La commande est lancée hors session | Exécutez-la depuis le bash d'une session Claude Code ouverte dans le projet. |
+| L'étape `design` (ou suivante) est « planned » | Le plugin n'est pas encore publié par le mainteneur | Rien à faire côté projet : le mainteneur scaffolde l'étape dans le dépôt du harnais, puis vous l'installez (section 8). |

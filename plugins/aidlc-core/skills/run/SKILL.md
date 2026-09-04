@@ -8,12 +8,20 @@ argument-hint: "[stage] — id d'étape ; vide = prochaine étape à traiter"
 
 ## Conventions
 
-Toutes les commandes se lancent depuis la racine du projet (`$CLAUDE_PROJECT_DIR`, le répertoire
-qui contient `pipeline.json`). Le script unique est `plugins/aidlc-core/scripts/aidlc.py`.
-Dans la suite il est noté :
+Deux racines, à ne pas confondre :
+
+- **Le projet consommateur** (`$CLAUDE_PROJECT_DIR`) : c'est là que vivent les livrables
+  (`deliverables/`), l'état runtime (`.aidlc/`) et la connaissance du projet (`knowledge/`).
+  Les commandes se lancent depuis cette racine.
+- **Le harnais** (plugin `aidlc-core`) : le script unique et le pipeline y sont installés.
+  `${CLAUDE_PLUGIN_ROOT}` résout le dossier du plugin ; le pipeline se lit dans
+  `${CLAUDE_PLUGIN_ROOT}/pipeline.json` et les contrats déterministes dans
+  `${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`.
+
+Dans la suite, le script est noté :
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py <sous-commande>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" <sous-commande>
 ```
 
 Tu **ne rédiges jamais le livrable toi-même** : tu délègues à la skill de l'étape. Ton rôle ici est
@@ -22,18 +30,18 @@ d'enchaîner les étapes dans le bon ordre et de t'arrêter net quand une porte 
 ## 1. Déterminer l'étape à traiter
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py status --json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --json
 ```
 
 - Si l'utilisateur a fourni un argument, c'est l'id d'étape à traiter. Vérifie qu'il existe dans
-  `pipeline.json` ; sinon liste les ids valides et arrête-toi.
-- Sans argument, prends la première étape du tableau `stages` de `pipeline.json` dont la porte n'est
+  `${CLAUDE_PLUGIN_ROOT}/pipeline.json` ; sinon liste les ids valides et arrête-toi.
+- Sans argument, prends la première étape du tableau `stages` de ce fichier dont la porte n'est
   pas franchie (voir le champ correspondant dans la sortie de `status --json`).
 - Si toutes les étapes sont franchies, dis-le et arrête-toi. Ne relance rien « pour voir ».
 
 ## 2. Vérifier que l'étape est implémentée
 
-Lis l'entrée de l'étape dans `pipeline.json`.
+Lis l'entrée de l'étape dans `${CLAUDE_PLUGIN_ROOT}/pipeline.json`.
 
 - `status` vaut `"planned"` -> le plugin n'existe pas encore. **Arrête-toi** et propose à
   l'utilisateur d'utiliser la skill `aidlc-core:new-stage` pour la concevoir puis la générer.
@@ -47,7 +55,8 @@ Pour chaque chemin listé dans `inputs` :
 - Le fichier doit exister. S'il manque, l'étape amont n'est pas faite : dis quelle étape produire
   d'abord (`/aidlc-core:run <étape amont>`) et arrête-toi.
 - Le fichier doit avoir passé sa propre porte. En cas de doute :
-  `python3 plugins/aidlc-core/scripts/aidlc.py gate <étape amont>` (exit 0 = franchie, exit 2 = bloquée).
+  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <étape amont>` (exit 0 = franchie,
+  exit 2 = bloquée).
   Une porte amont fermée est bloquante : ne construis pas sur du sable.
 
 ## 4. Charger le contexte
@@ -71,7 +80,7 @@ dans `deliverables/` toi-même.
 ## 6. Valider (déterministe)
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py validate <stage> --json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" validate <stage> --json
 ```
 
 - **exit 0** : continue à l'étape 7.
@@ -95,7 +104,7 @@ Elle délègue au sous-agent `reviewer`, qui note sur les 4 axes, écrit un `rev
 ## 8. Ouvrir la porte
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py gate <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
 ```
 
 Lis la sortie JSON : `passed`, `blocking`, `next_stage`, `human_review_required`.
@@ -111,7 +120,7 @@ Lis la sortie JSON : `passed`, `blocking`, `next_stage`, `human_review_required`
 ## 9. Demander la revue humaine
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py review-request <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>
 ```
 
 Le script écrit `.aidlc/reviews/<stage>-<run>.template.json` et affiche les consignes sur stderr.
