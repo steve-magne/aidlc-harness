@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "maturity_threshold": 4.0,
+  "consecutive_runs_to_autonomy": 3,
+  "stages": [
+    {
+      "id": "plan",
+      "name": "Plan",
+      "plugin": "aidlc-plan",
+      "skill": "aidlc-plan:plan",
+      "deliverable": "deliverables/plan/intent.md",
+      "inputs": [],
+      "checks": "plugins/aidlc-plan/checks.json",
+      "human_role": "Product Owner / Business Analyst",
+      "status": "implemented"
+    },
+    {
+      "id": "design",
+      "name": "Design",
+      "plugin": "aidlc-design",
+      "skill": "aidlc-design:design",
+      "deliverable": "deliverables/design/spec.md",
+      "inputs": [
+        "deliverables/plan/intent.md"
+      ],
+      "checks": "plugins/aidlc-design/checks.json",
+      "human_role": "Architecte de solution",
+      "status": "planned"
+    },
+    {
+      "id": "build",
+      "name": "Build",
+      "plugin": "aidlc-build",
+      "skill": "aidlc-build:build",
+      "deliverable": "deliverables/build/plan.md",
+      "inputs": [
+        "deliverables/design/spec.md"
+      ],
+      "checks": "plugins/aidlc-build/checks.json",
+      "human_role": "Tech Lead",
+      "status": "planned"
+    },
+    {
+      "id": "test",
+      "name": "Test",
+      "plugin": "aidlc-test",
+      "skill": "aidlc-test:test",
+      "deliverable": "deliverables/test/test-plan.md",
+      "inputs": [
+        "deliverables/build/plan.md"
+      ],
+      "checks": "plugins/aidlc-test/checks.json",
+      "human_role": "QA Lead",
+      "status": "planned"
+    },
+    {
+      "id": "deploy",
+      "name": "Deploy",
+      "plugin": "aidlc-deploy",
+      "skill": "aidlc-deploy:deploy",
+      "deliverable": "deliverables/deploy/release-notes.md",
+      "inputs": [
+        "deliverables/test/test-plan.md"
+      ],
+      "checks": "plugins/aidlc-deploy/checks.json",
+      "human_role": "SRE / Release Manager",
+      "status": "planned"
+    },
+    {
+      "id": "maintain",
+      "name": "Maintain",
+      "plugin": "aidlc-maintain",
+      "skill": "aidlc-maintain:maintain",
+      "deliverable": "deliverables/maintain/ops-report.md",
+      "inputs": [
+        "deliverables/deploy/release-notes.md"
+      ],
+      "checks": "plugins/aidlc-maintain/checks.json",
+      "human_role": "Ops / Support",
+      "status": "planned"
+    }
+  ]
+}

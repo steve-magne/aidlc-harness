@@ -1,0 +1,29 @@
+{
+  "required_frontmatter": ["stage", "version", "status", "author", "date"],
+  "required_sections": [
+    "## Contexte",
+    "## Problème",
+    "## Utilisateurs impactés",
+    "## Solution proposée",
+    "## Contraintes",
+    "## Critères d'acceptation",
+    "## Hors périmètre",
+    "## Sources et références"
+  ],
+  "min_words": 250,
+  "max_words": 2000,
+  "forbidden_patterns": [
+    "(?i)\\bTODO\\b",
+    "(?i)\\bTBD\\b",
+    "\\bXXX\\b",
+    "(?i)\\blorem\\b",
+    "(?i)\\b[àa]\\s+compl[ée]ter\\b",
+    "(?i)<[^>\\n]{0,80}\\b[àa]\\s+remplir[^>\\n]{0,80}>"
+  ],
+  "required_patterns": ["stage:\\s*plan"],
+  "must_reference_inputs": false,
+  "min_items_per_section": {
+    "## Critères d'acceptation": 3,
+    "## Contraintes": 2
+  }
+}
