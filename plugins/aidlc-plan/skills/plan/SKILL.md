@@ -29,8 +29,9 @@ Rassemble le contexte, dans cet ordre :
 
 1. `${CLAUDE_PLUGIN_ROOT}/templates/intent.md` — le squelette à recopier.
 2. `${CLAUDE_PLUGIN_ROOT}/checks.json` — les règles automatiques appliquées au rendu.
-3. `$CLAUDE_PROJECT_DIR/knowledge/index.json` et `$CLAUDE_PROJECT_DIR/knowledge/glossary.md` —
-   le vocabulaire et les sources du projet qui font autorité. Pour une question de contexte
+3. `$CLAUDE_PROJECT_DIR/knowledge/index.md`, `$CLAUDE_PROJECT_DIR/knowledge/glossary.md` et
+   `$CLAUDE_PROJECT_DIR/knowledge/conventions.md` — le bundle OKF du projet : sommaire,
+   vocabulaire et conventions de la base qui font autorité. Pour une question de contexte
    large, délègue à l'agent `librarian`.
 
 Si un livrable `deliverables/plan/intent.md` existe déjà, lis-le : tu es en **reprise**. Repars

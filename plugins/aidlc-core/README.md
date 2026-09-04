@@ -63,7 +63,8 @@ plugins/aidlc-core/
     new-stage/SKILL.md            concevoir une nouvelle étape avec le métier puis la générer
     improve/SKILL.md              diagnostiquer une étape faible et proposer un correctif
   scripts/
-    aidlc.py                      TOUTE la logique déterministe du harness (Python stdlib)
+    aidlc.py                      point d'entrée — chemin stable des hooks et skills
+    _aidlc/                       le paquet du moteur (stdlib, un module par concern)
   hooks/
     hooks.json                    branche le script sur le cycle de vie des sessions
 ```
@@ -77,7 +78,7 @@ primitive `Task` :
 | --- | --- | --- |
 | `orchestrator` | décide quelle étape tourne, délègue la rédaction, déclenche le reviewer, applique la porte | **aucun `Write`/`Edit`** : il pilote, il ne rédige pas |
 | `reviewer` | note le livrable (0–5 par axe), justifie chaque note par une citation, écrit `review.json` | écrit seulement dans `.aidlc/tmp/` |
-| `librarian` | lit `knowledge/index.json` et les livrables amont, répond à « quel contexte pour l'étape X » | **lecture seule hors de `knowledge/`** |
+| `librarian` | lit le bundle OKF `knowledge/` (concepts filtrés par `stages`) et les livrables amont, répond à « quel contexte pour l'étape X » | **lecture seule hors de `knowledge/`** |
 
 La séparation des droits est le cœur de la conception : l'orchestrateur ne peut pas écrire un
 livrable, le reviewer ne peut pas éditer sa propre note. Un hook `PreToolUse` (`guard`) refuse
@@ -98,13 +99,16 @@ Chaque skill est un scénario d'agent complet (frontmatter + instructions) :
   déterministes, rôle humain) puis appelle `aidlc.py scaffold`. C'est la pièce maîtresse :
   c'est là qu'un savoir-faire humain devient une étape automatisable.
 - **`improve <stage>`** — lit le diagnostic `aidlc.py improve`, corrèle faiblesse et cause racine,
-  puis **propose** un diff sur un `SKILL.md`, un template ou un `checks.json` — appliqué seulement
-  après accord explicite de l'humain.
+  puis **propose** un diff sur un `SKILL.md`, un template ou un `checks.json` — et, quand c'est le
+  gate OKF qui a bloqué, sur le frontmatter d'un concept `knowledge/` (correctif déjà structuré
+  par le script) — appliqué seulement après accord explicite de l'humain.
 
-## `aidlc.py` — le moteur déterministe
+## Le moteur déterministe — `scripts/`
 
-Le script `scripts/aidlc.py` concentre **toute** la logique non-agentique du harness. Un seul
-fichier, bibliothèque standard Python uniquement. Sorties machine : JSON sur **stdout** ;
+Le point d'entrée `scripts/aidlc.py` (chemin stable des hooks et des skills) délègue au paquet
+`_aidlc/` : **toute** la logique non-agentique du harness y vit, bibliothèque standard Python
+uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `improve`,
+`hookslog`, `okf`, `commands`, `cli`, plus `selftest`). Sorties machine : JSON sur **stdout** ;
 messages humains sur **stderr**.
 
 | Sous-commande | Rôle |
@@ -118,25 +122,40 @@ messages humains sur **stderr**.
 | `review-request <stage>` | génère le formulaire de revue humaine `.aidlc/reviews/<stage>-<run>.template.json` |
 | `status [--json]` | tableau de bord de l'avancement du pipeline |
 | `scaffold <stage>` | génère le plugin complet d'une étape déclarée mais non implémentée |
-| `improve [--stage X]` | agrège logs, scores et refus en un diagnostic JSON |
+| `improve [--stage X]` | agrège logs, scores et refus (humains + gate OKF) en un diagnostic JSON ; propose des correctifs de frontmatter et les concepts orphelins du sommaire `index.md` |
+| `check-okf <dir>` | conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
+| `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet touchés par l'écriture, non bloquant |
+| `check-okf --stop` | mode hook `Stop` : refuse la fermeture de session (deny) si un bundle du projet est non conforme ; enregistre le refus dans la file d'amélioration |
 | `--selftest` | auto-test du projet (le seul test, il doit passer) |
 
 ## Les hooks — branchement sur le cycle de vie des sessions
 
 `hooks/hooks.json` connecte le moteur aux événements de la session :
 
-- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop` → `aidlc.py log` :
-  la session est tracée (tours, outils, relances) sans jamais l'interrompre.
+- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop` → `aidlc.py log` : la
+  session est tracée (tours, outils, relances) sans jamais l'interrompre.
+- `Stop` → `aidlc.py log` puis `aidlc.py check-okf --stop` : la fermeture de session est la
+  **condition de sortie** du bundle de connaissance — `knowledge/` non conforme ⇒ refus d'arrêt
+  (`deny`) avec la liste des problèmes à corriger. Portée du contrat : interactive, l'arrêt
+  refusé ramène le contrôle en session ; headless `-p`, le refus est émis et enregistré dans la
+  file d'amélioration mais le processus sort en 0 (la porte dure y est la CI `check-okf`). Bundle
+  conforme ou absent, elle se ferme normalement. Chaque refus alimente la file d'amélioration
+  (diagnostic `improve`).
 - `PreToolUse` (matcher `Write|Edit`) → `aidlc.py guard` : refuse qu'un agent écrive dans
   `.aidlc/maturity.json` ou `.aidlc/reviews/*.json`.
 - `PostToolUse` (matcher `Write|Edit`) → `aidlc.py validate --touched` : l'agent reçoit
   immédiatement, en contexte additionnel, la liste de ce qui manque à son livrable — il corrige au
   fil de l'eau au lieu d'être sanctionné à la fin.
+- `PostToolUse` (matcher `Write|Edit`) → `aidlc.py check-okf --touched` : toute écriture dans un
+  bundle OKF du projet (`knowledge/`, et `docs/` s'il existe) est contrôlée — un concept sans
+  frontmatter, un `index.md` incohérent ou un `log.md` non daté remontent immédiatement en
+  contexte. La condition de sortie en session interactive est le hook `Stop`
+  (`check-okf --stop`) ; en CI, `check-okf` (exit 1) est la porte dure.
 
 ## Le cycle de vie d'une étape
 
 ```
-                      pipeline.json                    knowledge/index.json
+                      pipeline.json                    knowledge/ (OKF)
                             |                                  |
                             v                                  v
                       orchestrator <----------------------> librarian
@@ -169,7 +188,8 @@ par un humain).
 - `.aidlc/maturity.json` et `.aidlc/reviews/*.json` ne sont **jamais** édités par un agent ;
   seuls `aidlc.py score` (scores) et l'humain (revues signées) y écrivent.
 - Aucun agent ne note son propre livrable ; le reviewer est sévère et doit citer le texte.
-- Aucune logique déterministe hors de `aidlc.py` : on n'ajoute pas de second script.
+- Aucune logique déterministe hors de `scripts/` (`aidlc.py` + paquet `_aidlc/`) : pas de second
+  point d'entrée.
 
 ## Relations avec les plugins d'étape
 

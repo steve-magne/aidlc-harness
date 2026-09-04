@@ -19,7 +19,8 @@ Le harnais distingue **le harnais** (les plugins, leur pipeline et leurs contrat
 consommateur** (le projet qui installe les plugins et dans lequel sont produits les livrables) :
 
 - **Harnais** — `plugins/aidlc-core/` contient `pipeline.json` (source de vérité des étapes), le
-  miroir `checks/<stage>.json` des contrats, le script `aidlc.py` et les hooks. Une fois les plugins
+  miroir `checks/<stage>.json` des contrats, le moteur `scripts/` (point d'entrée `aidlc.py`,
+  paquet stdlib `_aidlc/`) et les hooks. Une fois les plugins
   installés par Claude Code, cette racine est la copie en cache désignée par `CLAUDE_PLUGIN_ROOT`.
 - **Projet consommateur** — `CLAUDE_PROJECT_DIR` : `deliverables/`, `.aidlc/` et `knowledge/` y
   vivent. Quand ce dépôt est utilisé comme projet d'essai (session Claude Code ouverte ici), les
@@ -40,10 +41,12 @@ consommateur** (le projet qui installe les plugins et dans lequel sont produits 
 README.md                     présentation et quickstart (consommation + développement)
 CLAUDE.md                     ce fichier
 .claude-plugin/               marketplace local (marketplace.json)
-docs/ARCHITECTURE.md          architecture, grille de maturité, cycle de vie
-docs/CONSUMER.md              guide consommateur prêt à publier (installation, premier run, revue humaine)
-docs/MAINTAINER.md            guide auteur prêt à publier (nouvelle étape, release, mises à jour)
-knowledge/                    base de connaissance du dépôt (projet d'essai)
+docs/                         documentation publiée — bundle OKF v0.2 (index.md, log.md)
+  ARCHITECTURE.md              architecture, grille de maturité, cycle de vie
+  CONSUMER.md                  guide consommateur prêt à publier (installation, premier run, revue humaine)
+  MAINTAINER.md                guide auteur prêt à publier (nouvelle étape, release, mises à jour)
+knowledge/                    base de connaissance du dépôt (projet d'essai) — bundle OKF v0.2
+                              (index.md, log.md, glossary.md, conventions.md, sources/)
 
 plugins/aidlc-core/           noyau : orchestrator, reviewer, librarian, aidlc.py, hooks, skills
   pipeline.json                 source de vérité des étapes du SDLC (installé avec le plugin)
@@ -56,8 +59,8 @@ deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_
 
 ## Lancer les commandes
 
-Toute la logique déterministe passe par un seul script. Depuis la racine du dépôt (mode auteur,
-le script s'auto-localise) :
+Toute la logique déterministe passe par le point d'entrée `aidlc.py`, qui délègue au paquet
+stdlib `_aidlc/`. Depuis la racine du dépôt (mode auteur, le moteur s'auto-localise) :
 
 ```bash
 S=plugins/aidlc-core/scripts/aidlc.py
@@ -69,6 +72,7 @@ python3 $S gate plan                    # décide si l'étape est franchie (exit
 python3 $S review-request plan          # prépare le formulaire de revue humaine
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
 python3 $S scaffold design              # génère le plugin d'une nouvelle étape
+python3 $S check-okf knowledge          # conformité OKF v0.2 du bundle knowledge/ (exit 1 = non conforme)
 python3 $S --selftest                   # auto-test : le seul test du projet, il doit passer
 ```
 
@@ -84,10 +88,12 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    déclaré par `pipeline.json` (lui-même dans le plugin `aidlc-core`). Pas de livrable ailleurs, pas
    de livrable éclaté en plusieurs fichiers. Les livrables ne sont jamais écrits dans ce dépôt quand
    le harnais est consommé ailleurs.
-2. **Toute logique déterministe va dans `plugins/aidlc-core/scripts/aidlc.py`.** Jamais dans un
-   nouveau script, jamais dans un `Makefile`, jamais dans un shell inline dans un hook. Si une
-   nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans le
-   `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.
+2. **Toute logique déterministe vit sous `plugins/aidlc-core/scripts/`** : le point d'entrée
+   `aidlc.py` délègue au paquet stdlib `_aidlc/`, un module par concern (`util`, `checks`,
+   `maturity`, `scaffold`, `improve`, `hookslog`, `okf`, `selftest`, `commands`, `cli`). Jamais de
+   second point d'entrée, jamais de logique dans un `Makefile` ni en shell inline dans un hook. Si
+   une nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans
+   le `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.
 3. **Aucune dépendance externe.** Bibliothèque standard Python uniquement (`json`, `os`, `sys`, `re`,
    `pathlib`, `argparse`, `datetime`, `uuid`, `subprocess`, `statistics`). Pas de `pip install`, pas
    de YAML, pas de framework de test.

@@ -31,11 +31,11 @@ remplis, et le reviewer sanctionne l'imprécision.
 ## Méthode
 
 1. **Contexte existant.** L'orchestrateur t'a transmis l'étape, son livrable et la synthèse du
-   `librarian`. Lis `$CLAUDE_PROJECT_DIR/knowledge/index.json` et
-   `$CLAUDE_PROJECT_DIR/knowledge/glossary.md` (le pipeline, lui, est porté par le plugin
-   `aidlc-core`). Pour toute question de contexte (« qu'existe-t-il déjà sur ce domaine ? »,
-   « quel vocabulaire métier est déjà fixé ? »), délègue à l'agent `librarian` plutôt que de
-   parcourir le projet à l'aveugle.
+   `librarian`. Lis `$CLAUDE_PROJECT_DIR/knowledge/index.md`,
+   `$CLAUDE_PROJECT_DIR/knowledge/glossary.md` et `$CLAUDE_PROJECT_DIR/knowledge/conventions.md`
+   (le pipeline, lui, est porté par le plugin `aidlc-core`). Pour toute question de contexte
+   (« qu'existe-t-il déjà sur ce domaine ? », « quel vocabulaire métier est déjà fixé ? »),
+   délègue à l'agent `librarian` plutôt que de parcourir le projet à l'aveugle.
 2. **Lecture du squelette.** Lis `${CLAUDE_PLUGIN_ROOT}/templates/intent.md` et
    `${CLAUDE_PLUGIN_ROOT}/checks.json` (les fichiers de ce plugin). Ces deux fichiers, et non ta
    mémoire, définissent la structure attendue et les règles automatiques.

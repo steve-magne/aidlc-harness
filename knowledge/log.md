@@ -1,0 +1,8 @@
+# Journal de la base de connaissance
+
+## 2026-09-04
+* **Corrélation étayée** : le hook `PostToolUse` `check-okf --touched` journalise désormais chaque écriture dans un bundle non conforme (session, fichier, horodatage, dans `.aidlc/logs/`) ; le diagnostic `improve` relie le refus d'arrêt à la session **auteure** réelle même quand l'arrêt refusé est celui d'une autre session. `conventions.md` documente la journalisation.
+* **Porte de sortie** : le hook `Stop` du plugin `aidlc-core` (`check-okf --stop`) refuse l'arrêt d'une session interactive tant qu'un bundle OKF du projet est non conforme — refus (`deny`) avec la liste des problèmes à corriger ; en headless (`claude -p`), le refus est émis et enregistré dans la file d'amélioration sans bloquer la fin du processus — la porte dure y est la CI (`check-okf`, exit 1). La procédure de versement dans `conventions.md` le mentionne.
+* **Garde-fou** : le hook `PostToolUse` du plugin `aidlc-core` (`check-okf --touched`) contrôle désormais chaque écriture dans les bundles OKF du projet (`knowledge/`, `docs/` s'il existe) ; la porte dure en CI reste `aidlc.py check-okf <dossier>` (exit 1). Mise à jour de la procédure de versement dans `conventions.md`.
+* **Migration** : passage du bundle au format Open Knowledge Format v0.2. Chaque concept porte un frontmatter OKF (`type`, `title`, `description`, `tags`, `generated`, extension `stages`) ; l'index machine `index.json` est retiré et remplacé par le sommaire `index.md` ; le manuel `README.md` devient le concept `conventions.md` ; ce journal `log.md` est créé. Le bundle `docs/` suit la même migration.
+* **Création** : concept `conventions.md` (organisation du bundle, lecture par le librarian, procédure de versement et de remplacement).

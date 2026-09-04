@@ -1,3 +1,11 @@
+---
+type: Playbook
+title: Maintenir et publier le harnais AI-DLC (guide auteur)
+description: Guide auteur prêt à publier — concevoir une nouvelle étape, remplir les squelettes générés, vérifier avant release et publier dans le marketplace.
+tags: [maintainer, guide, harness]
+generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+---
+
 # Maintenir et publier le harnais AI-DLC (guide auteur)
 
 Ce guide s'adresse à l'**équipe qui maintient le harnais** : celle qui conçoit de nouvelles étapes,
@@ -123,18 +131,25 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
    d'étape n'appelle pas `aidlc.py` lui-même).
 4. **`agents/<stage>-analyst.md`** — le profil de l'interlocuteur (ne devine pas, interroge le
    `librarian`, refuse la solution technique si le rôle l'exige).
-5. **`knowledge/index.json`** — versez les sources de vérité citées pendant l'entretien
-   (normes, ADR, référentiels) pour que l'axe `traceability` ait de quoi s'appuyer.
+5. **`knowledge/` (bundle OKF)** — versez les sources de vérité citées pendant l'entretien
+   (normes, ADR, référentiels) comme concepts du bundle : frontmatter `type` et `stages`,
+   mise à jour du sommaire `knowledge/index.md` et du journal `knowledge/log.md`. C'est ce qui
+   donne à l'axe `traceability` de quoi s'appuyer.
 
 ### 2.5 Vérifier avant de publier
 
 ```bash
-# 1. Tous les JSON parsent (pipeline, marketplaces, manifests, checks, knowledge), le Python compile
-python3 -c "import json,glob;[json.load(open(p)) for p in glob.glob('plugins/**/*.json',recursive=True)+glob.glob('.claude-plugin/*.json')+glob.glob('knowledge/*.json')]" && echo "JSON OK"
+# 1. Tous les JSON parsent (pipeline, marketplaces, manifests, checks), le Python compile
+python3 -c "import json,glob;[json.load(open(p)) for p in glob.glob('plugins/**/*.json',recursive=True)+glob.glob('.claude-plugin/*.json')]" && echo "JSON OK"
 python3 -m py_compile plugins/aidlc-core/scripts/aidlc.py && echo "py OK"
 
-# 2. L'auto-test du harnais passe (le seul test du projet)
+# 2. L'auto-test du harnais passe — le seul test du projet ; il vérifie aussi la conformité
+#    OKF v0.2 des bundles docs/ et knowledge/ (frontmatter, fichiers réservés, dates du journal)
 python3 plugins/aidlc-core/scripts/aidlc.py --selftest
+
+# 2bis. Conformance OKF des bundles de connaissance (exit 1 si non conforme)
+python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
+python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
 
 # 3. Le plugin de l'étape est valide pour Claude Code
 claude plugin validate plugins/aidlc-core
@@ -182,7 +197,8 @@ vous incrémentez `aidlc-core` (0.1.0 → 0.2.0) et le nouveau plugin naît en 0
    marketplace, donc ils fonctionnent que le consommateur ait ajouté le dépôt par chemin local ou
    par git.
 4. La documentation suit : ce guide et `docs/CONSUMER.md` pour les changements de procédure,
-   `knowledge/index.json` pour les nouvelles sources de vérité.
+   `knowledge/` pour les nouvelles sources de vérité (concepts OKF, sommaire `index.md`,
+   journal `log.md`).
 5. Aucun artefact d'essai ne traîne (`deliverables/<stage>/`, `.aidlc/tmp/`).
 
 Puis **committez et poussez** sur la branche que les consommateurs ont enregistrée. C'est tout :
@@ -202,7 +218,7 @@ claude plugin update aidlc-core               # une étape existante = mettre à
 # puis, dans la session : /reload-plugins (les hooks reprennent la nouvelle copie du plugin)
 ```
 
-Deux conséquences à assumer quand vous annoncez une release :
+Trois conséquences à assumer quand vous annoncez une release :
 
 - **Une nouvelle étape exige une action du consommateur** (installer le plugin, pas seulement
   mettre à jour le catalogue). Dès qu'il met à jour `aidlc-core`, son pipeline affiche l'étape
@@ -212,6 +228,15 @@ Deux conséquences à assumer quand vous annoncez une release :
   actifs peut rouvrir leur porte au prochain run (la validation rejoue les nouvelles règles sur le
   livrable existant). Annoncez ce type de changement ; l'historique de maturité
   (`.aidlc/maturity.json` des consommateurs) n'est jamais recalculé.
+- **Une évolution des hooks voyage dans `aidlc-core`** et s'active chez le consommateur au
+  prochain reload de plugin — sans action de sa part. Exemples : le hook `PostToolUse`
+  `check-okf --touched` (chaque écriture dans `knowledge/`) et le hook `Stop` `check-okf --stop`
+  (la fermeture de session est refusée tant que le bundle est non conforme — portée
+  interactive : l'arrêt refusé ramène le contrôle en session ; en headless `-p`, le refus est
+  enregistré sans bloquer, la porte dure y est la CI. Prévenez les consommateurs que cette
+  condition de sortie peut les retenir en session interactive le temps de corriger). Si
+  la nouvelle version du noyau contrôle un dossier que le consommateur ne possède pas (pas de
+  `knowledge/`), les hooks restent muets : le dispositif est sans effet de bord.
 
 ## 4. Faire évoluer une étape existante
 
@@ -237,6 +262,7 @@ Depuis la racine du dépôt :
 
 ```bash
 python3 plugins/aidlc-core/scripts/aidlc.py status                 # tableau de bord
+python3 plugins/aidlc-core/scripts/aidlc.py check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage>       # génère le plugin d'une étape planned
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage> --force   # écrase et régénère
 python3 plugins/aidlc-core/scripts/aidlc.py --selftest             # auto-test (doit passer avant chaque release)
@@ -245,6 +271,7 @@ claude plugin validate plugins/aidlc-<stage>
 ```
 
 Règles non négociables rappelées par [CLAUDE.md](../CLAUDE.md) : un livrable = un fichier de
-`deliverables/` chez le consommateur ; toute logique déterministe vit dans `aidlc.py` (jamais de
-second script, jamais de logique dans un hook) ; une nouvelle vérification s'exprime d'abord dans
+`deliverables/` chez le consommateur ; toute logique déterministe vit sous
+`plugins/aidlc-core/scripts/` (`aidlc.py` + paquet `_aidlc/`, jamais de second point d'entrée,
+jamais de logique dans un hook) ; une nouvelle vérification s'exprime d'abord dans
 un `checks.json` ; aucune dépendance externe ; aucun placeholder non résolu hors des `templates/`.

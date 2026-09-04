@@ -1,3 +1,11 @@
+---
+type: Playbook
+title: Consommer le harnais AI-DLC dans votre projet
+description: Guide consommateur prêt à publier — installation du marketplace et des plugins, premier run de l'étape Plan, revue humaine, versionnage et mises à jour.
+tags: [consumer, guide, harness]
+generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+---
+
 # Consommer le harnais AI-DLC dans votre projet
 
 Ce guide s'adresse à une **équipe de projet** qui veut produire ses livrables de cadrage avec le
@@ -227,8 +235,37 @@ Le code de sortie de `gate` (0/2) est exploitable par un hook `Stop` ou une CI. 
 
 ## 7. Ce que vous devez versionner dans votre projet
 
+Votre projet peut se doter d'une **base de connaissance** `knowledge/` au format OKF v0.2 :
+normes internes, ADR, retours d'expérience — chaque fichier Markdown non réservé est un concept
+à frontmatter `type`, `index.md` en sommaire, `log.md` en journal (procédure complète dans le
+concept `conventions.md` du dépôt du harnais). Ce bundle est **soumis à un contrôle automatique**
+à chaque modification :
+
+- **Dans les sessions Claude Code** — un hook `PostToolUse` du plugin `aidlc-core` appelle
+  `aidlc.py check-okf --touched` après chaque écriture dans `knowledge/` (et `docs/` s'il
+existe). Toute non-conformité — frontmatter manquant ou mal formé, sommaire incohérent, journal
+  non daté — remonte immédiatement en contexte additionnel, exactement comme la validation des
+  livrables : l'agent ou l'humain corrige au fil de l'eau. À la fermeture de la session, un hook
+  `Stop` (`aidlc.py check-okf --stop`) en fait la **condition de sortie** : si le bundle est
+  encore non conforme, l'arrêt est refusé (`deny`) et la liste des problèmes s'affiche —
+  corrigez (souvent un frontmatter à ajouter ou à fermer), puis redemandez l'arrêt. Précision du
+  contrat : le refus vaut en session **interactive** (le contrôle revient à la session) ; en
+  session **headless** (`claude -p`), le hook émet et enregistre le refus dans la file
+  d'amélioration sans bloquer la fin du processus — la porte dure y est l'étape CI
+  `check-okf` (exit 1) du bloc ci-dessous.
+- **En CI** — la même vérification en porte dure (exit 1 = build rouge) sur le bundle du
+  projet :
+
+  ```bash
+  # Dans le bash d'une session Claude Code :
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" check-okf knowledge
+  # En CI (hors session), un checkout du dépôt du harnais fait foi :
+  python3 <chemin-du-harnais>/plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
+  ```
+
 | Chemin (relatif au projet) | Contenu | Versionner ? |
 | --- | --- | --- |
+| `knowledge/` | La base de connaissance du projet (bundle OKF : concepts, `index.md`, `log.md`) | **Oui** — normes et ADR versionnés comme le code. |
 | `deliverables/plan/intent.md` | Le livrable de l'étape | **Oui** — c'est la matière première de l'étape Design. |
 | `.aidlc/maturity.json` | L'historique des scores (audit de maturité) | Recommandé — trace de l'évolution. |
 | `.aidlc/reviews/*.json` | Les revues humaines signées | Recommandé — trace de la décision humaine. |

@@ -1,9 +1,14 @@
 ---
+type: Architecture Decision
+title: ADR-0001 — Socle déterministe du harness agentique
+description: Choix d'un socle vérifiable et déclaratif pour le harness — un seul script déterministe, validation déclarative, score non éditable par un agent.
+tags: [architecture, decisions]
 id: adr-0001
-title: Socle déterministe du harness agentique
-status: accepted
 date: 2026-09-04
 deciders: Steve Magne
+decision_status: accepted
+generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+stages: [design, build]
 ---
 
 # ADR-0001 — Socle déterministe du harness agentique

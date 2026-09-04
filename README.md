@@ -10,7 +10,8 @@ Seule l'étape `plan` est implémentée. Les cinq autres se génèrent avec `aid
 piloté par la skill `/aidlc-core:new-stage` — une opération d'auteur, menée dans ce dépôt.
 
 Contraintes structurantes : Python de la bibliothèque standard uniquement, **aucune dépendance
-externe**, **un seul script** pour toute la logique déterministe, validation **déclarative** via des
+externe**, **tout le déterminisme sous `plugins/aidlc-core/scripts/`** (point d'entrée `aidlc.py` +
+paquet stdlib `_aidlc/`), validation **déclarative** via des
 `checks.json`.
 
 ## Deux racines, à ne pas confondre
@@ -34,8 +35,8 @@ le sont dans le projet qui a installé les plugins.
 ```
 .claude-plugin/marketplace.json      marketplace local (installation des plugins)
 CLAUDE.md                            conventions lues par tout agent du dépôt
-docs/ARCHITECTURE.md                 architecture, grille de maturité, cycle de vie
-knowledge/                           base de connaissance du dépôt (projet d'essai)
+docs/                               documentation publiée — bundle OKF v0.2 (index.md, log.md, ARCHITECTURE, CONSUMER, MAINTAINER)
+knowledge/                          base de connaissance du dépôt (projet d'essai) — bundle OKF v0.2 (index.md, log.md, concepts)
 
 plugins/aidlc-core/                  le noyau — un plugin
   pipeline.json                        source de vérité : étapes, livrables, checks, statuts
@@ -44,8 +45,8 @@ plugins/aidlc-core/                  le noyau — un plugin
   agents/reviewer.md                   note le livrable sur 4 axes, émet un verdict
   agents/librarian.md                  indexe et sert knowledge/ (lecture seule)
   skills/{run,status,review,new-stage,improve}/SKILL.md
-  scripts/aidlc.py                     TOUTE la logique déterministe
-  hooks/hooks.json                     journalisation, validation à l'écriture, garde-fous
+  scripts/                             le moteur : aidlc.py (point d'entrée) + paquet _aidlc/
+  hooks/hooks.json                     journalisation, validation à l'écriture, gate OKF (écriture + sortie de session), garde-fous
 
 plugins/aidlc-plan/                  l'étape Plan (tranche verticale de référence) — un plugin
   agents/plan-analyst.md               dialogue avec le Product Owner
@@ -123,7 +124,11 @@ claude --plugin-dir plugins/aidlc-core --plugin-dir plugins/aidlc-plan
    nombre de mots, puces minimales par section, citation obligatoire des livrables amont. Les
    règles sont déclarées dans le `checks.json` de l'étape — pas dans du code. La skill de l'étape
    corrige jusqu'à ce que le hook ne signale plus rien ; l'orchestrateur rejoue la validation avant
-   la revue.
+   la revue. Le même hook contrôle la base de connaissance : une écriture dans `knowledge/`
+   déclenche `aidlc.py check-okf --touched` et toute non-conformité OKF remonte immédiatement ; en
+   CI, la porte dure est `aidlc.py check-okf knowledge` (exit 1). En session interactive, le hook
+   `Stop` (`check-okf --stop`) refuse l'arrêt tant que le bundle n'est pas conforme ; en headless
+   (`claude -p`), il émet et enregistre le refus sans bloquer la fin du processus.
 
 3. **Review.** L'agent *reviewer* note le livrable de 0 à 5 sur quatre axes — `completeness`,
    `precision`, `traceability`, `autonomy` — justifie chaque note par une citation, rend un verdict
@@ -140,10 +145,14 @@ claude --plugin-dir plugins/aidlc-core --plugin-dir plugins/aidlc-plan
    exigée à chaque passage.
 
 6. **Auto-amélioration.** Un refus humain copie sa justification dans
-   `.aidlc/improvement-queue.jsonl`. `aidlc.py improve` agrège les logs de sessions, l'historique de
-   maturité et cette file, et produit un diagnostic JSON. La skill `/aidlc-core:improve` lit ce
-   diagnostic et **propose** un diff sur le `SKILL.md`, le template ou le `checks.json` de l'étape
-   faible. Elle ne l'applique jamais sans accord explicite, et elle corrige la **source** du harnais,
+   `.aidlc/improvement-queue.jsonl`, et un refus du gate OKF de sortie (bundle non conforme, hook
+   `Stop`) y dépose ses erreurs et la session concernée. `aidlc.py improve` agrège les logs de
+   sessions, l'historique de maturité et cette file, et produit un diagnostic JSON — pour les
+   refus du gate, il corrèle la session fautive et propose un correctif vérifié en mémoire —
+   frontmatter d'un concept, ou entrées manquantes du sommaire `index.md` (concepts orphelins).
+   La skill `/aidlc-core:improve` lit ce diagnostic et **propose** un diff sur le
+   `SKILL.md`, le template, le `checks.json` de l'étape faible, ou le concept `knowledge/` fautif.
+   Elle ne l'applique jamais sans accord explicite, et elle corrige la **source** du harnais,
    jamais la copie installée.
 
 ### Grille de maturité
@@ -218,8 +227,8 @@ Pour revenir en arrière : `claude plugin uninstall aidlc-plan` puis
 Les règles que suit tout agent travaillant ici sont dans [CLAUDE.md](CLAUDE.md). Les trois qui
 surprennent le plus :
 
-- toute la logique déterministe vit dans `plugins/aidlc-core/scripts/aidlc.py` — on n'ajoute pas de
-  second script ;
+- toute la logique déterministe vit sous `plugins/aidlc-core/scripts/` — point d'entrée
+  `aidlc.py`, logique dans le paquet stdlib `_aidlc/` ; pas de second point d'entrée ;
 - une nouvelle vérification s'écrit d'abord dans un `checks.json`, pas en Python ;
 - `.aidlc/maturity.json` et `.aidlc/reviews/*.json` ne sont jamais édités par un agent ; le hook
   `PreToolUse` refuse l'écriture.

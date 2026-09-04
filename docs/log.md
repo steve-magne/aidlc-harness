@@ -1,0 +1,8 @@
+# Journal de la documentation du harnais
+
+## 2026-09-04
+* **Diagnostic élargi** : `aidlc.py improve` isole les refus du gate OKF de sortie (`kind: okf_stop`), les corrèle aux sessions fautives (journaux) et propose un correctif vérifié en mémoire — frontmatter d'un concept fautif, ou entrées manquantes du sommaire `index.md` (concepts orphelins, titre et description repris du concept) ; ARCHITECTURE (§7), la skill improve et les READMEs décrivent le dispositif.
+* **Corrélation étayée** : le hook `PostToolUse` `check-okf --touched` journalise chaque écriture dans un bundle non conforme (session, fichier, horodatage) — le diagnostic `improve` relie ainsi un refus d'arrêt à la session qui a réellement écrit le fichier fautif ; ARCHITECTURE (§7) et la skill improve décrivent le mécanisme.
+* **Porte de sortie** : documentation du hook `Stop` `check-okf --stop` — refus d'arrêt d'une session interactive dont un bundle OKF est non conforme (liste des problèmes) ; en headless (`claude -p`) le refus est émis et enregistré dans la file d'amélioration sans bloquer, la porte dure y étant la CI (`check-okf`, exit 1) ; ARCHITECTURE (§3.3, §3.4), le guide consommateur (§7) et le README du noyau décrivent la condition de sortie.
+* **Garde-fou** : documentation du hook `PostToolUse` `check-okf --touched` — toute écriture dans un bundle OKF du projet (dont `docs/`) est contrôlée au fil de l'eau ; ARCHITECTURE (§3.3, §3.4), le guide consommateur (§7) et le README du noyau décrivent le dispositif et sa porte dure en CI.
+* **Migration** : passage du bundle au format Open Knowledge Format v0.2 — frontmatter OKF sur chaque guide (`type`, `title`, `description`, `tags`, `generated`), sommaire `index.md` et journal `log.md` créés. Contenu rédactionnel inchangé.
