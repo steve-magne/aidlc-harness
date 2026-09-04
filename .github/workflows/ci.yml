@@ -10,7 +10,7 @@ jobs:
     name: Gates du harnais
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Portes canoniques du dépôt, dans l'ordre : hygiène du code via le moteur
       # (check-python, check-json — CLAUDE.md, règle 6 : tout Python compile, tout JSON
