@@ -13,12 +13,20 @@ humains — puis propose une correction sur les fichiers du plugin, jamais sur l
 Règle absolue : **tu ne modifies rien sans accord explicite de l'utilisateur.** Cette skill produit
 un diagnostic et une proposition de diff. L'application est un acte séparé, demandé à l'humain.
 
+## Conventions
+
+Le script unique vit dans le plugin `aidlc-core` (`${CLAUDE_PLUGIN_ROOT}`) ; les journaux, scores
+et refus qu'il agrège sont dans le projet consommateur (`$CLAUDE_PROJECT_DIR/.aidlc/`).
+
+Corriger le harness, c'est corriger **sa source** (les plugins du dépôt auteur), jamais la copie
+installée par Claude Code : une modification du cache serait écrasée à la prochaine mise à jour.
+Si tu tournes depuis une copie installée (le plugin n'est pas dans un dépôt versionné), propose le
+diff à l'humain pour application dans le dépôt d'origine, sans éditer le cache.
+
 ## 1. Collecter le diagnostic
 
-Depuis la racine du projet :
-
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py improve --stage <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" improve --stage <stage>
 ```
 
 Sans argument d'étape, lance-la sans `--stage` pour couvrir tout le pipeline.
@@ -99,11 +107,11 @@ juste le changement ». Attendre est le comportement correct.
 2. Vérifie la forme :
    ```bash
    python3 -c "import json;json.load(open('plugins/aidlc-<stage>/checks.json'))" && echo "JSON OK"
-   python3 plugins/aidlc-core/scripts/aidlc.py --selftest
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" --selftest
    ```
 3. Rejoue la validation sur le livrable existant :
    ```bash
-   python3 plugins/aidlc-core/scripts/aidlc.py validate <stage> --json
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" validate <stage> --json
    ```
    Un échec ici est **attendu et sain** si tu viens de durcir un check : il montre que la règle mord.
    Explique-le plutôt que de revenir en arrière.

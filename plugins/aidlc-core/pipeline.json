@@ -10,7 +10,7 @@
       "skill": "aidlc-plan:plan",
       "deliverable": "deliverables/plan/intent.md",
       "inputs": [],
-      "checks": "plugins/aidlc-plan/checks.json",
+      "checks": "checks/plan.json",
       "human_role": "Product Owner / Business Analyst",
       "status": "implemented"
     },
@@ -23,7 +23,7 @@
       "inputs": [
         "deliverables/plan/intent.md"
       ],
-      "checks": "plugins/aidlc-design/checks.json",
+      "checks": "checks/design.json",
       "human_role": "Architecte de solution",
       "status": "planned"
     },
@@ -36,7 +36,7 @@
       "inputs": [
         "deliverables/design/spec.md"
       ],
-      "checks": "plugins/aidlc-build/checks.json",
+      "checks": "checks/build.json",
       "human_role": "Tech Lead",
       "status": "planned"
     },
@@ -49,7 +49,7 @@
       "inputs": [
         "deliverables/build/plan.md"
       ],
-      "checks": "plugins/aidlc-test/checks.json",
+      "checks": "checks/test.json",
       "human_role": "QA Lead",
       "status": "planned"
     },
@@ -62,7 +62,7 @@
       "inputs": [
         "deliverables/test/test-plan.md"
       ],
-      "checks": "plugins/aidlc-deploy/checks.json",
+      "checks": "checks/deploy.json",
       "human_role": "SRE / Release Manager",
       "status": "planned"
     },
@@ -75,7 +75,7 @@
       "inputs": [
         "deliverables/deploy/release-notes.md"
       ],
-      "checks": "plugins/aidlc-maintain/checks.json",
+      "checks": "checks/maintain.json",
       "human_role": "Ops / Support",
       "status": "planned"
     }

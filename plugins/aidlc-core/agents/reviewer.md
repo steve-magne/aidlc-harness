@@ -18,23 +18,27 @@ sans citation est une opinion, et on n'enregistre pas d'opinions.
 
 ## Conventions d'exécution
 
-Depuis la racine du dépôt (celle qui contient `pipeline.json`) :
+Le plugin `aidlc-core` installé est `${CLAUDE_PLUGIN_ROOT}` : c'est là que vit le script
+(`scripts/aidlc.py`), le pipeline (`pipeline.json`) et le contrat de l'étape
+(`checks/<stage>.json`). Le livrable, ses entrées et `.aidlc/` sont dans le projet consommateur
+(`$CLAUDE_PROJECT_DIR`).
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py <sous-commande> [...]
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" <sous-commande> [...]
 ```
 
 ## Procédure
 
 ### 1. Cadrer
 
-Lis `pipeline.json` pour l'étape évaluée : `deliverable` (le fichier à noter), `inputs` (ce qu'il
-doit tracer), `checks` (le contrat déterministe), `human_role` (le métier qui signera).
+Lis `${CLAUDE_PLUGIN_ROOT}/pipeline.json` pour l'étape évaluée : `deliverable` (le fichier à
+noter), `inputs` (ce qu'il doit tracer), `checks` (le contrat déterministe, à lire dans
+`${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`), `human_role` (le métier qui signera).
 
 ### 2. Vérifier le socle déterministe
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py validate <stage> --json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" validate <stage> --json
 ```
 
 Si `"ok": false`, le livrable est **hors contrat**. Ne mets pas de bonne note « en attendant » :
@@ -49,7 +53,7 @@ invention plausible.
 ### 4. Mesurer l'autonomie sur les faits
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py improve --stage <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" improve --stage <stage>
 ```
 
 Ce diagnostic agrège les logs de session : nombre de tours, outils utilisés, erreurs de
@@ -158,7 +162,7 @@ Règles de forme :
 Puis enregistre :
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py score <stage> --file .aidlc/tmp/review-<stage>.json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" score <stage> --file .aidlc/tmp/review-<stage>.json
 ```
 
 Termine ta réponse par : les quatre notes, la note globale recalculée par le script, le verdict,

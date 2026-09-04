@@ -43,20 +43,45 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def project_root() -> Path:
-    """Racine = CLAUDE_PROJECT_DIR, sinon remontee jusqu'a pipeline.json, sinon cwd."""
+def workspace_root() -> Path:
+    """Racine du projet consommateur : la ou habitent deliverables/ et .aidlc/.
+
+    = CLAUDE_PROJECT_DIR quand le script est appele depuis une session Claude Code
+    (hook ou skill), sinon le repertoire courant. Le depot du harnais n'est plus le
+    lieu des livrables : ils sont produits dans le projet qui consomme les plugins aidlc.
+    """
     env = os.environ.get("CLAUDE_PROJECT_DIR")
     if env and Path(env).is_dir():
         return Path(env).resolve()
-    cwd = Path.cwd().resolve()
-    for candidate in [cwd, *cwd.parents]:
+    return Path.cwd().resolve()
+
+
+def harness_root() -> Path:
+    """Racine du harnais installe : la ou vivent pipeline.json et checks/<stage>.json.
+
+    Resolution, dans l'ordre :
+      1. AIDLC_HARNESS_ROOT (test, ou usage explicite) ;
+      2. CLAUDE_PLUGIN_ROOT, si un pipeline.json s'y trouve (hooks et skills du plugin) ;
+      3. auto-localisation du script : pipeline.json monte a cote de scripts/, meme forme
+         dans le depot auteur (plugins/aidlc-core/) et dans la copie installee par
+         Claude Code (CLAUDE_PLUGIN_ROOT pointe le plugin) ;
+      4. repli : le repertoire du script.
+    """
+    env = os.environ.get("AIDLC_HARNESS_ROOT")
+    if env and Path(env).is_dir():
+        return Path(env).resolve()
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if plugin_root and (Path(plugin_root) / "pipeline.json").exists():
+        return Path(plugin_root).resolve()
+    here = Path(__file__).resolve().parent  # .../aidlc-core/scripts
+    for candidate in (here, here.parent, *here.parent.parents):
         if (candidate / "pipeline.json").exists():
             return candidate
-    return cwd
+    return here.parent
 
 
-def load_pipeline(root: Path) -> dict:
-    return json.loads((root / "pipeline.json").read_text(encoding="utf-8"))
+def load_pipeline() -> dict:
+    return json.loads((harness_root() / "pipeline.json").read_text(encoding="utf-8"))
 
 
 def find_stage(pipe: dict, stage_id: str):
@@ -187,7 +212,15 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         result["warnings"].append("Aucun fichier de checks declare pour cette etape.")
         result["ok"] = True
         return result
-    checks_path = root / checks_rel
+    # Le checks.json vit dans le harnais (a cote du pipeline.json), pas dans le projet.
+    checks_path = harness_root() / checks_rel
+    if not checks_path.exists():
+        # ponytail: repli si le miroir checks/<stage>.json est absent (depot auteur sans
+        # symlink) : chercher le checks.json dans le plugin de l'etape, voisin du noyau.
+        plugin_name = stage.get("plugin")
+        candidate = harness_root().parent / f"{plugin_name}/checks.json" if plugin_name else None
+        if candidate and candidate.exists():
+            checks_path = candidate
     if not checks_path.exists():
         result["errors"].append(f"Fichier de checks introuvable : {checks_rel}")
         return result
@@ -615,16 +648,20 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 
 # Analyste {name}
 
-Tu produis le livrable de l'étape **{name}** du pipeline AI-DLC : `{deliverable}`.
+Tu produis le livrable de l'étape **{name}** du pipeline AI-DLC : `{deliverable}` — chemin
+relatif au projet qui consomme le harnais (`${{CLAUDE_PROJECT_DIR}}`).
 
 ## Regles
 - Tu DIALOGUES avec le role metier ({role}). Tu poses des questions ciblees, tu ne devines pas.
 - Tu lis d'abord les inputs de l'étape : {inputs}.
-- Tu interroges l'agent `librarian` pour le contexte disponible dans `knowledge/`.
-- Tu pars du gabarit `plugins/aidlc-{stage}/templates/{template}` et tu le remplis integralement.
+- Tu interroges l'agent `librarian` pour le contexte disponible dans `${{CLAUDE_PROJECT_DIR}}/knowledge/`.
+- Tu pars du gabarit de ce plugin `${{CLAUDE_PLUGIN_ROOT}}/templates/{template}` et tu le
+  remplis integralement.
 - Aucun placeholder ne doit subsister dans le livrable rendu.
-- Avant de rendre, tu lances `python3 plugins/aidlc-core/scripts/aidlc.py validate {stage}`
-  et tu corriges jusqu'à `"ok": true`.
+- Tu n'appelles pas le script du harnais toi-même : la validation déterministe est déclenchée
+  par le hook du plugin aidlc-core à chaque écriture du livrable, puis rejouée par
+  l'orchestrateur (`/aidlc-core:run {stage}`). Corrige ce que le hook signale jusqu'à ne
+  plus avoir d'erreur.
 
 ## Sortie
 Un unique fichier : `{deliverable}`. Rien d'autre.
@@ -639,7 +676,8 @@ argument-hint: "[contexte libre]"
 # Étape {name}
 
 ## Objectif
-Produire `{deliverable}`, valide au sens de `plugins/aidlc-{stage}/checks.json`.
+Produire `{deliverable}` — chemin relatif au projet — conforme au contrat de l'étape porté
+par ce plugin (`${{CLAUDE_PLUGIN_ROOT}}/checks.json`).
 
 ## Entrées
 {inputs_list}
@@ -647,14 +685,15 @@ Produire `{deliverable}`, valide au sens de `plugins/aidlc-{stage}/checks.json`.
 ## Procédure
 1. Lire chaque input ci-dessus. S'il en manque un, arrêter et le signaler : l'étape amont
    n'est pas franchie.
-2. Demander au `librarian` le contexte pertinent (`knowledge/index.json`).
-3. Copier `plugins/aidlc-{stage}/templates/{template}` vers `{deliverable}`.
+2. Demander au `librarian` le contexte pertinent (`${{CLAUDE_PROJECT_DIR}}/knowledge/index.json`).
+3. Copier `${{CLAUDE_PLUGIN_ROOT}}/templates/{template}` vers `{deliverable}`.
 4. Interroger le role **{role}** sur les points non tranchés. Une question à la fois,
    fermée quand c'est possible.
 5. Remplir toutes les sections. Citer explicitement les inputs (la validation l'exige).
-6. Lancer `python3 plugins/aidlc-core/scripts/aidlc.py validate {stage}` et corriger
-   jusqu'à `"ok": true`.
-7. Rendre la main a l'orchestrateur pour la revue de maturite.
+6. Ne pas appeler le script du harnais soi-même : la validation déterministe est déclenchée
+   par le hook du plugin aidlc-core à chaque écriture et rejouée par l'orchestrateur
+   (`/aidlc-core:run {stage}`). Corriger jusqu'à ne plus avoir d'erreur signalée.
+7. Rendre la main a l'orchestrateur pour la validation, la revue de maturite et la porte.
 
 ## Interdits
 - Rendre un livrable non valide.
@@ -703,15 +742,47 @@ SCAFFOLD_SECTIONS = [
 ]
 
 
-def scaffold(root: Path, pipe: dict, stage_id: str, force: bool = False) -> dict:
+def authoring_root() -> Path:
+    """Base du depot auteur du harnais : le repertoire qui contient plugins/ et le
+    marketplace. Le scaffold est une operation d'auteur : il ne s'execute pas depuis la
+    copie installee par Claude Code (ou il n'y a pas de marketplace.json a mettre a jour).
+    """
+    harness = harness_root()
+    if harness.name == "aidlc-core" and harness.parent.name == "plugins":
+        return harness.parent.parent
+    return harness
+
+
+def mirror_checks(source: Path, target: Path) -> None:
+    """Met le checks.json du plugin d'etape a cote du pipeline (miroir checks/<stage>.json).
+
+    # ponytail: symlink quand le systeme de fichiers le permet (depot auteur, macOS/Linux),
+    # copie sinon (Windows). Le miroir garantit que le noyau lit TOUJOURS le contrat de
+    # l'etape sans dependre de l'agencement des plugins dans le cache de Claude Code.
+    """
+    ensure_dir(target.parent)
+    if target.exists() or target.is_symlink():
+        target.unlink()
+    try:
+        target.symlink_to(os.path.relpath(source, target.parent))
+    except OSError:
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
+    """Genere le plugin d'une etape dans le depot auteur du harnais (jamais dans le projet
+    consommateur). Bascule le statut dans le pipeline.json du noyau et inscrit le plugin
+    au marketplace du depot.
+    """
     stage = find_stage(pipe, stage_id)
     if stage is None:
         raise ValueError(
             f"Etape '{stage_id}' absente de pipeline.json : l'ajouter d'abord au pipeline."
         )
-    plugin_dir = root / "plugins" / f"aidlc-{stage_id}"
+    base = authoring_root()
+    plugin_dir = base / "plugins" / f"aidlc-{stage_id}"
     if plugin_dir.exists() and not force:
-        raise ValueError(f"{os.path.relpath(plugin_dir, root)} existe deja (utiliser --force).")
+        raise ValueError(f"{os.path.relpath(plugin_dir, base)} existe deja (utiliser --force).")
 
     name = stage.get("name", stage_id.capitalize())
     deliverable = stage.get("deliverable", f"deliverables/{stage_id}/{stage_id}.md")
@@ -733,7 +804,7 @@ def scaffold(root: Path, pipe: dict, stage_id: str, force: bool = False) -> dict
         path = plugin_dir / rel
         ensure_dir(path.parent)
         path.write_text(content, encoding="utf-8")
-        created.append(os.path.relpath(path, root))
+        created.append(os.path.relpath(path, base))
 
     checks = {
         "required_frontmatter": ["stage", "version", "status", "author", "date"],
@@ -746,14 +817,17 @@ def scaffold(root: Path, pipe: dict, stage_id: str, force: bool = False) -> dict
         "must_reference_inputs": bool(inputs),
         "min_items_per_section": {"## Critères d'acceptation": 3, "## Contraintes": 2},
     }
-    write_json(plugin_dir / "checks.json", checks)
-    created.append(os.path.relpath(plugin_dir / "checks.json", root))
+    checks_path = plugin_dir / "checks.json"
+    write_json(checks_path, checks)
+    created.append(os.path.relpath(checks_path, base))
 
     stage["status"] = "implemented"
-    stage["checks"] = f"plugins/aidlc-{stage_id}/checks.json"
-    write_json(root / "pipeline.json", pipe)
+    stage["checks"] = f"checks/{stage_id}.json"
+    write_json(harness_root() / "pipeline.json", pipe)
+    mirror_checks(checks_path, harness_root() / "checks" / f"{stage_id}.json")
+    created.append(os.path.relpath(harness_root() / "checks" / f"{stage_id}.json", base))
 
-    market_path = root / ".claude-plugin" / "marketplace.json"
+    market_path = base / ".claude-plugin" / "marketplace.json"
     if market_path.exists():
         market = json.loads(read_text(market_path))
     else:
@@ -766,11 +840,11 @@ def scaffold(root: Path, pipe: dict, stage_id: str, force: bool = False) -> dict
             "description": f"Etape {name} du pipeline AI-DLC : produit {deliverable}.",
         })
     write_json(market_path, market)
-    created.append(os.path.relpath(market_path, root))
+    created.append(os.path.relpath(market_path, base))
 
     return {"stage": stage_id, "plugin": f"aidlc-{stage_id}", "created": created,
             "template": template_name,
-            "next": f"Éditer {os.path.relpath(plugin_dir / 'checks.json', root)} et le SKILL.md "
+            "next": f"Éditer {os.path.relpath(checks_path, base)} et le SKILL.md "
                     f"pour coller au metier de l'étape."}
 
 
@@ -912,7 +986,7 @@ def handle_log(root: Path, raw: str) -> dict:
     session_id = str(data.get("session_id") or "unknown-" + uuid.uuid4().hex[:8])
     session_id = re.sub(r"[^A-Za-z0-9_-]", "_", session_id)[:80]
     try:
-        pipe = load_pipeline(root)
+        pipe = load_pipeline()
     except Exception:
         pipe = {"stages": []}
     payload = {k: truncate(data[k]) for k in PAYLOAD_KEYS if k in data}
@@ -971,12 +1045,12 @@ SELFTEST_PIPELINE = {
     "stages": [
         {"id": "plan", "name": "Plan", "plugin": "aidlc-plan", "skill": "aidlc-plan:plan",
          "deliverable": "deliverables/plan/intent.md", "inputs": [],
-         "checks": "plugins/aidlc-plan/checks.json",
+         "checks": "checks/plan.json",
          "human_role": "Product Owner", "status": "implemented"},
         {"id": "design", "name": "Design", "plugin": "aidlc-design", "skill": "aidlc-design:design",
          "deliverable": "deliverables/design/spec.md",
          "inputs": ["deliverables/plan/intent.md"],
-         "checks": "plugins/aidlc-design/checks.json",
+         "checks": "checks/design.json",
          "human_role": "Architecte", "status": "planned"},
     ],
 }
@@ -1021,15 +1095,20 @@ def selftest() -> int:
         assert condition, f"ECHEC : {label}"
         checked += 1
 
+    saved_harness = os.environ.get("AIDLC_HARNESS_ROOT")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
+        os.environ["AIDLC_HARNESS_ROOT"] = str(root)
         write_json(root / "pipeline.json", SELFTEST_PIPELINE)
-        pipe = load_pipeline(root)
-        write_json(root / "plugins/aidlc-plan/checks.json", SELFTEST_CHECKS)
+        pipe = load_pipeline()
+        write_json(root / "checks/plan.json", SELFTEST_CHECKS)
         design_checks = dict(SELFTEST_CHECKS)
         design_checks["required_sections"] = ["## Contexte"]
         design_checks["min_items_per_section"] = {}
-        write_json(root / "plugins/aidlc-design/checks.json", design_checks)
+        write_json(root / "checks/design.json", design_checks)
+        # un dossier plugins/aidlc-design existant simule une etape deja ebauchee :
+        # le scaffold doit refuser de l'ecraser sans --force.
+        ensure_dir(root / "plugins" / "aidlc-design")
         intent = root / "deliverables/plan/intent.md"
         ensure_dir(intent.parent)
 
@@ -1196,24 +1275,31 @@ def selftest() -> int:
 
         # 20. scaffold
         try:
-            scaffold(root, pipe, "design")
+            scaffold(pipe, "design")
             check(False, "le scaffold doit refuser d'ecraser sans --force")
         except ValueError:
             check(True, "le scaffold refuse d'ecraser un dossier existant sans --force")
-        info = scaffold(root, pipe, "design", force=True)
+        info = scaffold(pipe, "design", force=True)
         check((root / "plugins/aidlc-design/skills/design/SKILL.md").exists(),
               "le scaffold doit creer le SKILL.md")
         check((root / "plugins/aidlc-design/templates/spec.md").exists(),
               "le scaffold doit creer le gabarit du livrable")
-        check(load_pipeline(root)["stages"][1]["status"] == "implemented",
+        check(load_pipeline()["stages"][1]["status"] == "implemented",
               "le scaffold doit passer l'etape en implemented")
         market = json.loads(read_text(root / ".claude-plugin/marketplace.json"))
         check(any(p["name"] == "aidlc-design" for p in market["plugins"]),
               "le scaffold doit inscrire le plugin au marketplace")
-        check(len(info["created"]) == 6, "le scaffold doit creer 6 fichiers")
-        check(validate_stage(root, load_pipeline(root), "design")["stage"] == "design",
+        check(len(info["created"]) == 7, "le scaffold doit creer 7 fichiers (dont le miroir checks/)")
+        check(validate_stage(root, load_pipeline(), "design")["stage"] == "design",
               "le checks.json genere doit rester exploitable par validate")
+        mirror = root / "checks/design.json"
+        check(mirror.exists() and read_text(mirror) == read_text(root / "plugins/aidlc-design/checks.json"),
+              "le miroir checks/design.json doit refleter le checks.json genere")
 
+    if saved_harness is None:
+        os.environ.pop("AIDLC_HARNESS_ROOT", None)
+    else:
+        os.environ["AIDLC_HARNESS_ROOT"] = saved_harness
     sys.stderr.write(f"OK: {checked} assertions\n")
     return 0
 
@@ -1245,7 +1331,7 @@ def cmd_guard(root: Path, raw: str) -> int:
 
 def cmd_validate(root: Path, args) -> int:
     try:
-        pipe = load_pipeline(root)
+        pipe = load_pipeline()
     except Exception as exc:
         if args.touched:
             return 0
@@ -1296,7 +1382,7 @@ def cmd_validate(root: Path, args) -> int:
 
 
 def cmd_score(root: Path, args) -> int:
-    pipe = load_pipeline(root)
+    pipe = load_pipeline()
     review = json.loads(read_text(Path(args.file)))
     stage_id = args.stage
     if review.get("stage") and review["stage"] != stage_id:
@@ -1312,7 +1398,7 @@ def cmd_score(root: Path, args) -> int:
 
 
 def cmd_gate(root: Path, args) -> int:
-    decision = gate_stage(root, load_pipeline(root), args.stage)
+    decision = gate_stage(root, load_pipeline(), args.stage)
     emit(decision)
     if not decision["passed"]:
         for message in decision["blocking"]:
@@ -1322,7 +1408,7 @@ def cmd_gate(root: Path, args) -> int:
 
 def cmd_review_request(root: Path, args) -> int:
     try:
-        emit(review_request(root, load_pipeline(root), args.stage))
+        emit(review_request(root, load_pipeline(), args.stage))
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
         return 1
@@ -1330,7 +1416,7 @@ def cmd_review_request(root: Path, args) -> int:
 
 
 def cmd_status(root: Path, args) -> int:
-    data = status_data(root, load_pipeline(root))
+    data = status_data(root, load_pipeline())
     if args.json:
         emit(data)
     else:
@@ -1340,7 +1426,7 @@ def cmd_status(root: Path, args) -> int:
 
 def cmd_scaffold(root: Path, args) -> int:
     try:
-        emit(scaffold(root, load_pipeline(root), args.stage, args.force))
+        emit(scaffold(load_pipeline(), args.stage, args.force))
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
         return 1
@@ -1348,7 +1434,7 @@ def cmd_scaffold(root: Path, args) -> int:
 
 
 def cmd_improve(root: Path, args) -> int:
-    emit(improve(root, load_pipeline(root), args.stage))
+    emit(improve(root, load_pipeline(), args.stage))
     return 0
 
 
@@ -1401,7 +1487,7 @@ def main(argv=None) -> int:
         parser.print_help(sys.stderr)
         return 1
 
-    root = project_root()
+    root = workspace_root()
     if args.command == "log":
         return cmd_log(root, sys.stdin.read())
     if args.command == "guard":

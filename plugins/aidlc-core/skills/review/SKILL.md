@@ -8,8 +8,9 @@ argument-hint: "[stage] — id d'étape ; vide = étape du dernier livrable modi
 
 ## Conventions
 
-Commandes lancées depuis la racine du projet. Script unique :
-`plugins/aidlc-core/scripts/aidlc.py`.
+Le script unique vit dans le plugin `aidlc-core` (`${CLAUDE_PLUGIN_ROOT}`) ; les livrables, les
+logs et `.aidlc/` sont dans le projet consommateur (`$CLAUDE_PROJECT_DIR`). Le pipeline se lit dans
+`${CLAUDE_PLUGIN_ROOT}/pipeline.json`, les contrats dans `${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`.
 
 Le fichier de revue de travail va dans `.aidlc/tmp/` (scratch, gitignoré). **Jamais** dans
 `.aidlc/reviews/` ni dans `.aidlc/maturity.json` : ces chemins sont réservés à l'humain et au script,
@@ -18,16 +19,18 @@ et un hook `PreToolUse` refuse l'écriture d'un agent.
 ## 1. Résoudre l'étape et le livrable
 
 - Argument fourni -> c'est l'id d'étape.
-- Sans argument -> `python3 plugins/aidlc-core/scripts/aidlc.py status --json` et prends l'étape dont
+- Sans argument -> `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --json` et prends
+  l'étape dont
   le livrable existe et n'a pas encore de score pour ce run.
-- Lis l'entrée de l'étape dans `pipeline.json` : `deliverable`, `inputs`, `checks`, `human_role`.
+- Lis l'entrée de l'étape dans `${CLAUDE_PLUGIN_ROOT}/pipeline.json` : `deliverable`, `inputs`,
+  `checks`, `human_role`.
 - Si le livrable n'existe pas : dis-le et arrête-toi. On ne note pas un fichier absent (ce serait un
   score de 0 sans valeur diagnostique). Propose `/aidlc-core:run <stage>`.
 
 ## 2. Passer la validation déterministe d'abord
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py validate <stage> --json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" validate <stage> --json
 ```
 
 - **exit 1** : ne mobilise pas le reviewer. Affiche les `errors` et renvoie l'utilisateur vers
@@ -42,7 +45,8 @@ Invoque le sous-agent `reviewer` (agent `aidlc-core:reviewer`) avec, dans son pr
 
 - le chemin du livrable et son contenu intégral ;
 - les chemins et le contenu des `inputs` de l'étape (indispensable pour noter la traçabilité) ;
-- le `checks.json` de l'étape et les `warnings` de la validation ;
+- le contrat de l'étape (`${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`) et les `warnings` de la
+  validation ;
 - le contexte de `knowledge/index.json` (via le sous-agent `librarian` si l'étape en dépend) ;
 - le nombre de tours et d'allers-retours humains de la session, extraits des logs :
   `.aidlc/logs/<session_id>.jsonl` — c'est la matière de l'axe `autonomy` ;
@@ -73,7 +77,7 @@ Le reviewer écrit `.aidlc/tmp/review-<stage>.json`. Avant d'aller plus loin, co
 ## 5. Enregistrer le score
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py score <stage> --file .aidlc/tmp/review-<stage>.json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" score <stage> --file .aidlc/tmp/review-<stage>.json
 ```
 
 Le script **recalcule** `overall` comme la moyenne des quatre axes (arrondie à 0,1) et ignore la
@@ -88,12 +92,13 @@ Affiche à l'utilisateur : les quatre notes, le `overall` recalculé, le verdict
 Puis :
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py gate <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
 ```
 
 - **exit 0** : étape franchie, annonce `next_stage`.
 - **exit 2** : énumère le tableau `blocking`. Si `human_review_required` est `true`, lance
-  `python3 plugins/aidlc-core/scripts/aidlc.py review-request <stage>` et relaie les consignes à
+  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>` et relaie les
+  consignes à
   l'humain désigné par `human_role`. Si le verdict est `rejected`, propose `/aidlc-core:run <stage>`
   avec les `findings` en consignes de réécriture.
 

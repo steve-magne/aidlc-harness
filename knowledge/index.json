@@ -28,10 +28,10 @@
     {
       "id": "pipeline",
       "title": "Définition du pipeline",
-      "path_or_url": "pipeline.json",
+      "path_or_url": "plugins/aidlc-core/pipeline.json",
       "kind": "standard",
       "stages": ["plan", "design", "build", "test", "deploy", "maintain"],
-      "summary": "Source de vérité des étapes : identifiant, plugin, skill, livrable, entrées, fichier de contrôles, rôle humain et statut de chaque étape, plus le seuil de maturité et le nombre de runs requis pour l'autonomie."
+      "summary": "Source de vérité des étapes (installée avec le plugin aidlc-core) : identifiant, plugin, skill, livrable relatif au projet consommateur, entrées, fichier de contrôles, rôle humain et statut de chaque étape, plus le seuil de maturité et le nombre de runs requis pour l'autonomie."
     },
     {
       "id": "template-intent",

@@ -12,18 +12,26 @@ Recette complète de l'étape Plan du harness AI-DLC. Le livrable unique est
 **Rôle humain de référence : Product Owner / Business Analyst.** C'est lui qui détient le besoin,
 c'est lui qui signe. L'agent rédige, l'humain décide.
 
-Toutes les commandes se lancent depuis la racine du dépôt (`aidlc-harness/`).
+## Conventions
+
+- Ce plugin (`aidlc-plan`) est `${CLAUDE_PLUGIN_ROOT}` : ton squelette et tes règles s'y trouvent.
+- Le livrable est `deliverables/plan/intent.md`, **relatif au projet consommateur**
+  (`$CLAUDE_PROJECT_DIR`). Le pipeline (ordre des étapes, entrées) est porté par le plugin
+  `aidlc-core` : l'étape Plan n'a **aucune** entrée amont, sa matière première est l'entretien
+  avec le Product Owner.
+- Tu ne lances pas le script du harnais toi-même (il vit dans `aidlc-core`) : la validation
+  déterministe est déclenchée par son hook à chaque écriture du livrable, et l'orchestrateur la
+  rejoue avant la revue.
 
 ## 0. Avant de commencer
 
 Rassemble le contexte, dans cet ordre :
 
-1. `pipeline.json` — confirme l'étape, son livrable et ses entrées (l'étape Plan n'a **aucune**
-   entrée amont : sa matière première est l'entretien avec le Product Owner).
-2. `plugins/aidlc-plan/templates/intent.md` — le squelette à recopier.
-3. `plugins/aidlc-plan/checks.json` — les règles automatiques appliquées au rendu.
-4. `knowledge/index.json` et `knowledge/glossary.md` — le vocabulaire et les sources qui font
-   autorité. Pour une question de contexte large, délègue à l'agent `librarian`.
+1. `${CLAUDE_PLUGIN_ROOT}/templates/intent.md` — le squelette à recopier.
+2. `${CLAUDE_PLUGIN_ROOT}/checks.json` — les règles automatiques appliquées au rendu.
+3. `$CLAUDE_PROJECT_DIR/knowledge/index.json` et `$CLAUDE_PROJECT_DIR/knowledge/glossary.md` —
+   le vocabulaire et les sources du projet qui font autorité. Pour une question de contexte
+   large, délègue à l'agent `librarian`.
 
 Si un livrable `deliverables/plan/intent.md` existe déjà, lis-le : tu es en **reprise**. Repars
 de son contenu, incrémente `version` dans le frontmatter et concentre l'entretien sur les points
@@ -65,7 +73,8 @@ Règles d'entretien :
 
 ## 3. Rédiger le livrable
 
-Recopie `plugins/aidlc-plan/templates/intent.md` vers `deliverables/plan/intent.md`, puis :
+Recopie `${CLAUDE_PLUGIN_ROOT}/templates/intent.md` vers `deliverables/plan/intent.md` (relatif
+au projet consommateur), puis :
 
 - remplace **chaque** marqueur `<à remplir : ... >` par du contenu réel ;
 - supprime le commentaire HTML d'en-tête du squelette ;
@@ -83,14 +92,16 @@ Forme attendue d'un critère d'acceptation : « étant donné <situation>, quand
 
 ## 4. Valider — obligatoire avant de rendre
 
-Lance le contrôle déterministe. **Aucun livrable ne se rend sans validation au vert.**
+La validation déterministe est déclenchée **automatiquement par le hook du plugin `aidlc-core`**
+à chaque écriture de `deliverables/plan/intent.md` : le retour du hook te liste immédiatement les
+manques (`errors`) et les avertissements (`warnings`). Corrige et réécris jusqu'à ce que le hook
+ne signale plus rien — **aucun livrable ne se rend avec des erreurs de validation.**
 
-```bash
-python3 plugins/aidlc-core/scripts/aidlc.py validate plan --json
-```
+Quand le hook ne s'est pas déclenché (session sans plugin `aidlc-core`, ou besoin d'une passe
+explicite), rends la main à l'orchestrateur : `/aidlc-core:run plan` rejoue `validate` avant la
+revue. Ne cherche pas à appeler le script du harnais depuis ce plugin.
 
-La sortie JSON contient `ok`, `errors` et `warnings`. Corrige chaque erreur puis **relance la
-commande** ; recommence jusqu'à `"ok": true`. Les erreurs les plus fréquentes :
+Les erreurs les plus fréquentes et leurs corrections :
 
 | Erreur | Correction |
 | --- | --- |
@@ -111,9 +122,9 @@ Une fois la validation au vert :
 
 1. Résume au Product Owner, en cinq lignes maximum : le problème retenu, le bénéfice visé, les
    critères d'acceptation, les hypothèses restées ouvertes.
-2. Donne le chemin du livrable : `deliverables/plan/intent.md`.
-3. Passe la main à la revue — `aidlc-core:review` puis `aidlc.py gate plan`. Tu ne notes pas ton
-   propre livrable et tu n'écris jamais dans `.aidlc/`.
+2. Donne le chemin du livrable : `deliverables/plan/intent.md` (relatif au projet consommateur).
+3. Passe la main à la revue — `/aidlc-core:review` puis `gate` via `/aidlc-core:run plan`. Tu ne
+   notes pas ton propre livrable et tu n'écris jamais dans `.aidlc/`.
 
 ## Critères de qualité que le reviewer va appliquer
 

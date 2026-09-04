@@ -10,12 +10,19 @@ considérée comme franchie.
 
 Le harness industrialise un cycle de développement logiciel piloté par des agents. Un
 orchestrateur instancie une session agentique par étape du SDLC. Chaque étape produit un
-livrable écrit, versionné dans le dépôt, qui devient l'entrée de l'étape suivante.
+livrable écrit, versionné dans **le projet qui consomme le harnais** (pas dans le dépôt du
+harnais), qui devient l'entrée de l'étape suivante.
+
+Le dépôt `aidlc-harness` est distribué comme un **marketplace de plugins Claude Code**. Il
+distingue deux racines : le **harnais** (`plugins/aidlc-core/` : `pipeline.json`, contrats,
+script, hooks — installé dans le cache de Claude Code, désigné par `CLAUDE_PLUGIN_ROOT`) et le
+**projet consommateur** (`CLAUDE_PROJECT_DIR` : `deliverables/`, `.aidlc/`, `knowledge/`). Quand
+le dépôt sert de projet d'essai, les deux racines se confondent.
 
 Trois principes gouvernent l'ensemble :
 
 1. **Le livrable est le contrat.** Rien ne circule entre deux étapes en dehors d'un fichier
-   présent dans `deliverables/`. Pas de mémoire implicite, pas de contexte transmis de vive voix.
+   présent dans `deliverables/` du projet consommateur. Pas de mémoire implicite, pas de contexte transmis de vive voix.
 2. **La qualité se mesure deux fois.** D'abord de façon déterministe (un script applique un
    fichier de règles), ensuite de façon qualitative (un agent reviewer note sur une grille de
    maturité). Les deux doivent passer.
@@ -68,10 +75,12 @@ même d'atteindre le reviewer.
 
 ### 3.1 `pipeline.json` — source de vérité des étapes
 
-Fichier unique à la racine. Il déclare la liste ordonnée des étapes, pour chacune : son
-identifiant, son plugin, sa skill, son livrable, ses entrées, son fichier de contrôles, le rôle
-humain responsable et son statut (`implemented` ou `planned`). Il porte aussi les deux
-paramètres de gouvernance :
+Fichier unique installé avec le plugin noyau : `plugins/aidlc-core/pipeline.json` (dans la copie
+installée, il est résolu via `CLAUDE_PLUGIN_ROOT` ou par auto-localisation du script). Il déclare
+la liste ordonnée des étapes, pour chacune : son identifiant, son plugin, sa skill, son livrable
+(chemin relatif au **projet consommateur**), ses entrées, son fichier de contrôles — `checks/<stage>.json`,
+relatif au plugin noyau — le rôle humain responsable et son statut (`implemented` ou `planned`).
+Il porte aussi les deux paramètres de gouvernance :
 
 - `maturity_threshold` (4.0) : note globale minimale pour qu'un livrable soit accepté.
 - `consecutive_runs_to_autonomy` (3) : nombre d'exécutions consécutives au-dessus du seuil avant
@@ -82,8 +91,10 @@ pipeline lit ce fichier.
 
 ### 3.2 `checks.json` — validation déclarative
 
-Chaque plugin d'étape embarque un `checks.json` qui décrit, sans code, ce qu'un livrable
-acceptable doit contenir. Les règles disponibles :
+Chaque plugin d'étape embarque un `checks.json` (la source, dans `plugins/aidlc-<stage>/`) dont le
+plugin noyau garde un miroir (`plugins/aidlc-core/checks/<stage>.json`) : c'est ce miroir que
+`aidlc.py` lit, ce qui le rend indépendant de l'emplacement des plugins après installation. Le
+fichier décrit, sans code, ce qu'un livrable acceptable doit contenir. Les règles disponibles :
 
 | Règle | Effet |
 | ----- | ----- |
@@ -101,9 +112,12 @@ traduit par une règle supplémentaire dans le `checks.json` de l'étape.
 
 ### 3.3 `plugins/aidlc-core/scripts/aidlc.py` — la seule logique déterministe
 
-Un unique script en bibliothèque standard Python, sans dépendance externe. Toutes les sorties
-machine sont en JSON sur la sortie standard, les messages destinés à l'humain sur la sortie
-d'erreur. Ses sous-commandes :
+Un unique script en bibliothèque standard Python, sans dépendance externe. Il résout deux racines
+: le **projet consommateur** (`CLAUDE_PROJECT_DIR`, sinon le répertoire courant) pour les
+livrables et `.aidlc/`, et le **harnais** (`CLAUDE_PLUGIN_ROOT`, sinon auto-localisation de
+`pipeline.json` à côté du script) pour le pipeline et les contrats. Toutes les sorties machine sont
+en JSON sur la sortie standard, les messages destinés à l'humain sur la sortie d'erreur. Ses
+sous-commandes :
 
 | Commande | Rôle |
 | -------- | ---- |
@@ -163,18 +177,19 @@ rédaction du livrable, les questions à poser à l'humain, et l'obligation de l
 
 ### 3.7 `knowledge/` — la base de connaissance
 
-`knowledge/index.json` recense les sources de vérité consultables : ce document, le glossaire, les
-livrables du pipeline, et les références d'entreprise (normes internes, ADR, retours
-d'expérience). Le librarian s'en sert pour composer un briefing ciblé par étape. Voir
-`knowledge/README.md` pour la procédure d'ajout d'une source.
+`knowledge/` vit dans le **projet consommateur** (c'est la mémoire du projet : normes internes,
+ADR, retours d'expérience). `knowledge/index.json` recense les sources de vérité consultables. Le
+librarian s'en sert pour composer un briefing ciblé par étape. Dans ce dépôt, `knowledge/` documente
+le harnais lui-même et sert de projet d'essai. Voir `knowledge/README.md` pour la procédure d'ajout
+d'une source.
 
 ### 3.8 État runtime
 
-Ces chemins sont produits par le script, jamais rédigés à la main (à l'exception des fichiers de
-revue, signés par un humain) :
+Ces chemins sont produits par le script dans le **projet consommateur**, jamais rédigés à la main
+(à l'exception des fichiers de revue, signés par un humain) :
 
 ```
-deliverables/<stage>/...            livrables versionnés
+deliverables/<stage>/...            livrables versionnés (projet consommateur)
 .aidlc/logs/<session_id>.jsonl      journal des sessions
 .aidlc/maturity.json                historique des scores
 .aidlc/reviews/<stage>-<n>.json     revues humaines signées
@@ -417,7 +432,10 @@ décide pas.
 
 ## 8. Conventions de conception
 
-- Un livrable = un fichier dans `deliverables/`.
+- Un livrable = un fichier dans `deliverables/` du **projet consommateur**, au chemin exact déclaré
+  par le `pipeline.json` du harnais.
+- Le harnais (pipeline, contrats, script) vit dans les plugins ; le projet (livrables, `.aidlc/`,
+  `knowledge/`) vit chez le consommateur. Deux racines, résolues par le script.
 - Toute logique déterministe vit dans `aidlc.py`, jamais dans un nouveau script.
 - Bibliothèque standard Python uniquement, aucune dépendance externe, aucun format autre que JSON
   et Markdown.

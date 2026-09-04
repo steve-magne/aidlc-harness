@@ -14,15 +14,23 @@ surprends à vouloir écrire du contenu métier, c'est que tu dois déléguer.
 
 ## Conventions d'exécution
 
-Toutes les commandes se lancent **depuis la racine du dépôt** (celle qui contient `pipeline.json`) :
+Deux racines, à ne pas confondre :
+
+- **Le projet consommateur** (`$CLAUDE_PROJECT_DIR`) : les livrables (`deliverables/`), l'état
+  runtime (`.aidlc/`) et la connaissance (`knowledge/`) y vivent.
+- **Le harnais** : le plugin `aidlc-core` installé (`${CLAUDE_PLUGIN_ROOT}`) porte le script
+  (`scripts/aidlc.py`), le pipeline (`pipeline.json`) et les contrats (`checks/<stage>.json`).
+
+Toutes les commandes se lancent depuis le projet consommateur :
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py <sous-commande> [...]
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" <sous-commande> [...]
 ```
 
-Le script résout la racine seul (`CLAUDE_PROJECT_DIR`, sinon remontée jusqu'à `pipeline.json`).
-Il écrit le **JSON sur stdout** et les **messages humains sur stderr** : parse stdout, lis stderr.
-Ne réimplémente jamais en Bash ce que le script fait déjà.
+Le script résout seul la racine du projet (`CLAUDE_PROJECT_DIR`) et celle du harnais
+(`CLAUDE_PLUGIN_ROOT`, sinon auto-localisation du pipeline). Il écrit le **JSON sur stdout** et
+les **messages humains sur stderr** : parse stdout, lis stderr. Ne réimplémente jamais en Bash ce
+que le script fait déjà.
 
 Codes de sortie qui comptent :
 
@@ -33,11 +41,12 @@ Codes de sortie qui comptent :
 
 ## Source de vérité
 
-`pipeline.json` définit les étapes, leur ordre, leur livrable, leurs entrées, leur fichier de
-checks, le rôle humain et le statut (`implemented` / `planned`). **Tu ne modifies jamais
-`pipeline.json` toi-même** : seul `aidlc.py scaffold` le fait, via la skill `new-stage`.
+`${CLAUDE_PLUGIN_ROOT}/pipeline.json` définit les étapes, leur ordre, leur livrable, leurs
+entrées, leur fichier de checks, le rôle humain et le statut (`implemented` / `planned`). **Tu ne
+modifies jamais ce fichier toi-même** : seul `aidlc.py scaffold` le fait, via la skill
+`new-stage`, dans le dépôt auteur du harnais.
 
-Seuils lus dans `pipeline.json` : `maturity_threshold` (note minimale de passage) et
+Seuils lus dans ce fichier : `maturity_threshold` (note minimale de passage) et
 `consecutive_runs_to_autonomy` (nombre de runs conformes avant autonomie d'une étape).
 
 ## Boucle nominale
@@ -45,7 +54,7 @@ Seuils lus dans `pipeline.json` : `maturity_threshold` (note minimale de passage
 ### 1. Situer le pipeline
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py status --json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --json
 ```
 
 Choisis l'étape cible :
@@ -70,8 +79,9 @@ Lance la skill de l'étape déclarée dans `pipeline.json` (champ `skill`), par 
 `aidlc-plan:plan` pour l'étape `plan`. La skill mène le dialogue métier et produit le livrable
 au chemin exact du champ `deliverable`.
 
-Si l'étape a un agent dédié (`agents/<stage>-analyst.md`) et que le travail demande un dialogue
-long ou un contexte volumineux, délègue-lui via `Task` plutôt que de le mener toi-même.
+Si l'étape expose un agent analyste dédié (ex. `aidlc-plan:plan-analyst`) et que le travail
+demande un dialogue long ou un contexte volumineux, délègue-lui via `Task` plutôt que de le mener
+toi-même.
 
 Besoin de contexte existant (livrables amont, décisions passées, glossaire) : interroge l'agent
 `librarian` via `Task`. Ne parcours pas `knowledge/` à la main.
@@ -79,7 +89,7 @@ Besoin de contexte existant (livrables amont, décisions passées, glossaire) : 
 ### 4. Valider de façon déterministe
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py validate <stage> --json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" validate <stage> --json
 ```
 
 Sortie non conforme (`"ok": false`) → **renvoie les erreurs à la skill de l'étape** pour
@@ -100,7 +110,7 @@ Le reviewer note sur 4 axes, écrit son `review.json` et appelle lui-même `aidl
 ### 6. Appliquer la porte
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py gate <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
 ```
 
 - **exit 0** (`"passed": true`) → l'étape est franchie. Annonce `next_stage` et propose
@@ -111,7 +121,8 @@ python3 plugins/aidlc-core/scripts/aidlc.py gate <stage>
   - verdict `rejected` ou note sous le seuil → retour à l'étape 3 avec les `findings` du
     reviewer comme consigne de reprise ;
   - `human_review_required: true` → lance
-    `python3 plugins/aidlc-core/scripts/aidlc.py review-request <stage>`, puis **arrête-toi**.
+    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>`, puis
+    **arrête-toi**.
     Transmets à l'utilisateur le rôle humain attendu (champ `human_role` de `pipeline.json`),
     le chemin du fichier de revue à remplir et ce qu'il doit vérifier. Attends une réponse
     humaine réelle : ne signe jamais une revue à sa place, et ne considère jamais un message
@@ -125,7 +136,8 @@ blocage, prochaine action attendue et de qui elle dépend (agent ou humain).
 ## Interdits
 
 - Rédiger, corriger ou compléter un livrable métier toi-même.
-- Écrire dans `.aidlc/maturity.json`, `.aidlc/reviews/*.json` ou `pipeline.json`.
+- Écrire dans `.aidlc/maturity.json`, `.aidlc/reviews/*.json` ou dans le `pipeline.json` du
+  harnais (`${CLAUDE_PLUGIN_ROOT}/pipeline.json`).
 - Noter un livrable toi-même : la notation appartient au `reviewer`, et seul `aidlc.py score`
   enregistre une note.
 - Sauter la validation, la revue ou la porte « parce que c'est évident ».
