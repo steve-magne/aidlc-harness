@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    name: Gates du harnais
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Portes canoniques du dépôt, dans l'ordre : hygiène du code via le moteur
+      # (check-python, check-json — CLAUDE.md, règle 6 : tout Python compile, tout JSON
+      # parse), selftest (auto-test par assertions du moteur), puis conformance OKF v0.2
+      # des deux bundles (knowledge/, docs/) — exit non nul = build rouge. Les quatre
+      # premières portes sont le moteur seul : pas de dépendance externe, stdlib Python
+      # uniquement.
+      - name: Hygiène syntaxique (check-python, check-json)
+        run: |
+          python3 plugins/aidlc-core/scripts/aidlc.py check-python
+          python3 plugins/aidlc-core/scripts/aidlc.py check-json
+      - name: Selftest du moteur (--selftest)
+        run: python3 plugins/aidlc-core/scripts/aidlc.py --selftest
+      - name: Conformance OKF v0.2 de knowledge/
+        run: python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
+      - name: Conformance OKF v0.2 de docs/
+        run: python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
+      # Chaque plugin du dépôt (aidlc-core, aidlc-plan, et toute étape scaffoldée plus
+      # tard) reste valide pour Claude Code : manifest, hooks et chemins réels. Le CLI
+      # est un outil de build du runner (npm), pas une dépendance du moteur — tout le
+      # reste du workflow reste stdlib Python.
+      - name: Validation des plugins Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          for plugin in plugins/aidlc-*; do
+            claude plugin validate "$plugin"
+          done

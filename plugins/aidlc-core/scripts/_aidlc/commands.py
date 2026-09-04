@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import select
 import sys
 
 from .okf import PROJECT_OKF_BUNDLES
+from .syntax import _json_problem
+from .syntax import _python_problem
+from .syntax import json_report
+from .syntax import python_report
 from pathlib import Path
 from .util import emit
 from .maturity import gate_stage
@@ -291,3 +296,86 @@ def cmd_check_okf(root: Path, args) -> int:
         for message in report["errors"]:
             sys.stderr.write(f"  [okf] {message}\n")
     return 0 if report["ok"] else 1
+
+
+def _run_syntax_gate(root: Path, target_dir, report_fn, label: str) -> int:
+    """Porte d'hygiene syntaxique commune a check-python et check-json : rapports pur
+    (syntax.python_report / json_report) puis emission JSON et code de sortie.
+    Dossier a parcourir : argument optionnel, sinon la racine du projet courant.
+    """
+    target = Path(target_dir).expanduser().resolve() if target_dir else root
+    if not target.is_dir():
+        sys.stderr.write(f"Repertoire introuvable : {target_dir}\n")
+        return 1
+    report = report_fn(target)
+    emit(report)
+    if report["ok"]:
+        sys.stderr.write(f"{label} ({report['checked']} fichier(s)) : {target}\n")
+    else:
+        sys.stderr.write(f"{label} : {len(report['errors'])} probleme(s) sous {target} :\n")
+        for message in report["errors"]:
+            sys.stderr.write(f"  [syntax] {message}\n")
+    return 0 if report["ok"] else 1
+
+
+def _syntax_touched(root: Path, args, suffix: str, probe, verb: str) -> int:
+    """Mode hook PostToolUse de check-python/check-json : la passe controle le fichier
+    ecrit et lui seul — silencieuse hors de l'extension concernee, informative en
+    session (contexte additionnel), jamais bloquante (exit 0). La porte dure de l'etat
+    complet du depot reste check-python/check-json sans --touched (CI, ligne de
+    commande). # ponytail: pas de journalisation du fichier fautif : contrairement aux
+    bundles OKF, la syntaxe n'a pas d'etat cross-fichier et rien ne la correle apres
+    coup — un probleme ici est immediatement corrige, sinon la CI le rattrape.
+    """
+    touched, _, _ = _hook_input(args)
+    if not touched:
+        return 0
+    if not Path(touched).name.lower().endswith(suffix):
+        return 0
+    try:
+        target = Path(touched).expanduser().resolve()
+    except OSError:
+        return 0
+    problem = probe(target)
+    try:
+        rel = os.path.relpath(target, root)
+    except ValueError:
+        rel = str(target)
+    if rel.startswith(".."):
+        # fichier hors du projet : garder le chemin tel que le hook l'a rapporte,
+        # plus parlant qu'une remontee ../.. vers une racine etrangere.
+        rel = str(touched)
+    if problem is None:
+        context = f"Conformite syntaxique : {rel} {verb}."
+    else:
+        context = (f"Conformite syntaxique : {rel} NON CONFORME :\n- {problem}\n"
+                   "Corriger avant de rendre.")
+    _hook_context(context)
+    return 0
+
+
+def cmd_check_python(root: Path, args) -> int:
+    """Compile tout Python d'un dossier (defaut : racine du projet courant). JSON sur
+    stdout ; messages humains sur stderr ; exit 1 si une erreur de syntaxe. Rien n'est
+    ecrit dans le depot : les .pyc jetables partent dans un dossier temporaire.
+
+    --touched = mode hook PostToolUse : compile le fichier .py ecrit, silencieux hors
+    Python, retour en contexte additionnel (exit 0 dans tous les cas).
+    """
+    if getattr(args, "touched", False):
+        return _syntax_touched(root, args, ".py", _python_problem, "compile")
+    return _run_syntax_gate(root, args.dir, python_report,
+                            "Conformite syntaxique : tout Python compile")
+
+
+def cmd_check_json(root: Path, args) -> int:
+    """Parse tout JSON d'un dossier (defaut : racine du projet courant). JSON sur
+    stdout ; messages humains sur stderr ; exit 1 si un fichier est invalide.
+
+    --touched = mode hook PostToolUse : parse le fichier .json ecrit, silencieux hors
+    JSON, retour en contexte additionnel (exit 0 dans tous les cas).
+    """
+    if getattr(args, "touched", False):
+        return _syntax_touched(root, args, ".json", _json_problem, "parse")
+    return _run_syntax_gate(root, args.dir, json_report,
+                            "Conformite syntaxique : tout JSON parse")

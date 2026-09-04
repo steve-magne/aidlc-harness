@@ -12,8 +12,12 @@ from .okf import OKF_RESERVED
 from pathlib import Path
 from .okf import _INDEX_LINK
 from .okf import _frontmatter_shape_problems
+from .syntax import json_report
+from .syntax import python_report
 from .util import aidlc_dir
+from .commands import cmd_check_json
 from .commands import cmd_check_okf
+from .commands import cmd_check_python
 from .commands import cmd_guard
 from .commands import cmd_log
 from .maturity import compute_autonomy
@@ -516,6 +520,105 @@ def selftest() -> int:
         check(any(i["session_id"] == "sess-ecrivain"
                   and i["file"] == "sans-frontmatter.md" for i in implicated),
               "improve doit relier le refus du gate a la session journalisee par --touched")
+
+        # 28. check-python / check-json : portes d'hygiene syntaxique du depot (regle 6 :
+        #     tout Python compile, tout JSON parse). Le bac a sable contient deja des
+        #     .py/.json conformes (pipeline, checks, marketplace, revues) : la passe
+        #     accepte l'etat courant, refuse un fichier casse en le nommant, et un dossier
+        #     propre passe meme quand le depot voisin est casse (portee restreinte).
+        (root / "good.py").write_text("x = 1\n", encoding="utf-8")
+        (root / "good.json").write_text('{"a": 1}\n', encoding="utf-8")
+        clean = root / "clean"
+        ensure_dir(clean)
+        (clean / "ok.py").write_text("y = 2\n", encoding="utf-8")
+        (clean / "ok.json").write_text('{"b": 2}\n', encoding="utf-8")
+        saved_out, sys.stdout = sys.stdout, open(os.devnull, "w", encoding="utf-8")
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            py_ok = cmd_check_python(root, argparse.Namespace(dir=None))
+            json_ok = cmd_check_json(root, argparse.Namespace(dir=None))
+            scoped_ok = cmd_check_python(root, argparse.Namespace(dir=str(clean)))
+            scoped_json = cmd_check_json(root, argparse.Namespace(dir=str(clean)))
+            (root / "broken.py").write_text("def casse(:\n", encoding="utf-8")
+            (root / "broken.json").write_text('{"a": }\n', encoding="utf-8")
+            py_bad = cmd_check_python(root, argparse.Namespace(dir=None))
+            json_bad = cmd_check_json(root, argparse.Namespace(dir=None))
+            missing = cmd_check_python(root, argparse.Namespace(dir="absent"))
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(py_ok == 0, "check-python doit accepter un dossier dont tout Python compile")
+        check(json_ok == 0, "check-json doit accepter un dossier dont tout JSON parse")
+        check(scoped_ok == 0 and scoped_json == 0,
+              "check-python/check-json doivent ignorer le reste du depot hors du dossier donne")
+        check(py_bad == 1, "check-python doit sortir en 1 sur une erreur de syntaxe")
+        check(json_bad == 1, "check-json doit sortir en 1 sur un JSON invalide")
+        check(missing == 1, "check-python doit sortir en 1 sur un dossier introuvable")
+        py_report = python_report(root)
+        check(not py_report["ok"]
+              and any("broken.py" in e for e in py_report["errors"]),
+              "le rapport check-python doit nommer le fichier fautif")
+        syntax_json = json_report(root)
+        check(not syntax_json["ok"]
+              and any("broken.json" in e for e in syntax_json["errors"]),
+              "le rapport check-json doit nommer le fichier fautif")
+        check(python_report(clean)["ok"] and json_report(clean)["ok"],
+              "un dossier propre doit rester conforme, meme dans un depot casse")
+
+        # 29. check-python/check-json --touched : mode hook PostToolUse — la passe
+        #     controle le fichier ecrit et lui seul (la syntaxe est sans etat
+        #     cross-fichier). Hors de l'extension concernee : muette. .py/.json
+        #     conformes : retour OK en contexte. Fautifs : retour NON CONFORME nommant
+        #     le probleme, sans casser la session (exit 0) et sans scanner le depot.
+        touched = root / "touched"
+        ensure_dir(touched)
+        (touched / "ok.py").write_text("z = 3\n", encoding="utf-8")
+        (touched / "ok.json").write_text('{"c": 3}\n', encoding="utf-8")
+        hook_out3 = io.StringIO()
+        saved_out, sys.stdout = sys.stdout, hook_out3
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            silent_md = cmd_check_python(root, argparse.Namespace(
+                touched=True, file=str(root / "note.md"), dir=None))
+            md_silent = hook_out3.getvalue() == ""
+            silent_wrong = cmd_check_json(root, argparse.Namespace(
+                touched=True, file=str(touched / "ok.py"), dir=None))
+            wrong_silent = hook_out3.getvalue() == ""
+            good_py = cmd_check_python(root, argparse.Namespace(
+                touched=True, file=str(touched / "ok.py"), dir=None))
+            good_py_ctx = hook_out3.getvalue()
+            good_json = cmd_check_json(root, argparse.Namespace(
+                touched=True, file=str(touched / "ok.json"), dir=None))
+            good_json_ctx = hook_out3.getvalue()
+            bad_py = cmd_check_python(root, argparse.Namespace(
+                touched=True, file=str(root / "broken.py"), dir=None))
+            bad_py_ctx = hook_out3.getvalue()
+            bad_json = cmd_check_json(root, argparse.Namespace(
+                touched=True, file=str(root / "broken.json"), dir=None))
+            bad_json_ctx = hook_out3.getvalue()
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(silent_md == 0 and md_silent,
+              "check-python --touched doit rester muet hors d'une ecriture .py")
+        check(silent_wrong == 0 and wrong_silent,
+              "check-json --touched doit rester muet sur une ecriture .py")
+        check(good_py == 0 and "ok.py" in good_py_ctx and "compile" in good_py_ctx,
+              "check-python --touched doit confirmer un .py conforme en contexte")
+        check(good_json == 0 and "ok.json" in good_json_ctx and "parse" in good_json_ctx,
+              "check-json --touched doit confirmer un .json conforme en contexte")
+        check(bad_py == 0 and "NON CONFORME" in bad_py_ctx
+              and "broken.py" in bad_py_ctx and "erreur de syntaxe" in bad_py_ctx,
+              "check-python --touched doit signaler le .py fautif sans casser la session")
+        check(bad_json == 0 and "NON CONFORME" in bad_json_ctx
+              and "broken.json" in bad_json_ctx and "JSON invalide" in bad_json_ctx,
+              "check-json --touched doit signaler le .json fautif sans casser la session")
+        check("broken.py" not in good_py_ctx and "clean/ok.py" not in good_py_ctx,
+              "le controle --touched doit etre limite au fichier ecrit, sans scan du depot")
 
     if saved_harness is None:
         os.environ.pop("AIDLC_HARNESS_ROOT", None)

@@ -73,6 +73,8 @@ python3 $S review-request plan          # prépare le formulaire de revue humain
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
 python3 $S scaffold design              # génère le plugin d'une nouvelle étape
 python3 $S check-okf knowledge          # conformité OKF v0.2 du bundle knowledge/ (exit 1 = non conforme)
+python3 $S check-python                 # tout Python compile (règle 6 ; exit 1 = erreur de syntaxe)
+python3 $S check-json                   # tout JSON parse (règle 6 ; exit 1 = JSON invalide)
 python3 $S --selftest                   # auto-test : le seul test du projet, il doit passer
 ```
 
@@ -90,7 +92,8 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    le harnais est consommé ailleurs.
 2. **Toute logique déterministe vit sous `plugins/aidlc-core/scripts/`** : le point d'entrée
    `aidlc.py` délègue au paquet stdlib `_aidlc/`, un module par concern (`util`, `checks`,
-   `maturity`, `scaffold`, `improve`, `hookslog`, `okf`, `selftest`, `commands`, `cli`). Jamais de
+   `maturity`, `scaffold`, `improve`, `hookslog`, `okf`, `syntax`, `selftest`, `commands`,
+   `cli`). Jamais de
    second point d'entrée, jamais de logique dans un `Makefile` ni en shell inline dans un hook. Si
    une nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans
    le `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.
