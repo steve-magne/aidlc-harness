@@ -12,10 +12,13 @@ from .commands import cmd_guard
 from .commands import cmd_improve
 from .commands import cmd_log
 from .commands import cmd_review_request
+from .commands import cmd_ratchet
 from .commands import cmd_scaffold
 from .commands import cmd_score
 from .commands import cmd_status
 from .commands import cmd_validate
+from .commands import cmd_watchdog
+from .commands import cmd_watchdog_touched
 from .selftest import selftest
 from .util import workspace_root
 """Parseur de commandes et bascule du moteur — appele par le point d'entree
@@ -58,6 +61,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     improve_cmd = sub.add_parser("improve", help="Diagnostic d'auto-amelioration (JSON).")
     improve_cmd.add_argument("--stage", help="Restreindre a une etape.")
+
+    ratchet_cmd = sub.add_parser(
+        "ratchet",
+        help="Fige et fait respecter les planchers de severite des checks.json (exit 2 si regression).")
+    ratchet_cmd.add_argument("--reset", metavar="STAGE",
+                             help="Repart du checks.json courant pour une etape (geste auteur).")
+
+    sub.add_parser("watchdog",
+                   help="Detecteurs de stagnation sur les journaux (exit 2 si halte).")
+    sub.add_parser("watchdog-touched",
+                   help="Mode hook PostToolUse du watchdog : diagnostic non bloquant.")
 
     check_okf = sub.add_parser("check-okf",
                                help="Conformance OKF v0.2 d'un bundle (exit 1 si non conforme).")
@@ -111,7 +125,8 @@ def main(argv=None) -> int:
         "review-request": cmd_review_request, "status": cmd_status,
         "scaffold": cmd_scaffold, "improve": cmd_improve,
         "check-okf": cmd_check_okf, "check-python": cmd_check_python,
-        "check-json": cmd_check_json,
+        "check-json": cmd_check_json, "ratchet": cmd_ratchet,
+        "watchdog": cmd_watchdog, "watchdog-touched": cmd_watchdog_touched,
     }
     try:
         return handlers[args.command](root, args)

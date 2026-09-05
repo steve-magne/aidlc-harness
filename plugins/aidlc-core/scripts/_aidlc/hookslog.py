@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from .util import aidlc_dir
 from .util import ensure_dir
+from .util import harness_root
 from .util import load_pipeline
 from .util import now_iso
 from .util import read_text
@@ -125,7 +126,8 @@ def journal_bundle_write(root: Path, session_id: str | None, file_path: Path,
 
 
 def guard_decision(root: Path, raw: str):
-    """Retourne un motif de refus si le hook veut ecrire dans les artefacts de score."""
+    """Retourne un motif de refus si le hook veut ecrire dans les artefacts de score
+    (.aidlc/) ou dans le referentiel de regles du harnais (liste protégée)."""
     data = json.loads(raw) if raw.strip() else {}
     if not isinstance(data, dict):
         return None
@@ -137,6 +139,15 @@ def guard_decision(root: Path, raw: str):
         resolved = Path(target).expanduser().resolve()
     except OSError:
         return None
+    reason = _aidlc_protection_reason(root, resolved)
+    if reason:
+        return reason
+    return _harness_protection_reason(root, resolved)
+
+
+def _aidlc_protection_reason(root: Path, resolved: Path):
+    """Protege l'etat runtime (.aidlc/) : integrite du score, revues signees, ratchet,
+    file d'amelioration, journaux — seuls les scripts ecrivent, jamais un agent."""
     protected_root = aidlc_dir(root).resolve()
     try:
         relative = resolved.relative_to(protected_root)
@@ -151,4 +162,43 @@ def guard_decision(root: Path, raw: str):
         return ("Ecriture refusee : les revues humaines .aidlc/reviews/*.json sont signees "
                 "par un humain. Utiliser `aidlc.py review-request <stage>` et laisser "
                 "l'humain remplir le fichier.")
+    if parts and parts[0] == "ratchet.json":
+        return ("Ecriture refusee : .aidlc/ratchet.json fige les planchers de validation. "
+                "Seul `aidlc.py ratchet` ecrit ce fichier ; toute modification hors de "
+                "cette sous-commande est une fraude au metre.")
+    if parts and parts[0] == "improvement-queue.jsonl":
+        return ("Ecriture refusee : la file d'amelioration est alimentee par les refus "
+                "(humains, gate OKF, watchdog), jamais editee a la main.")
+    if parts and parts[0] == "logs":
+        return ("Ecriture refusee : les journaux .aidlc/logs/*.jsonl sont la matiere "
+                "premiere du diagnostic (autonomie, watchdog). Ils ne sont editables "
+                "que par le hook de journalisation.")
     return None
+
+
+def _harness_protection_reason(root: Path, resolved: Path):
+    """Liste protégée (inspirée du dark factory) : la copie du harnais située HORS du
+    projet consommateur est protégée en entier — pipeline.json, contrats checks/,
+    hooks.json, script, agents, skills, templates. Un agent n'édite pas les règles qui
+    le jugent : le harnais évolue dans son dépôt auteur, via /aidlc-core:new-stage et
+    /aidlc-core:improve. Invariant géométrique : tout ce qui est sous la racine du
+    projet reste éditable (dépôt auteur, où les deux racines se confondent, livrables
+    et knowledge du projet) ; seule la copie extérieure au projet est verrouillée.
+    # ponytail: seuls les chemins attribués à Write ou Edit sont vus ici ; un
+    contournement via Bash n'est pas intercepté — la CI (check-json, selftest) reste la
+    porte dure."""
+    try:
+        harness = harness_root().resolve()
+        resolved.relative_to(harness)
+    except (OSError, ValueError):
+        return None  # hors harnais : jamais concerne
+    try:
+        resolved.relative_to(root.resolve())
+        return None  # sous le projet : livrables, knowledge, depot auteur — editable
+    except (OSError, ValueError):
+        pass
+    return ("Ecriture refusee : la copie installée du harnais (hors du projet) est sa "
+            "liste protégée (pipeline.json, checks/, hooks/, script, agents, skills, "
+            "templates). Un agent n'édite pas les règles qui le jugent ; faire évoluer "
+            "le harnais dans son dépôt auteur, via /aidlc-core:improve ou "
+            "/aidlc-core:new-stage.")

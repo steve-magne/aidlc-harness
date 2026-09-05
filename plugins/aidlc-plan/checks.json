@@ -25,5 +25,10 @@
   "min_items_per_section": {
     "## Critères d'acceptation": 3,
     "## Contraintes": 2
-  }
+  },
+  "proof_of_run": [
+    "## Contexte",
+    "## Critères d'acceptation"
+  ],
+  "checks_do_not_self_reference": true
 }

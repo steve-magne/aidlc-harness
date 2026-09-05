@@ -12,7 +12,7 @@ date: <à remplir : AAAA-MM-JJ>
 
 ## Contexte
 
-<à remplir : d'où vient la demande, quel produit ou quel domaine métier, quel évènement déclencheur (incident, obligation réglementaire, demande client, opportunité), et ce qui existe déjà>
+<à remplir : d'où vient la demande, quel produit ou quel domaine métier, quel évènement déclencheur (incident, obligation réglementaire, demande client, opportunité), ce qui existe déjà, et au moins un fait mesuré chiffré avec sa source — par exemple « 42 % des dossiers repassent en saisie manuelle, mesuré sur le T3, source : SAP »>
 
 ## Problème
 

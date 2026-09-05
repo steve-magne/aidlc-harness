@@ -88,6 +88,17 @@ au projet consommateur), puis :
 - vise 250 à 2000 mots : en dessous, le cadrage est trop pauvre ; au-dessus, il déborde sur le
   Design.
 
+**Preuve d'exécution (règle `proof_of_run`)** — le contrat exige une valeur observée concrète
+(chiffre + unité, date, chemin, id, p95/p99) dans `## Contexte` **et** dans
+`## Critères d'acceptation`. Un Contexte qui affirme sans mesure, ou des critères qui
+reformulent l'attendu sans seuil, sont rejetés : citez le fait mesuré avec sa source dans le
+Contexte (ex. « 42 % des dossiers repassent en saisie manuelle, mesuré sur le T3, source :
+SAP ») et chiffrez chaque critère.
+
+**Holdout (règle `checks_do_not_self_reference`)** — ne citez jamais le contenu de votre
+`checks.json` dans le livrable : un extrait des règles de validation est détecté et rejeté. Le
+livrable s'écrit contre l'ouvrage, pas contre le mètre.
+
 Forme attendue d'un critère d'acceptation : « étant donné <situation>, quand <action>, alors
 <résultat observable, chiffré, avec son unité> ».
 
@@ -110,6 +121,8 @@ Les erreurs les plus fréquentes et leurs corrections :
 | Motif interdit | Un `TODO`, `TBD`, `XXX`, « à compléter » ou un marqueur `<à remplir : ... >` subsiste. |
 | Clé de frontmatter manquante | Complète le bloc `---` en tête : `stage`, `version`, `status`, `author`, `date`. |
 | Trop peu de puces | Ajoute de vraies puces (`-`) dans `## Contraintes` ou `## Critères d'acceptation` — pas de puce vide pour faire le compte. |
+| Preuve d'execution absente | Une section `proof_of_run` (`## Contexte`, `## Critères d'acceptation`) n'affiche aucune valeur observée (chiffre + unité, date, p95, id, chemin) : ajoute le fait mesuré et sa source, chiffre les critères. |
+| Holdout : citation du contrat | Une ligne du `checks.json` a été recopiée dans le livrable : reformule sans reprendre les règles, l'optimisation se fait contre le livrable. |
 | Livrable trop court (erreur) | Enrichis les sections pauvres : moins de 250 mots, le cadrage n'est pas exploitable par l'étape Design. |
 | Livrable long (avertissement) | Au-delà de 2000 mots le contrôle passe mais signale le débordement : coupe ce qui relève du Design. |
 

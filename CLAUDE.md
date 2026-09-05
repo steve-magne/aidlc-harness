@@ -49,8 +49,9 @@ knowledge/                    base de connaissance du dépôt (projet d'essai) �
                               (index.md, log.md, glossary.md, conventions.md, sources/)
 
 plugins/aidlc-core/           noyau : orchestrator, reviewer, librarian, aidlc.py, hooks, skills
-  pipeline.json                 source de vérité des étapes du SDLC (installé avec le plugin)
+  pipeline.json                 source de vérité des étapes du SDLC (installé avec le plugin ; bloc `watchdog` = seuils des détecteurs)
   checks/<stage>.json           contrats déterministes (miroirs des plugins d'étape)
+planchers figés               .aidlc/ratchet.json — planchers de sévérité (guard protégé)
 plugins/aidlc-<stage>/        une étape = un plugin (agent, skill, template, checks.json)
 
 deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR)
@@ -72,6 +73,8 @@ python3 $S gate plan                    # décide si l'étape est franchie (exit
 python3 $S review-request plan          # prépare le formulaire de revue humaine
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
 python3 $S scaffold design              # génère le plugin d'une nouvelle étape
+python3 $S ratchet                      # fige les planchers de sévérité des checks.json (exit 2 = régression)
+python3 $S watchdog                     # détecteurs de stagnation sur les journaux (exit 2 = halte)
 python3 $S check-okf knowledge          # conformité OKF v0.2 du bundle knowledge/ (exit 1 = non conforme)
 python3 $S check-python                 # tout Python compile (règle 6 ; exit 1 = erreur de syntaxe)
 python3 $S check-json                   # tout JSON parse (règle 6 ; exit 1 = JSON invalide)
@@ -100,10 +103,14 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
 3. **Aucune dépendance externe.** Bibliothèque standard Python uniquement (`json`, `os`, `sys`, `re`,
    `pathlib`, `argparse`, `datetime`, `uuid`, `subprocess`, `statistics`). Pas de `pip install`, pas
    de YAML, pas de framework de test.
-4. **`.aidlc/maturity.json` et `.aidlc/reviews/*.json` ne sont jamais édités à la main par un agent.**
-   Seuls `aidlc.py score` (pour les scores) et l'humain (pour les revues) y écrivent. Un hook
-   `PreToolUse` refuse activement ces écritures : c'est un garde-fou d'intégrité, pas une gêne à
-   contourner.
+4. **L'état runtime et le référentiel de règles ne sont jamais édités à la main par un agent.**
+   `.aidlc/maturity.json`, `.aidlc/reviews/*.json`, `.aidlc/ratchet.json`,
+   `.aidlc/improvement-queue.jsonl` et `.aidlc/logs/` ne sont écrits que par les scripts
+   (`score`, `ratchet`, hooks) et l'humain (revues). Un hook `PreToolUse` refuse activement ces
+   écritures, ainsi que toute écriture dans la **copie installée du harnais** hors du projet
+   (pipeline.json, checks/, hooks/, script, agents, skills, templates — la liste protégée) :
+   un agent n'édite pas les règles qui le jugent, ni sa propre note. C'est un garde-fou
+   d'intégrité, pas une gêne à contourner ; la conception du harnais vit dans le dépôt auteur.
 5. **Aucun placeholder non résolu** (`TODO`, `TBD`, `<à remplir>`, « lorem ») dans un fichier livré.
    Seule exception : les marqueurs entre chevrons des `templates/`, qui sont documentés comme tels.
 6. **Tout JSON doit parser, tout Python doit compiler** (`python3 -m py_compile`). Les chemins écrits

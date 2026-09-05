@@ -2,6 +2,12 @@
   "version": 1,
   "maturity_threshold": 4.0,
   "consecutive_runs_to_autonomy": 3,
+  "watchdog": {
+    "validation_failures_threshold": 5,
+    "write_loop_threshold": 6,
+    "rerun_threshold": 5,
+    "window": 60
+  },
   "stages": [
     {
       "id": "plan",

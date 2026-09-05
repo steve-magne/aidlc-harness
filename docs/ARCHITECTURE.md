@@ -113,6 +113,23 @@ fichier décrit, sans code, ce qu'un livrable acceptable doit contenir. Les règ
 | `required_patterns` | expressions régulières obligatoires |
 | `must_reference_inputs` | chaque entrée déclarée de l'étape doit être citée dans le texte |
 | `min_items_per_section` | nombre minimal de puces sous une section donnée |
+| `proof_of_run` | **preuve d'exécution** : les sections déclarées doivent citer une valeur observée concrète (chiffre + unité, date, chemin, p95/p99, id) — reformuler l'attendu sans la valeur constatée n'est pas une preuve |
+| `required_input_section` | chaque entrée doit être citée **dans une section précise** (`{"deliverables/plan/intent.md": "## Contexte"}`) — plus fort que `must_reference_inputs` |
+| `must_not_violate_scope` | le livrable doit reprendre les items « hors périmètre » du plan amont dans sa propre section de périmètre sans les contredire (configurable : `{ "section": "## Hors périmètre" }`) |
+| `checks_do_not_self_reference` | **holdout stdlib** : un livrable qui cite une ligne de son propre `checks.json` est rejeté — on optimise contre le livrable, pas contre le mètre |
+
+Quatre de ces règles (`proof_of_run`, `required_input_section`, `must_not_violate_scope`,
+`checks_do_not_self_reference`) sont héritées des mécanismes anti-dérive du « dark factory »
+(ai-software-factory) : *evidence not claims*, *scope like a protected boundary*, *holdout* —
+transposées en règles déclaratives, sans dépendance externe.
+
+L'étape `plan` (tranche verticale de référence) active dès maintenant la preuve d'exécution sur
+`## Contexte` et `## Critères d'acceptation` ainsi que le holdout
+`checks_do_not_self_reference` (source `plugins/aidlc-plan/checks.json`, miroir
+`plugins/aidlc-core/checks/plan.json`) : un `intent.md` doit citer un fait mesuré dans son
+Contexte, chiffrer ses critères, et ne jamais citer les lignes de son propre `checks.json`. Les
+règles `required_input_section` et `must_not_violate_scope` s'activeront avec les étapes qui ont
+des entrées amont (design et suivantes).
 
 Ajouter une exigence à une étape, c'est éditer un fichier JSON, pas écrire du Python. C'est le
 levier principal du self-improvement : une faiblesse récurrente détectée par le reviewer se
@@ -125,6 +142,7 @@ Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'e
 répertoire, un module par concern — `util` (racines et IO), `checks` (validation des livrables),
 `maturity` (scores, porte, revue), `scaffold`, `improve`, `hookslog`, `okf` (conformance et
 correctifs des bundles), `syntax` (hygiène du dépôt : tout Python compile, tout JSON parse),
+`ratchet` (planchers de sévérité figés), `watchdog` (détecteurs de stagnation),
 `selftest`, `commands` (gestionnaires de sous-commandes) et `cli`
 (parseur et dispatch). L'ensemble résout deux racines : le **projet consommateur**
 (`CLAUDE_PROJECT_DIR`, sinon le répertoire courant) pour les livrables et `.aidlc/`, et le
@@ -143,7 +161,10 @@ les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 | `review-request <stage>` | prépare le formulaire de revue humaine et affiche la consigne |
 | `status` | tableau de bord de l'avancement du pipeline |
 | `scaffold <stage>` | génère le plugin complet d'une étape déclarée mais non implémentée |
-| `improve` | agrège journaux, scores et refus en un diagnostic JSON |
+| `improve` | agrège journaux, scores, refus et haltes du watchdog en un diagnostic JSON |
+| `ratchet` | fige les planchers de sévérité des `checks.json` (min_words, min_items_per_section, required_sections) dans `.aidlc/ratchet.json` (protégé) et refuse toute régression ; `--reset <stage>` repart du contrat courant après décision humaine (geste auteur) ; exit 2 si violation |
+| `watchdog` | détecteurs de stagnation sur les journaux (acharnement sur livrable en échec, boucle d'écriture, rafale de relances) ; halte enregistrée dans la file d'amélioration (`kind: watchdog`) ; exit 2 si halte |
+| `watchdog-touched` | mode hook `PostToolUse` : diagnostic non bloquant après chaque écriture, muet sans détection |
 | `check-okf <dir>` | vérifie la conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet (`knowledge/`, et `docs/` s'il existe), non bloquant, retour en contexte |
 | `check-okf --stop` | mode hook `Stop` : porte de sortie — refuse la fermeture de session (deny) si un bundle du projet est non conforme, et enregistre le refus dans la file d'amélioration |
@@ -190,9 +211,18 @@ Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des ses
   écrit, car la syntaxe est sans état cross-fichier (un concept OKF sans frontmatter, lui,
   invalide tout son bundle) ; l'état complet du dépôt reste la porte dure `check-python` /
   `check-json` (exit 1) en ligne de commande et en CI.
+- `PostToolUse` sur `Write|Edit` appelle aussi `watchdog-touched` : un diagnostic de stagnation
+  non bloquant, muet sans détection. Le watchdog n'interrompt jamais une session qui travaille ;
+  il enregistre la halte dans la file d'amelioration, et la commande `aidlc.py watchdog` (ou la
+  CI) la rend visible avec exit 2.
 - `PreToolUse` sur `Write|Edit` appelle `guard`. Il refuse catégoriquement qu'un agent écrive
-  dans `.aidlc/maturity.json` ou dans `.aidlc/reviews/*.json`. Un modèle ne doit pas pouvoir
-  éditer sa propre note : l'intégrité de la mesure conditionne tout le reste.
+  dans `.aidlc/maturity.json`, dans `.aidlc/reviews/*.json`, dans `.aidlc/ratchet.json`, dans
+  `.aidlc/improvement-queue.jsonl` ou dans `.aidlc/logs/` — l'état runtime n'est écrit que par
+  les scripts. Il refuse aussi, en mode consommateur, toute écriture dans la **copie installée**
+  du harnais (hors du projet) : `pipeline.json`, `checks/`, `hooks/`, `scripts/`, agents,
+  skills, templates — c'est la **liste protégée**. Un modèle ne doit pas pouvoir éditer sa
+  propre note ni les règles qui le jugent : l'intégrité de la mesure conditionne tout le reste.
+  Dans le dépôt auteur (les deux racines confondues), la conception reste libre.
 
 Le journal est écrit sans jamais interrompre la session. Un hook qui casse une session coûte plus
 cher que l'absence de trace.
@@ -244,7 +274,8 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 .aidlc/logs/<session_id>.jsonl      journal des sessions
 .aidlc/maturity.json                historique des scores
 .aidlc/reviews/<stage>-<n>.json     revues humaines signées
-.aidlc/improvement-queue.jsonl      refus humains et leurs justifications
+.aidlc/improvement-queue.jsonl      refus humains, haltes du watchdog et refus du gate OKF
+.aidlc/ratchet.json                 planchers de sévérité figés (protégé par le guard)
 .aidlc/tmp/                         scratch, ignoré par git
 ```
 
@@ -447,7 +478,9 @@ instructions, à partir de ce que ses journaux montrent.
         |  justification
         v
  .aidlc/improvement-queue.jsonl
-        |
+        |                                      halte du watchdog (kind: watchdog)
+        |                                              (acharnement, boucle d'ecriture,
+        |                                               rafale de relances)
         |   + .aidlc/logs/*.jsonl     (nombre de tours, outils, relances)
         |   + .aidlc/maturity.json    (axes les plus faibles, tendances)
         v
@@ -496,6 +529,33 @@ Règle de répartition du correctif :
 Le script produit le diagnostic ; l'analyse fine et la proposition de correctif sont le travail de
 l'agent. Aucun correctif n'est appliqué sans accord humain explicite : la boucle propose, elle ne
 décide pas.
+
+### 7.1 Mécanismes anti-dérive
+
+Quatre mécanismes, hérités des principes du « dark factory » (ai-software-factory), rendent la
+confiance indépendante des prompts :
+
+1. **La liste protégée** — un agent ne peut pas écrire dans l'état runtime (score, revues,
+   ratchet, file, journaux) ni dans la copie installée du harnais (pipeline, contrats, hooks,
+   script, agents, skills, templates). Le hook `PreToolUse`/`guard` refuse ces écritures ; la
+   conception du harnais vit dans le dépôt auteur, où les deux racines se confondent.
+2. **Le ratchet** — `aidlc.py ratchet` fige les planchers de sévérité de chaque `checks.json`
+   (`min_words`, `min_items_per_section`, `required_sections`) dans `.aidlc/ratchet.json`
+   (protégé par le guard). Un plancher peut monter librement (durcir) ; le descendre est refusé
+   (exit 2) sauf `ratchet --reset <stage>`, geste explicite de l'auteur après décision humaine.
+   « Supprimer le contrôle » n'est pas une voie d'amélioration du score.
+3. **Le watchdog** — un tick n'a pas de mémoire. Trois détecteurs sur les journaux de session
+   (`_aidlc/watchdog.py`) arrêtent sur les formes de stagnation : acharnement sur un livrable qui
+   échoue encore à la validation (le moteur revalide, il ne devine pas), boucle d'écriture d'une
+   même session sur un même fichier, rafale de relances sur une même étape. Chaque halte est
+   enregistrée dans la file d'amélioration (`kind: watchdog`, dédoublonnée) et remonte dans le
+   diagnostic `improve` ; la reprise est un acte humain. En hook il est non bloquant ; en CI
+   (`aidlc.py watchdog`) il sort en 2.
+4. **Le holdout stdlib** — la règle déclarative `checks_do_not_self_reference` rejette un
+   livrable qui cite son propre `checks.json` : on optimise contre le livrable, jamais contre le
+   mètre. Combinée à `proof_of_run` (preuve d'exécution) et `must_not_violate_scope` (périmètre
+   du plan amont respecté), elle impose que la validation mesure le travail, pas la conformité
+   aux règles.
 
 ---
 

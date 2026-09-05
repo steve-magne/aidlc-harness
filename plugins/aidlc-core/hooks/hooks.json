@@ -1,5 +1,5 @@
 {
-  "description": "Harness AI-DLC : journalisation JSONL de toutes les sessions, validation automatique des livrables touchés, conformité OKF des bundles de connaissance et hygiène syntaxique (Python/JSON) des fichiers écrits à chaque écriture, porte de sortie de session, garde-fou d'intégrité sur les scores de maturité.",
+  "description": "Harness AI-DLC : journalisation JSONL de toutes les sessions, validation automatique des livrables touchés, conformité OKF des bundles de connaissance et hygiène syntaxique (Python/JSON) des fichiers écrits à chaque écriture, porte de sortie de session, garde-fou d'intégrité sur les scores de maturité et l'état runtime, watchdog de stagnation (haltes non bloquantes alimentant la boucle d'amélioration).",
   "hooks": {
     "SessionStart": [
       {
@@ -114,6 +114,16 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py\" check-json --touched",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py\" watchdog-touched",
             "timeout": 10
           }
         ]

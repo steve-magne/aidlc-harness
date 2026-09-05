@@ -20,6 +20,8 @@ from .commands import cmd_check_okf
 from .commands import cmd_check_python
 from .commands import cmd_guard
 from .commands import cmd_log
+from .commands import cmd_ratchet
+from .commands import cmd_watchdog
 from .maturity import compute_autonomy
 from .util import ensure_dir
 from .maturity import gate_stage
@@ -41,7 +43,12 @@ from .maturity import review_request
 from .scaffold import scaffold
 from .maturity import status_data
 from .checks import validate_stage
+from .ratchet import ratchet_reset
+from .ratchet import ratchet_run
+from .util import read_text
+from .util import read_text as _rt
 from .util import write_json
+from .watchdog import watchdog_check
 """Auto-test par assertions du moteur (--selftest) — le seul test du projet."""
 
 # ------------------------------------------------------------------------ selftest
@@ -619,6 +626,326 @@ def selftest() -> int:
               "check-json --touched doit signaler le .json fautif sans casser la session")
         check("broken.py" not in good_py_ctx and "clean/ok.py" not in good_py_ctx,
               "le controle --touched doit etre limite au fichier ecrit, sans scan du depot")
+
+        # 30. preuve d'execution (evidence, not claims) : une section declaree preuve
+        #     doit citer une valeur observee concrete ; reformuler l'attendu echoue.
+        proof_checks = dict(SELFTEST_CHECKS)
+        proof_checks["proof_of_run"] = ["## Criteres d'acceptation"]
+        write_json(root / "checks/design.json", proof_checks)
+        intent.write_text(_doc(GOOD_SECTIONS), encoding="utf-8")
+        fail_sections = dict(GOOD_SECTIONS)
+        fail_sections["## Contexte"] = "Conception sans valeur observee, seulement des intentions."
+        fail_sections["## Criteres d'acceptation"] = ("- Le systeme doit repondre dans les temps.\n"
+                                                       "- L'interface doit etre claire.\n"
+                                                       "- La documentation doit etre complete.")
+        spec.write_text(_doc(fail_sections,
+                             front={"stage": "design", "version": "1", "status": "draft",
+                                    "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
+        res = validate_stage(root, pipe, "design")
+        check(any("Preuve d'execution absente" in e for e in res["errors"]),
+              f"proof_of_run doit rejeter une section sans valeur observee ({res['errors']})")
+        pass_sections = dict(fail_sections)
+        pass_sections["## Contexte"] = "Conception issue de deliverables/plan/intent.md."
+        pass_sections["## Criteres d'acceptation"] = (
+            "- p95 mesure a 420 ms sous 200 r/s sur le run 1.\n"
+            "- Couverture de tests portee a 80 %.\n"
+            "- Latence mediane observee : 120 ms.")
+        spec.write_text(_doc(pass_sections,
+                             front={"stage": "design", "version": "1", "status": "draft",
+                                    "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
+        res = validate_stage(root, pipe, "design")
+        check(res["ok"], f"proof_of_run doit accepter une valeur observee ({res['errors']})")
+
+        # 31. holdout : le livrable ne cite pas les lignes de son propre checks.json.
+        holdout_checks = dict(SELFTEST_CHECKS)
+        holdout_checks["checks_do_not_self_reference"] = True
+        write_json(root / "checks/design.json", holdout_checks)
+        leaked = '    "min_words": 60,'
+        spec.write_text(_doc(
+            {"## Contexte": f"Contrat vise : {leaked} (extrait du checks.json)."},
+            front={"stage": "design", "version": "1", "status": "draft",
+                   "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
+        res = validate_stage(root, pipe, "design")
+        check(any("Holdout" in e for e in res["errors"]),
+              "checks_do_not_self_reference doit detecter la citation du metre")
+        spec.write_text(_doc(
+            {"## Contexte": "Conception honnete, aucune regle de validation citee."},
+            front={"stage": "design", "version": "1", "status": "draft",
+                   "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
+        check(not any("Holdout" in e for e in validate_stage(root, pipe, "design")["errors"]),
+              "un livrable honnete ne declenche pas le holdout")
+
+        # 32. perimetre : l'item hors perimetre du plan reste exclu dans le livrable aval.
+        scope_checks = dict(SELFTEST_CHECKS)
+        scope_checks["must_not_violate_scope"] = {"section": "## Hors perimetre"}
+        scope_checks["required_sections"] = ["## Contexte", "## Hors perimetre"]
+        write_json(root / "checks/design.json", scope_checks)
+        plan_scope = dict(GOOD_SECTIONS)
+        plan_scope["## Hors perimetre"] = "- Facturation a l'unite.\n- Intégration ERP."
+        intent.write_text(_doc(plan_scope), encoding="utf-8")
+        # aval qui viole le perimetre : l'item est present sans marque d'exclusion
+        spec.write_text(_doc(
+            {"## Contexte": "Conception incluant la facturation a l'unite.\n\n"
+                            "## Hors perimetre\nRien de plus a exclure."},
+            front={"stage": "design", "version": "1", "status": "draft",
+                   "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
+        res = validate_stage(root, pipe, "design")
+        check(any("Perimetre : l'item" in e for e in res["errors"]),
+              "must_not_violate_scope doit detecter la violation d'un item du plan")
+        # aval honnete : l'item est rappele explicitement exclu
+        honest_sections = dict(GOOD_SECTIONS)
+        honest_sections["## Contexte"] = "Conception issue de deliverables/plan/intent.md, sans la facturation."
+        honest_sections["## Hors perimetre"] = ("- Facturation a l'unite : exclu, reporte.\n"
+                                                 "- Intégration ERP : non couvert par cette version.")
+        spec.write_text(_doc(honest_sections,
+                             front={"stage": "design", "version": "1", "status": "draft",
+                                    "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
+        res = validate_stage(root, pipe, "design")
+        check(res["ok"], f"le perimetre respecte doit passer ({res['errors']})")
+        # restaure le plan sans section hors perimetre pour les tests suivants
+        intent.write_text(_doc(GOOD_SECTIONS), encoding="utf-8")
+
+        # 33. liste protégée : le guard refuse maturity.json, revues, ratchet, file,
+        #     journaux, et — hors depot auteur — la copie installée du harnais.
+        reason = guard_decision(root, json.dumps(
+            {"tool_name": "Write", "tool_input": {"file_path": str(aidlc_dir(root) / "ratchet.json")}}))
+        check(reason is not None and "ratchet" in reason,
+              "guard doit refuser l'ecriture directe de .aidlc/ratchet.json")
+        reason = guard_decision(root, json.dumps(
+            {"tool_name": "Edit", "tool_input": {"file_path": str(aidlc_dir(root) / "improvement-queue.jsonl")}}))
+        check(reason is not None and "amelioration" in reason,
+              "guard doit refuser l'edition de la file d'amelioration")
+        reason = guard_decision(root, json.dumps(
+            {"tool_name": "Write", "tool_input": {"file_path": str(aidlc_dir(root) / "logs" / "x.jsonl")}}))
+        check(reason is not None and "journaux" in reason,
+              "guard doit refuser l'edition des journaux de session")
+        # depot auteur (le harnais vit sous le projet) : la conception reste possible
+        reason = guard_decision(root, json.dumps(
+            {"tool_name": "Write", "tool_input": {"file_path": str(root / "pipeline.json")}}))
+        check(reason is None, "le depot auteur reste editable (les deux racines confondues)")
+        # projet consommateur : la copie installée est protegee entierement
+        consumer2 = root / "consumer-guard"
+        ensure_dir(consumer2)
+        reason = guard_decision(consumer2, json.dumps(
+            {"tool_name": "Write", "tool_input": {"file_path": str(root / "pipeline.json")}}))
+        check(reason is not None and "liste protégée" in reason,
+              "guard doit refuser l'edition de la copie installée depuis un consommateur")
+        reason = guard_decision(consumer2, json.dumps(
+            {"tool_name": "Write", "tool_input": {"file_path": str(consumer2 / "deliverables" / "x.md")}}))
+        check(reason is None, "guard ne bloque pas les livrables du projet consommateur")
+        check(cmd_guard(root, "pas du json") == 0, "guard reste robuste sur une entree cassee")
+
+        # 34. ratchet : figeage au premier passage, regression refusee, reset explicite.
+        #     Design est d'abord rattrape sur le contrat courant (geste auteur, reset
+        #     explicite) pour que le figeage de depart soit celui des planchers simples.
+        write_json(root / "checks/design.json", proof_checks)
+        saved_out, sys.stdout = sys.stdout, io.StringIO()
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            code_base = cmd_ratchet(root, argparse.Namespace(reset=None))
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(code_base == 0, "le premier passage du ratchet doit figer (exit 0)")
+        ratchet_reset(root, pipe, "design")
+        check((aidlc_dir(root) / "ratchet.json").exists(), "l'etat du ratchet doit etre ecrit")
+        # regression : min_words descendu -> exit 2
+        regressed = dict(proof_checks)
+        regressed["min_words"] = 10
+        write_json(root / "checks/design.json", regressed)
+        saved_out, sys.stdout = sys.stdout, io.StringIO()
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            code_regressed = cmd_ratchet(root, argparse.Namespace(reset=None))
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(code_regressed == 2, "le ratchet doit refuser un plancher descendu (exit 2)")
+        state = json.loads(read_text(aidlc_dir(root) / "ratchet.json"))
+        check(state["stages"]["design"]["min_words"] == 60,
+              "le plancher fige ne doit pas suivre la regression (60 conserve)")
+        # durcissement libre : remonter min_words passe, et releve le plancher fige
+        hardened = dict(regressed)
+        hardened["min_words"] = 90
+        write_json(root / "checks/design.json", hardened)
+        saved_out, sys.stdout = sys.stdout, io.StringIO()
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            code_hardened = cmd_ratchet(root, argparse.Namespace(reset=None))
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(code_hardened == 0, "durcir un plancher doit passer sans reset")
+        state = json.loads(read_text(aidlc_dir(root) / "ratchet.json"))
+        check(state["stages"]["design"]["min_words"] == 90,
+              "le figeage doit suivre le durcissement (90)")
+        # reset explicite d'une etape : repart du checks.json courant (geste auteur)
+        write_json(root / "checks/design.json", dict(regressed))
+        reset_out = io.StringIO()
+        saved_out, sys.stdout = sys.stdout, reset_out
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            code_reset = cmd_ratchet(root, argparse.Namespace(reset="design"))
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(code_reset == 0, "le reset explicite doit repartir du checks.json courant")
+        state = json.loads(read_text(aidlc_dir(root) / "ratchet.json"))
+        check(state["stages"]["design"]["min_words"] == 10 and "reset_at" in state["stages"]["design"],
+              "apres reset, le plancher vaut l'etat courant et porte la trace reset_at")
+        write_json(root / "checks/design.json", proof_checks)
+        saved_out, sys.stdout = sys.stdout, io.StringIO()
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            code_restored = cmd_ratchet(root, argparse.Namespace(reset=None))
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(code_restored == 0, "retour au-dessus des planchers : exit 0")
+        check(ratchet_run(root, pipe)["passed"], "ratchet_run doit rapporter passed")
+        try:
+            ratchet_reset(root, pipe, "inconnue")
+            check(False, "le reset d'une etape inconnue doit echouer")
+        except ValueError:
+            check(True, "le reset d'une etape inconnue leve ValueError")
+
+        # 35. watchdog : haltes enregistrees dans la file (kind: watchdog), dedoublonnees,
+        #     remontees par improve ; muet en hook sans detection (watchdog-touched).
+        from .util import sanitize_session_id
+        sess = "sess-watch"
+        (aidlc_dir(root) / "logs").mkdir(parents=True, exist_ok=True)
+        log_path = aidlc_dir(root) / "logs" / f"{sess}.jsonl"
+        intent.write_text(_doc(GOOD_SECTIONS))
+        lines = []
+        # 6 ecritures du livrable design (en echec ci-dessous) par la meme session
+        for _ in range(6):
+            lines.append(json.dumps({
+                "ts": f"2026-09-04T10:00:{len(lines):02d}",
+                "event": "PostToolUse", "session_id": sess, "stage": "design",
+                "payload": {"tool_name": "Write",
+                            "tool_input": {"file_path": str(spec.resolve())}}}))
+        log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # le livrable design echoue la validation : acharnement detecte
+        spec.write_text("pas un livrable conforme\n", encoding="utf-8")
+        result = watchdog_check(root, pipe)
+        check(result["halted"], "le watchdog doit halter sur l'acharnement + boucle d'ecriture")
+        detectors = {d["detector"] for d in result["detections"]}
+        check("validation_failures" in detectors and "write_loop" in detectors,
+              f"les detecteurs validation_failures et write_loop doivent tirer ({detectors})")
+        queue_text = read_text(aidlc_dir(root) / "improvement-queue.jsonl")
+        check(queue_text.count('"kind": "watchdog"') >= 2,
+              "les haltes doivent alimenter la file d'amelioration")
+        # rejoue : dedoublonnage
+        watchdog_check(root, pipe)
+        queue_text = read_text(aidlc_dir(root) / "improvement-queue.jsonl")
+        check(queue_text.count('"kind": "watchdog"') == queue_text.count('"kind": "watchdog"'),
+              "le rejoue du watchdog ne doit pas dupliquer (dedoublonnage)")
+        diag = improve(root, pipe)
+        check(len(diag["watchdog"]["halts"]) >= 2,
+              "improve doit remonter les haltes du watchdog")
+        # rafale de relances : 5 UserPromptSubmit sur la meme etape
+        rerun_lines = [json.dumps({
+            "ts": f"2026-09-04T11:00:{i:02d}", "event": "UserPromptSubmit",
+            "session_id": sess, "stage": "design", "payload": {"prompt": "continuer"}})
+            for i in range(5)]
+        log_path.write_text("\n".join(lines + rerun_lines) + "\n", encoding="utf-8")
+        result = watchdog_check(root, pipe)
+        check(any(d["detector"] == "rerun_storm" for d in result["detections"]),
+              "le detecteur rerun_storm doit tirer sur 5 relances")
+        # hook muet sans detection : root propre, watchdog-touched ne doit rien emettre
+        clean_root = root / "clean-watch"
+        ensure_dir(clean_root)
+        hooked = io.StringIO()
+        saved_out, sys.stdout = sys.stdout, hooked
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            from .commands import cmd_watchdog_touched
+            code_touched = cmd_watchdog_touched(clean_root, argparse.Namespace())
+            touched_silent = hooked.getvalue() == ""
+            code_watch_bad = cmd_watchdog(root, argparse.Namespace())
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(code_touched == 0 and touched_silent,
+              "watchdog-touched doit rester muet sans detection (exit 0)")
+        check(code_watch_bad == 2, "la commande watchdog doit sortir 2 sur halte")
+        # restaure l'etat pour les assertions suivantes eventuelles
+        spec.write_text(_doc(
+            {"## Contexte": "Mesure du run 1 : p95 420 ms a 200 r/s."},
+            front={"stage": "design", "version": "1", "status": "draft",
+                   "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
+
+        # 36. Le contrat reel de l'etape plan (miroir plugins/aidlc-core/checks/plan.json)
+        #     porte les regles anti-derive adoptees : preuve d'execution (Contexte et
+        #     Criteres d'acceptation) et holdout (checks_do_not_self_reference). Un
+        #     intent conforme passe ; une section sans valeur observee echoue ; citer
+        #     une ligne du contrat echoue. Ce bloc garde l'adoption elle-meme : si les
+        #     regles sortent du checks.json de plan, l'assertion de presence casse.
+        real_checks_path = _repo_root() / "plugins/aidlc-core/checks/plan.json"
+        check(real_checks_path.exists(), "le miroir checks/plan.json doit exister")
+        real_checks = json.loads(read_text(real_checks_path))
+        check("proof_of_run" in real_checks and "checks_do_not_self_reference" in real_checks,
+              "le contrat de l'etape plan doit porter proof_of_run et checks_do_not_self_reference")
+        check(real_checks["proof_of_run"] == ["## Contexte", "## Critères d'acceptation"],
+              "proof_of_run de plan doit cibler Contexte et Criteres d'acceptation")
+        write_json(root / "checks/plan.json", real_checks)
+        plan_intent = {
+            "## Contexte": ("Demande issue du comite produit 2026-09-01 ; 42 % des dossiers "
+                            "repassent en saisie manuelle (mesure SAP du T3)."),
+            "## Problème": "Le cadrage des demandes est lent et sans trace.",
+            "## Utilisateurs impactés": "Les equipes produit, les mainteneurs et la conformite.",
+            "## Solution proposée": "Un pipeline agentique a portes deterministes.",
+            "## Contraintes": "- Python stdlib seulement.\n- Aucune dependance externe.",
+            "## Critères d'acceptation": ("- p95 < 300 ms sur le run 2.\n"
+                                          "- Couverture des tests portee a 80 %.\n"
+                                          "- 100 % de conformite OKF v0.2."),
+            "## Hors périmètre": "- Facturation a l'unite.\n- Integration de l'ERP.",
+            "## Sources et références": ("Source : knowledge/conventions.md ; entretien P.O. "
+                                         "du 2026-09-02."),
+        }
+        intent.write_text(_doc(plan_intent, filler=8), encoding="utf-8")
+        res = validate_stage(root, pipe, "plan")
+        check(res["ok"], f"l'intent conforme au contrat reel plan doit passer ({res['errors'][:3]})")
+        # sans valeur observee dans Contexte : la preuve d'execution echoue
+        weak_context = dict(plan_intent)
+        weak_context["## Contexte"] = "La demande vient de plusieurs equipes, sans mesure ni source."
+        intent.write_text(_doc(weak_context, filler=8), encoding="utf-8")
+        res = validate_stage(root, pipe, "plan")
+        check(any("Preuve d'execution absente" in e and "## Contexte" in e
+                  for e in res["errors"]),
+              "proof_of_run doit exiger une valeur observee dans le Contexte")
+        # criteres non chiffres : la preuve d'execution echoue aussi sur les criteres
+        vague_criteria = dict(plan_intent)
+        vague_criteria["## Critères d'acceptation"] = ("- Le systeme doit repondre rapidement.\n"
+                                                        "- L'interface doit etre claire.\n"
+                                                        "- La documentation doit etre complete.")
+        intent.write_text(_doc(vague_criteria, filler=8), encoding="utf-8")
+        res = validate_stage(root, pipe, "plan")
+        check(any("Preuve d'execution absente" in e and "## Critères d'acceptation" in e
+                  for e in res["errors"]),
+              "proof_of_run doit exiger des criteres chiffres")
+        # holdout : citer une ligne du contrat reel fait echouer
+        overflow = dict(plan_intent)
+        overflow["## Sources et références"] = (
+            'Contrat vise : "min_words": 250, (extrait du checks.json).')
+        intent.write_text(_doc(overflow, filler=8), encoding="utf-8")
+        res = validate_stage(root, pipe, "plan")
+        check(any("Holdout" in e for e in res["errors"]),
+              "checks_do_not_self_reference doit rejeter un intent qui cite son contrat")
+        # restaure l'intent conforme
+        intent.write_text(_doc(plan_intent, filler=8), encoding="utf-8")
 
     if saved_harness is None:
         os.environ.pop("AIDLC_HARNESS_ROOT", None)

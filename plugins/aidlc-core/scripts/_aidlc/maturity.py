@@ -107,12 +107,13 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
     return record
 
 
-def enqueue_improvement(root: Path, item: dict, dedupe_keys: tuple) -> None:
+def enqueue_improvement(root: Path, item: dict, dedupe_keys: tuple) -> bool:
     """Seul ecrivain de .aidlc/improvement-queue.jsonl : ajoute item sauf si une entree
     existante du meme `kind` possede deja les memes valeurs sur `dedupe_keys`. Les refus
-    humains (kind absent, dedupe stage/run) et ceux du gate OKF (kind okf_stop, dedupe
-    session/bundle/fichiers) partagent cette unique politique — le kind les distingue.
-    """
+    humains (kind absent, dedupe stage/run), ceux du gate OKF (kind okf_stop, dedupe
+    session/bundle/fichiers) et les haltes du watchdog (kind watchdog, dedupe
+    detector/stage/file/session) partagent cette unique politique — le kind les distingue.
+    Retourne True si une entree a ete ajoutee, False si elle etait un doublon."""
     kind = item.get("kind")
     path = aidlc_dir(root) / "improvement-queue.jsonl"
     ensure_dir(path.parent)
@@ -125,9 +126,10 @@ def enqueue_improvement(root: Path, item: dict, dedupe_keys: tuple) -> None:
             if existing.get("kind") != kind:
                 continue
             if all(existing.get(key) == item.get(key) for key in dedupe_keys):
-                return
+                return False
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+    return True
 
 
 # ---------------------------------------------------------------------------- gate

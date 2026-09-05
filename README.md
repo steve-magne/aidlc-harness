@@ -145,15 +145,38 @@ claude --plugin-dir plugins/aidlc-core --plugin-dir plugins/aidlc-plan
    exigée à chaque passage.
 
 6. **Auto-amélioration.** Un refus humain copie sa justification dans
-   `.aidlc/improvement-queue.jsonl`, et un refus du gate OKF de sortie (bundle non conforme, hook
-   `Stop`) y dépose ses erreurs et la session concernée. `aidlc.py improve` agrège les logs de
-   sessions, l'historique de maturité et cette file, et produit un diagnostic JSON — pour les
-   refus du gate, il corrèle la session fautive et propose un correctif vérifié en mémoire —
-   frontmatter d'un concept, ou entrées manquantes du sommaire `index.md` (concepts orphelins).
-   La skill `/aidlc-core:improve` lit ce diagnostic et **propose** un diff sur le
+   `.aidlc/improvement-queue.jsonl`, un refus du gate OKF de sortie (bundle non conforme, hook
+   `Stop`) y dépose ses erreurs et la session concernée, et une halte du **watchdog** (boucle de
+   stagnation détectée dans les journaux) y dépose la forme du blocage. `aidlc.py improve` agrège
+   les logs de sessions, l'historique de maturité et cette file, et produit un diagnostic JSON —
+   pour les refus du gate, il corrèle la session fautive et propose un correctif vérifié en
+   mémoire — frontmatter d'un concept, ou entrées manquantes du sommaire `index.md` (concepts
+   orphelins). La skill `/aidlc-core:improve` lit ce diagnostic et **propose** un diff sur le
    `SKILL.md`, le template, le `checks.json` de l'étape faible, ou le concept `knowledge/` fautif.
    Elle ne l'applique jamais sans accord explicite, et elle corrige la **source** du harnais,
    jamais la copie installée.
+
+### Anti-dérive (mécanismes du « dark factory »)
+
+Le harnais s'inspire des principes d'`ai-software-factory` pour que la confiance ne dépende pas
+uniquement des prompts :
+
+- **Preuve d'exécution** — règles déclaratives `proof_of_run` (une section doit citer des valeurs
+  observées, pas reformuler l'attendu), `required_input_section` (citer chaque entrée dans la
+  section prévue), `must_not_violate_scope` (le livrable respecte le hors périmètre du plan
+  amont) et `checks_do_not_self_reference` (holdout : un livrable qui cite son propre
+  `checks.json` est rejeté).
+- **Liste protégée** — le hook `guard` refuse l'écriture dans `.aidlc/` (score, revues, ratchet,
+  file, journaux) et dans la copie installée du harnais (pipeline, contrats, hooks, script,
+  agents, skills, templates) : un agent n'édite pas les règles qui le jugent.
+- **Ratchet** — `aidlc.py ratchet` fige les planchers de sévérité des `checks.json`
+  (`.aidlc/ratchet.json`, protégé) et refuse toute régression ; `ratchet --reset <stage>` est le
+  geste explicite de l'auteur après décision humaine.
+- **Watchdog** — `aidlc.py watchdog` détecte sur les journaux les formes de stagnation
+  (acharnement sur livrable en échec, boucle d'écriture, rafale de relances), enregistre chaque
+  halte (`kind: watchdog`) qui alimente `improve`, et sort en 2 en CI ; le hook `watchdog-touched`
+  le branche non bloquant à chaque écriture. Seuils configurables dans le bloc `watchdog` de
+  `pipeline.json`.
 
 ### Grille de maturité
 

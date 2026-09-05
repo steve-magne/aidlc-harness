@@ -269,6 +269,9 @@ python3 plugins/aidlc-core/scripts/aidlc.py check-python           # tout Python
 python3 plugins/aidlc-core/scripts/aidlc.py check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage>       # génère le plugin d'une étape planned
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage> --force   # écrase et régénère
+python3 plugins/aidlc-core/scripts/aidlc.py ratchet                # fige les planchers de sévérité des checks.json (exit 2 = régression)
+python3 plugins/aidlc-core/scripts/aidlc.py ratchet --reset <stage>  # repart du contrat courant après décision humaine
+python3 plugins/aidlc-core/scripts/aidlc.py watchdog                # détecteurs de stagnation sur les journaux (exit 2 = halte)
 python3 plugins/aidlc-core/scripts/aidlc.py --selftest             # auto-test (doit passer avant chaque release)
 claude plugin validate plugins/aidlc-core                          # validité des plugins pour Claude Code
 claude plugin validate plugins/aidlc-<stage>
