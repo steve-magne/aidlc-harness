@@ -108,6 +108,16 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
     verdict = review.get("verdict")
     if verdict not in ("accepted", "rejected"):
         verdict = "accepted" if overall >= threshold else "rejected"
+    # Plancher par axe : une moyenne flatteuse ne rachete pas un axe effondre. Un
+    # livrable complet, precis et rapide mais sans aucune tracabilite reste un livrable
+    # qu'on ne peut pas auditer — et il servira d'entree a toute l'aval. La regle etait
+    # ecrite dans le prompt du reviewer et nulle part dans le moteur : un reviewer
+    # complaisant (ou un modele qui derive) la contournait sans que rien ne le voie.
+    # C'est le moteur qui la tient, pas la consigne.
+    floor = float(pipe.get("min_axis_score", 3.0))
+    weak = [axis for axis in AXES if float(scores[axis]) < floor]
+    if weak:
+        verdict = "rejected"
 
     maturity = load_maturity(root)
     entry = stage_maturity(maturity, stage_id)
@@ -119,6 +129,7 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
         "overall": overall,
         "verdict": verdict,
         "human_review": None,
+        "weak_axes": weak,
         "findings": truncate(review.get("findings", [])),
         "recommendations": truncate(review.get("recommendations", [])),
         "inputs": input_digests(root, registry.find_agent(stage_id)),
@@ -201,6 +212,14 @@ def gate_stage(root: Path, pipe: dict, stage_id: str) -> dict:
         out["blocking"].append(
             f"Maturite {last.get('overall')} sous le seuil {threshold}."
         )
+    weak = last.get("weak_axes") or []
+    if weak:
+        floor = float(pipe.get("min_axis_score", 3.0))
+        out["weak_axes"] = weak
+        out["blocking"].append(
+            "Axe sous le plancher {} : {} — une moyenne suffisante ne rachete pas un "
+            "axe effondre.".format(floor, ", ".join(
+                f"{axis}={last['scores'][axis]}" for axis in weak)))
 
     stale = stale_inputs(root, stage, last)
     if stale:

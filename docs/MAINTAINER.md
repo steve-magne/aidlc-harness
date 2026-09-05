@@ -125,6 +125,11 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 3. **`skills/<stage>/SKILL.md`** — la recette : questions à poser au métier, structure attendue,
    obligation de citer les entrées, et remise de la validation à l'orchestrateur (le plugin
    d'étape n'appelle pas `aidlc.py` lui-même).
+3bis. **`review.md`** — la rubrique de revue de votre équipe : ce que `completeness`, `precision`,
+   `traceability` et `autonomy` veulent dire **pour ce métier**, et les fautes rédhibitoires qui
+   imposent un rejet quelle que soit la moyenne. Elle précise et durcit la grille universelle du
+   reviewer, jamais l'inverse : vous ne pouvez ni changer le barème, ni relever un plafond, ni
+   contourner le plancher par axe (voir [ARCHITECTURE](ARCHITECTURE.md) §5.6 et l'ADR-0005).
 4. **`agents/<stage>-analyst.md`** — le profil de l'interlocuteur (ne devine pas, interroge le
    `librarian`, refuse la solution technique si le rôle l'exige).
 5. **`knowledge/` (bundle OKF)** — versez les sources de vérité citées pendant l'entretien

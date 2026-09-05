@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "plan",
   "team": "Produit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cadre le besoin avec le Product Owner et produit l'intention : probleme, utilisateurs impactes, solution proposee, criteres d'acceptation testables.",
   "capabilities": [
     "sdlc:plan",
@@ -16,5 +16,6 @@
   "produces": "deliverables/plan/intent.md",
   "consumes": [],
   "checks": "checks.json",
+  "review": "review.md",
   "human_role": "Product Owner / Business Analyst"
 }

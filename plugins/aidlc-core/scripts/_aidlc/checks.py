@@ -419,6 +419,12 @@ def contract_problems(stage: dict) -> list:
     # ponytail: seules les sections sont confrontees — un gabarit est court et plein de
     # marqueurs, il ne peut satisfaire ni min_words ni forbidden_patterns.
     root = stage.get("root")
+    if root and stage.get("review"):
+        rubric = Path(root) / stage["review"]
+        if not rubric.is_file():
+            problems.append(
+                f"{manifest} : rubrique de revue introuvable ({stage['review']}) — "
+                "le reviewer noterait cette etape a la grille universelle sans le dire.")
     if root and declared:
         template = Path(root) / "templates" / Path(stage["produces"]).name
         if template.is_file():
