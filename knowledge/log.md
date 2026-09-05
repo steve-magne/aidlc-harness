@@ -1,5 +1,8 @@
 # Journal de la base de connaissance
 
+## 2026-09-05
+* **Contrat de l'étape plan durci** : le `checks.json` de Plan exige désormais une preuve d'exécution (`proof_of_run` sur `## Contexte` et `## Critères d'acceptation`) et active le holdout (`checks_do_not_self_reference`) — pour produire un `intent.md` acceptable, il faut citer dans le Contexte un fait mesuré chiffré avec sa source (date, unité, id, p95), rédiger chaque critère d'acceptation avec un seuil testable, et ne jamais reprendre les lignes du contrat dans le livrable. La recette de l'étape (`plugins/aidlc-plan/skills/plan/SKILL.md`) et le squelette (`templates/intent.md`) intègrent ces exigences ; les livrables existants qui ne les respectaient pas doivent être complétés avant la prochaine validation.
+
 ## 2026-09-04
 * **Syntaxe contrôlée à l'écriture** : les hooks `PostToolUse` du noyau appellent `check-python --touched` et `check-json --touched` — tout fichier `.py`/`.json` écrit par un agent est compilé/parsé au fil de l'eau (contexte additionnel, non bloquant) ; la porte dure de l'état complet reste `check-python`/`check-json` en CI (guide auteur §2.5). ARCHITECTURE (§3.4) décrit le branchement.
 * **Hygiène du dépôt** : le moteur du harnais expose `check-python` (tout Python compile, `py_compile`, rien n'est écrit) et `check-json` (tout JSON parse) — portes dures des règles non négociables du dépôt, en CI et avant chaque release (guide auteur §2.5) ; rapport JSON sur stdout, exit 1 si fichier fautif. ARCHITECTURE (§3.3) et le README du noyau documentent les sous-commandes.

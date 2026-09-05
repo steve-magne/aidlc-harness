@@ -85,6 +85,7 @@ def improve(root: Path, pipe: dict, stage_filter=None) -> dict:
 
     rejections = []
     okf_refusals = []
+    watchdog_halts = []
     queue_path = aidlc_dir(root) / "improvement-queue.jsonl"
     if queue_path.exists():
         for line in read_text(queue_path).splitlines():
@@ -96,6 +97,11 @@ def improve(root: Path, pipe: dict, stage_filter=None) -> dict:
                 # Refus du gate OKF de sortie : il alimente la section "okf" du
                 # diagnostic, pas les refus humains d'etape.
                 okf_refusals.append(item)
+                continue
+            if item.get("kind") == "watchdog":
+                # Haltes du watchdog : elles forment leur propre section du diagnostic —
+                # la forme du blocage y est decrite, la reprise humaine est le remede.
+                watchdog_halts.append(item)
                 continue
             if stage_filter and item.get("stage") != stage_filter:
                 continue
@@ -144,6 +150,11 @@ def improve(root: Path, pipe: dict, stage_filter=None) -> dict:
         "recurring_errors": sorted(error_counts.items(), key=lambda kv: -kv[1])[:10],
         "maturity": maturity_out,
         "human_rejections": rejections,
+        "watchdog": {
+            # haltes enregistrees par le watchdog (kind: watchdog) : la forme du blocage,
+            # la session et l'etape concernees — la reprise humaine est le remede.
+            "halts": watchdog_halts,
+        },
         "okf": {
             # refus enregistres par le hook Stop (check-okf --stop), enrichis de la
             # session fautive quand les journaux la montrent ;

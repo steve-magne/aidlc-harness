@@ -11,7 +11,9 @@ les consommateurs utilisent : ${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py.
 Contrat public (inchange) : sorties machine en JSON sur stdout, messages humains sur
 stderr ; sous-commandes log, guard, validate, score, gate, review-request, status,
 scaffold, improve, check-okf (<dir>, --touched, --stop), check-python et check-json
-(hygiene syntaxique du depot : tout Python compile, tout JSON parse), plus --selftest.
+(hygiene syntaxique du depot : tout Python compile, tout JSON parse), ratchet (planchers
+de severite figures) et watchdog (detecteurs de stagnation, plus watchdog-touched en
+hook PostToolUse), plus --selftest.
 """
 
 import os

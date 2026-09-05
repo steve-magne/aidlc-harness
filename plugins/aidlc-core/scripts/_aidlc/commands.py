@@ -6,10 +6,14 @@ import select
 import sys
 
 from .okf import PROJECT_OKF_BUNDLES
+from .ratchet import ratchet_reset
+from .ratchet import ratchet_run
 from .syntax import _json_problem
 from .syntax import _python_problem
 from .syntax import json_report
 from .syntax import python_report
+from .watchdog import watchdog_check
+from .watchdog import watchdog_touched
 from pathlib import Path
 from .util import emit
 from .maturity import gate_stage
@@ -199,6 +203,58 @@ def cmd_scaffold(root: Path, args) -> int:
 
 def cmd_improve(root: Path, args) -> int:
     emit(improve(root, load_pipeline(), args.stage))
+    return 0
+
+
+def cmd_ratchet(root: Path, args) -> int:
+    """Ratchet (inspire du dark factory) : fige les planchers de severite des checks.json
+    (min_words, min_items_per_section, required_sections) au premier passage, refuse
+    ensuite toute regression. --reset <stage> est le geste explicite de l'auteur du
+    harnais pour repartir de l'etat courant d'une etape (assouplissement legal)."""
+    pipe = load_pipeline()
+    if getattr(args, "reset", None):
+        try:
+            emit(ratchet_reset(root, pipe, args.reset))
+        except ValueError as exc:
+            sys.stderr.write(f"{exc}\n")
+            return 1
+        return 0
+    result = ratchet_run(root, pipe)
+    emit(result)
+    if not result["passed"]:
+        for violation in result["violations"]:
+            sys.stderr.write(
+                "  [ratchet] {stage} : {rule} {before} -> {after}\n".format(**violation))
+        sys.stderr.write(result["hint"] + "\n")
+    elif result["baseline"]:
+        sys.stderr.write(
+            f"Ratchet fige pour la premiere fois : {', '.join(result['stages_frozen'])}.\n")
+    return 0 if result["passed"] else 2
+
+
+def cmd_watchdog(root: Path, args) -> int:
+    """Watchdog (inspire du dark factory) : detecteurs de stagnation sur les journaux
+    de session. Diagnostic JSON ; `halted` vrai -> exit 2 (porte CI). Les haltes sont
+    enregistrees dans la file d'amelioration (kind: watchdog) et remontent dans le
+    diagnostic improve."""
+    payload = _read_hook_payload()
+    result = watchdog_check(root, load_pipeline(),
+                            sanitize_session_id(payload.get("session_id") or "") or None)
+    emit(result)
+    if result["halted"]:
+        for detection in result["detections"]:
+            sys.stderr.write(f"  [watchdog] {detection['detail']}\n")
+        sys.stderr.write("Halte enregistree dans .aidlc/improvement-queue.jsonl "
+                         "(kind: watchdog) ; reprise humaine requise.\n")
+    return 0 if not result["halted"] else 2
+
+
+def cmd_watchdog_touched(root: Path, args) -> int:
+    """Mode hook PostToolUse du watchdog : diagnostic non bloquant apres chaque ecriture.
+    Sans detection : silence total (exit 0). Avec halte : enregistrement dans la file
+    d'amelioration, jamais d'interruption de session."""
+    payload = _read_hook_payload()
+    watchdog_touched(root, load_pipeline(), payload)
     return 0
 
 

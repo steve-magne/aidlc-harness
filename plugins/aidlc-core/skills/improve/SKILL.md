@@ -101,6 +101,25 @@ Le correctif porte sur un **concept du bundle**, pas sur un livrable d'étape : 
 le livrable » ne s'y applique pas — le bundle EST la source à corriger. L'accord humain explicite
 reste exigé avant toute application.
 
+## 3ter. Quand le watchdog a hal té
+
+Le watchdog (module `_aidlc/watchdog.py`, commande `aidlc.py watchdog` et hook `PostToolUse`
+`watchdog-touched`) détecte les **formes de blocage** dans les journaux : acharnement sur un
+livrable qui échoue encore à la validation, boucle d'écriture d'une même session sur un même
+fichier, rafale de relances sur une même étape. Chaque halte est enregistrée dans
+`.aidlc/improvement-queue.jsonl` (`kind: watchdog`, dédoublonnée) et remonte dans la section
+`watchdog.halts` du diagnostic `improve`.
+
+1. Si `diag["watchdog"]["halts"]` est vide, rien à faire pour ce bloc.
+2. Pour chaque halte : lis `detector` (la forme du blocage), `stage` / `file` / `session_id`, et
+   ouvre la session dans `.aidlc/logs/` pour comprendre *pourquoi* ça patine.
+3. Deux familles de réparation : **le livrable résiste** et le contrat est sain → la cause est
+   dans la recette (`skills/<stage>/SKILL.md`, `templates/`) ; **le contrat est inadapté** → le
+   « acharnement » révèle un check trop strict ou mal ciblé, à assouplir dans le dépôt auteur avec
+   une justification, et à re-figer via `aidlc.py ratchet --reset <stage>` après décision humaine.
+4. La reprise d'une halte est un acte humain : propose le diagnostic, jamais un contournement du
+   seuil — le ratchet et le garde-fou protègent les planchers.
+
 ## 4. Proposer un diff — précis, minimal, unique
 
 Pour chaque cause racine, une seule proposition. Présente-la ainsi :
