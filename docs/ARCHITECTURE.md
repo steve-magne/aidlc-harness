@@ -116,14 +116,16 @@ la déclare par son manifeste.
 | Étape      | Livrable                                | Rôle humain               | État            |
 | ---------- | --------------------------------------- | ------------------------- | --------------- |
 | `plan`     | `deliverables/plan/intent.md`            | Product Owner / Business Analyst | implémentée |
-| `design`   | `deliverables/design/spec.md`            | Architecte de solution    | planifiée       |
+| `design`   | `deliverables/design/spec.md`            | Architecte d'entreprise   | implémentée     |
 | `build`    | `deliverables/build/plan.md`             | Tech Lead                 | planifiée       |
 | `test`     | `deliverables/test/test-plan.md`         | QA Lead                   | planifiée       |
 | `deploy`   | `deliverables/deploy/release-notes.md`   | SRE / Release Manager     | planifiée       |
 | `maintain` | `deliverables/maintain/ops-report.md`    | Ops / Support             | planifiée       |
 
-Seule l'étape `plan` est livrée en entier : elle sert de tranche verticale de référence. Les cinq
-autres figurent dans `planned_stages` de `pipeline.json` — une **feuille de route consultative**,
+Les étapes `plan` et `design` sont livrées en entier : ensemble, elles forment la tranche
+verticale de référence, et surtout le premier **handoff** réel entre deux directions — le Product
+Owner cadre, l'architecte d'entreprise instruit. Les quatre autres figurent dans `planned_stages`
+de `pipeline.json` — une **feuille de route consultative**,
 affichée par `status` et utilisée pour pré-remplir le scaffold, qui n'exécute rien et n'oblige à
 rien : un agent peut naître sans y figurer. Elles se matérialisent à la demande via
 `aidlc.py scaffold <stage>`, piloté par la skill `/aidlc-core:new-stage`.
@@ -150,6 +152,46 @@ Le champ `consumes` du manifeste de chaque agent énumère les fichiers amont ob
 La règle `must_reference_inputs` des `checks.json` vérifie que le livrable cite réellement ces
 fichiers : un livrable qui ne s'appuie sur rien est rejeté par le contrôle déterministe, avant
 même d'atteindre le reviewer.
+
+### Où vivent les dépôts
+
+Le handoff entre deux personas est un **chemin de fichier versionné**. La topologie git en découle
+directement (ADR-0003) :
+
+| Dépôt | Ce qu'il porte | Qui le possède |
+| --- | --- | --- |
+| **Un par équipe** | le plugin d'un agent : manifeste, prompt, `checks.json`, squelette, skill | l'équipe qui publie l'agent — elle seule décide de son rythme de release |
+| **Un par initiative** | le projet consommateur : `deliverables/`, `.aidlc/`, `knowledge/` | l'initiative — **tous les personas y écrivent** |
+
+Ce n'est pas une convention décorative : la frontière entre équipes est *active*, le hook
+`PreToolUse` refusant à un agent d'écrire dans le plugin d'une autre équipe installé hors du
+projet. À l'inverse, les livrables partagent un seul dépôt parce que `consumes` est un chemin qui
+doit résoudre — et parce que git y apporte sans rien coder l'historique du KPI modifié, la *pull
+request* comme lieu de la revue humaine, et le diff quand l'amont est révisé.
+
+Un dépôt par persona, une base ou un bus partagé, ou des livrables écrits dans le dépôt du harnais
+ont été écartés : voir `knowledge/sources/adr-0003-topologie-depots.md`.
+
+Tant qu'il y a peu d'équipes, les plugins cohabitent dans `aidlc-harness` — amorçage assumé. Le
+signal de sortie est le rythme de release : `AIDLC_AGENT_PATH` et le marketplace font de
+l'éclatement un changement de configuration, pas un remaniement.
+
+### Péremption d'une entrée amont
+
+Le lien producteur → consommateur ne vaut pas qu'au démarrage de l'étape aval. Quand un run est
+noté (`score`), l'empreinte de chaque fichier listé dans `consumes` est **figée avec lui** dans
+`.aidlc/maturity.json` (`runs[].inputs`). `gate` et `status` comparent ensuite cette empreinte à
+l'état courant du fichier : toute divergence est bloquante et nomme le fichier qui a bougé
+(`stale_inputs`).
+
+C'est ce qui empêche le mode de panne le plus silencieux d'un cycle multi-équipes : le Product
+Owner révise `intent.md` — un KPI corrigé, un persona retiré — après que l'architecte a livré et
+fait noter `spec.md`, et la spec reste verte alors qu'elle instruit une intention disparue. Une
+étape peut donc redevenir « à faire » sans avoir été touchée.
+
+Deux limites assumées : la comparaison porte sur l'octet et non sur le sens (une typo corrigée en
+amont périme l'aval — compromis marqué dans `util.digest`), et un run noté avant l'existence des
+empreintes ne périme rien, par compatibilité ascendante.
 
 ---
 
@@ -413,13 +455,15 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 
 ### Les conditions du passage
 
-`aidlc.py gate <stage>` ne renvoie `passed: true` que si les trois conditions suivantes sont
+`aidlc.py gate <stage>` ne renvoie `passed: true` que si les quatre conditions suivantes sont
 réunies :
 
 1. `validate <stage>` passe : le livrable respecte toutes les règles de son `checks.json`.
 2. Le dernier run enregistré porte le verdict `accepted` **et** une note globale supérieure ou
    égale à `maturity_threshold`.
 3. La revue humaine est présente et approuvée — sauf si l'étape est passée en mode autonome.
+4. Aucune entrée amont n'a été modifiée depuis que le dernier run a été noté (voir
+   « Péremption d'une entrée amont », §2) : `stale_inputs` doit être vide.
 
 Sinon, la sortie liste les éléments bloquants et le code de retour vaut 2, ce qui permet à un hook
 `Stop` de retenir la session tant que l'étape n'est pas franchie.

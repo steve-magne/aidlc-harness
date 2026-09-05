@@ -54,6 +54,9 @@ plugins/aidlc-plan/                  l'étape Plan (tranche verticale de référ
   templates/intent.md                  le squelette du livrable
   checks.json                          le contrat de l'étape (lu ici, sans miroir dans le noyau)
 
+plugins/aidlc-design/                l'étape Design — l'architecte d'entreprise instruit l'intention
+  agent.json                           manifeste avec `consumes` : son entrée est le livrable de Plan
+
 plugins/aidlc-security/              un agent d'équipe consultatif (AppSec) — l'exemple à copier
   agent.json                           manifeste sans `produces` : un avis, pas un livrable
 
@@ -74,6 +77,7 @@ racine du **projet** qui veut utiliser le harnais :
 claude plugin marketplace add <chemin-ou-git-de-aidlc-harness>
 claude plugin install aidlc-core@aidlc
 claude plugin install aidlc-plan@aidlc
+claude plugin install aidlc-design@aidlc
 
 # 2. Lancer une session Claude Code dans le projet
 claude

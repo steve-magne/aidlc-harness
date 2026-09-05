@@ -6,6 +6,7 @@ import sys
 
 from pathlib import Path
 from .util import aidlc_dir
+from .util import digest
 from .util import ensure_dir
 from . import registry
 from .util import now_iso
@@ -70,6 +71,26 @@ def compute_autonomy(root: Path, pipe: dict, stage_id: str, maturity: dict) -> b
     return True
 
 
+def input_digests(root: Path, stage: dict) -> dict:
+    """Empreintes courantes des entrees amont d'une etape."""
+    return {path: digest(root / path) for path in (stage or {}).get("consumes") or []}
+
+
+def stale_inputs(root: Path, stage: dict, run: dict) -> list:
+    """Entrees amont modifiees depuis que ce run a ete note.
+
+    C'est ce qui empeche un livrable aval de rester vert alors qu'il a ete bati sur une
+    version disparue de son amont — le cas « le BA a revise apres que l'architecte a
+    livre ». Un run enregistre avant l'existence des empreintes (cle 'inputs' absente) ne
+    perime rien : on ne perime que ce dont on connait l'etat d'origine.
+    """
+    recorded = (run or {}).get("inputs")
+    if not recorded:
+        return []
+    current = input_digests(root, stage)
+    return sorted(path for path, value in recorded.items() if current.get(path) != value)
+
+
 def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
     scores = review.get("scores") or {}
     missing = [axis for axis in AXES if axis not in scores]
@@ -99,6 +120,7 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
         "human_review": None,
         "findings": truncate(review.get("findings", [])),
         "recommendations": truncate(review.get("recommendations", [])),
+        "inputs": input_digests(root, registry.find_agent(stage_id)),
     }
     entry["runs"].append(record)
     entry["autonomous"] = compute_autonomy(root, pipe, stage_id, maturity)
@@ -177,6 +199,14 @@ def gate_stage(root: Path, pipe: dict, stage_id: str) -> dict:
     if float(last.get("overall", 0)) < threshold:
         out["blocking"].append(
             f"Maturite {last.get('overall')} sous le seuil {threshold}."
+        )
+
+    stale = stale_inputs(root, stage, last)
+    if stale:
+        out["stale_inputs"] = stale
+        out["blocking"].append(
+            "Entree amont modifiee depuis la revue : " + ", ".join(stale)
+            + " — relancer le reviewer."
         )
 
     review = human_review(root, stage_id, last.get("run", 0))
@@ -288,6 +318,7 @@ def status_data(root: Path, pipe: dict) -> dict:
         last = runs[-1] if runs else None
         present = deliverable.exists()
         validation = validate_stage(root, pipe, stage_id) if present else None
+        stale = stale_inputs(root, stage, last)
         row = {
             "stage": stage_id,
             "name": stage.get("description") or stage_id,
@@ -305,6 +336,7 @@ def status_data(root: Path, pipe: dict) -> dict:
             "last_verdict": last.get("verdict") if last else None,
             "autonomous": bool(entry.get("autonomous")),
             "human_role": stage.get("human_role"),
+            "stale_inputs": stale,
         }
         if not row["invocable"]:
             row["next_action"] = (f"Agent non invocable sur {view['platform']} : "
@@ -313,6 +345,10 @@ def status_data(root: Path, pipe: dict) -> dict:
             row["next_action"] = f"Produire le livrable : {stage.get('invoke')}"
         elif not row["validate_ok"]:
             row["next_action"] = f"Corriger {len(row['errors'])} erreur(s) de validation"
+        elif stale:
+            row["next_action"] = ("Entree amont modifiee ("
+                                  + ", ".join(Path(p).name for p in stale)
+                                  + ") : reprendre puis relancer le reviewer")
         elif last is None:
             row["next_action"] = "Lancer le reviewer (agent aidlc-core:reviewer)"
         elif last.get("verdict") != "accepted" or float(last.get("overall", 0)) < threshold:

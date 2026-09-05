@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -80,6 +81,20 @@ def ensure_dir(path: Path) -> Path:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def digest(path: Path) -> str:
+    """Empreinte courte d'un fichier ('' s'il est absent ou illisible). Sert a detecter
+    qu'une entree amont a bouge depuis la revue de l'aval.
+
+    # ponytail: on compare l'octet, pas le sens — une correction de typo dans l'amont
+    perime l'aval. Plafond assume : une relance de reviewer de trop. Upgrade si ca gene :
+    ne hasher que les sections citees par required_input_section.
+    """
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ""
 
 
 def write_json(path: Path, data) -> None:

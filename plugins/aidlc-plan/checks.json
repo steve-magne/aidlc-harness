@@ -1,5 +1,11 @@
 {
-  "required_frontmatter": ["stage", "version", "status", "author", "date"],
+  "required_frontmatter": [
+    "stage",
+    "version",
+    "status",
+    "author",
+    "date"
+  ],
   "required_sections": [
     "## Contexte",
     "## Problème",
@@ -20,14 +26,19 @@
     "(?i)\\b[àa]\\s+compl[ée]ter\\b",
     "(?i)<[^>\\n]{0,80}\\b[àa]\\s+remplir[^>\\n]{0,80}>"
   ],
-  "required_patterns": ["stage:\\s*plan"],
+  "required_patterns": [
+    "stage:\\s*plan"
+  ],
   "must_reference_inputs": false,
   "min_items_per_section": {
+    "## Utilisateurs impactés": 2,
+    "## Solution proposée": 2,
     "## Critères d'acceptation": 3,
     "## Contraintes": 2
   },
   "proof_of_run": [
     "## Contexte",
+    "## Solution proposée",
     "## Critères d'acceptation"
   ],
   "checks_do_not_self_reference": true

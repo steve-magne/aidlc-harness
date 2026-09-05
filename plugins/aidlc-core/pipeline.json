@@ -15,7 +15,7 @@
       "name": "Design",
       "deliverable": "deliverables/design/spec.md",
       "inputs": ["deliverables/plan/intent.md"],
-      "human_role": "Architecte de solution",
+      "human_role": "Architecte d'entreprise",
       "team": "Architecture"
     },
     {

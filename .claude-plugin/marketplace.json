@@ -18,6 +18,11 @@
       "name": "aidlc-security",
       "source": "./plugins/aidlc-security",
       "description": "Agent de revue de securite de l'equipe AppSec : exemple de reference d'un agent d'equipe integre au registre AI-DLC par son manifeste agent.json, sans modifier le noyau."
+    },
+    {
+      "name": "aidlc-design",
+      "source": "./plugins/aidlc-design",
+      "description": "Etape Design du pipeline AI-DLC : produit deliverables/design/spec.md."
     }
   ]
 }
