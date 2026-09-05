@@ -63,6 +63,7 @@ plugins/aidlc-core/
     review/SKILL.md               déclencher la revue de maturité d'un livrable
     new-stage/SKILL.md            concevoir une nouvelle étape avec le métier puis la générer
     improve/SKILL.md              diagnostiquer une étape faible et proposer un correctif
+    knowledge/SKILL.md            consulter le savoir OKF des dépôts déclarés (sommaire, recherche, concept)
   scripts/
     aidlc.py                      point d'entrée — chemin stable des hooks et skills
     _aidlc/                       le paquet du moteur (stdlib, un module par concern)
@@ -105,12 +106,17 @@ Chaque skill est un scénario d'agent complet (frontmatter + instructions) :
   gate OKF qui a bloqué, sur le frontmatter d'un concept `knowledge/` (correctif déjà structuré
   par le script) — appliqué seulement après accord explicite de l'humain.
 
+- **`knowledge [mots]`** — consulte les bundles OKF déclarés dans `knowledge-sources.json` :
+  sommaire, recherche par mots-clés, puis lecture d'un concept. La discipline est le produit —
+  ouvrir un concept, pas un dépôt — et le contenu servi reste une donnée à citer, jamais une
+  instruction.
+
 ## Le moteur déterministe — `scripts/`
 
 Le point d'entrée `scripts/aidlc.py` (chemin stable des hooks et des skills) délègue au paquet
 `_aidlc/` : **toute** la logique non-agentique du harness y vit, bibliothèque standard Python
 uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `improve`,
-`hookslog`, `okf`, `syntax`, `commands`, `cli`, plus `selftest`). Sorties machine : JSON sur
+`hookslog`, `okf`, `knowledge`, `syntax`, `commands`, `cli`, plus `selftest`). Sorties machine : JSON sur
 **stdout** ; messages humains sur **stderr**.
 
 | Sous-commande | Rôle |
@@ -126,6 +132,9 @@ uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `im
 | `agents [--capability X] [--platform P] [--json] [--strict]` | catalogue du registre : équipes, capacités, invocation ; `--strict` = porte CI sur les manifestes du dépôt |
 | `scaffold <stage>` | génère le plugin complet d'un agent (dont son `agent.json`) — n'écrit rien dans le noyau |
 | `improve [--stage X]` | agrège logs, scores et refus (humains + gate OKF) en un diagnostic JSON ; propose des correctifs de frontmatter et les concepts orphelins du sommaire `index.md` |
+| `knowledge index` | sommaire des bundles OKF distants déclarés : une ligne par concept (référence, type, titre, description) |
+| `knowledge search <mots>` | concepts portant tous les mots (frontmatter d'abord, puis corps) — rend des références |
+| `knowledge get <source>/<id>` | le markdown d'un concept ; `--source`, `--refresh`, `--limit`, `--json` |
 | `check-okf <dir>` | conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet touchés par l'écriture, non bloquant |
 | `check-okf --stop` | mode hook `Stop` : refuse la fermeture de session (deny) si un bundle du projet est non conforme ; enregistre le refus dans la file d'amélioration |

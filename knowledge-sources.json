@@ -1,0 +1,11 @@
+{
+  "description": "Bundles OKF distants consultables par les agents via `aidlc.py knowledge`. Chaque source est clonee en profondeur 1 dans .aidlc/tmp/knowledge/ ; `path` designe le bundle dans le depot, `ref` la branche (defaut : celle du depot).",
+  "sources": [
+    {
+      "name": "gcp-okf-examples",
+      "repo": "https://github.com/GoogleCloudPlatform/knowledge-catalog",
+      "path": "okf/bundles",
+      "ref": "main"
+    }
+  ]
+}

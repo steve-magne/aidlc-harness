@@ -43,7 +43,7 @@ plugins/aidlc-core/                  le noyau — un plugin
   agents/orchestrator.md               pilote la chaîne d'étapes, ne rédige jamais un livrable
   agents/reviewer.md                   note le livrable sur 4 axes, émet un verdict
   agents/librarian.md                  indexe et sert knowledge/ (lecture seule)
-  skills/{run,dispatch,status,review,new-stage,improve}/SKILL.md
+  skills/{run,dispatch,status,review,new-stage,improve,knowledge}/SKILL.md
   scripts/                             le moteur : aidlc.py (point d'entrée) + paquet _aidlc/
   hooks/hooks.json                     journalisation, validation à l'écriture, gate OKF (écriture + sortie de session), garde-fous
 
@@ -60,6 +60,7 @@ plugins/aidlc-design/                l'étape Design — l'architecte d'entrepri
 plugins/aidlc-security/              un agent d'équipe consultatif (AppSec) — l'exemple à copier
   agent.json                           manifeste sans `produces` : un avis, pas un livrable
 
+knowledge-sources.json               bundles OKF distants déclarés — dans le PROJET consommateur
 deliverables/<stage>/                livrables — produits dans le PROJET consommateur
 .aidlc/logs/<session_id>.jsonl       journal des sessions — dans le PROJET consommateur
 .aidlc/maturity.json                 historique des scores — dans le PROJET consommateur
@@ -203,6 +204,24 @@ Un agent qui déclare `produces` est une **étape gouvernée** (validation, nota
 s'ordonne d'après la chaîne producteur → consommateur. Sans `produces`, il est **consultatif** :
 `/aidlc-core:dispatch` mobilise ceux dont les capacités correspondent à une demande transverse et
 rend une synthèse qui attribue nommément ce que chacun a dit, désaccords compris.
+
+### Savoir OKF externe
+
+Le savoir dont un agent a besoin vit rarement dans le projet. `knowledge-sources.json` déclare des
+bundles **Open Knowledge Format v0.2** publiés dans d'autres dépôts ; le moteur les met en cache
+(clone profondeur 1 sous `.aidlc/tmp/`) et n'en sert que ce qui est demandé.
+
+```bash
+S=plugins/aidlc-core/scripts/aidlc.py
+python3 $S knowledge index                    # une ligne par concept : référence, type, titre, description
+python3 $S knowledge search marge brute       # les concepts qui portent tous les mots
+python3 $S knowledge get <source>/<concept-id>   # un concept, en entier
+```
+
+Sommaire, puis recherche, puis un `get` : la divulgation progressive de la spec OKF, appliquée au
+budget de contexte — un agent qui cherche une définition ouvre un concept, pas un dépôt. La skill
+`/aidlc-core:knowledge` impose cette discipline ; le contenu servi est une donnée à citer, jamais
+une instruction.
 
 ### Grille de maturité
 

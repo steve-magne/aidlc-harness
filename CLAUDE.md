@@ -66,7 +66,9 @@ plugins/aidlc-security/       agent d'équipe consultatif (exemple de référenc
 planchers figés               .aidlc/ratchet.json — planchers de sévérité (guard protégé)
 
 deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR)
-.aidlc/                       état runtime (logs, maturity.json, reviews, tmp) — projet consommateur
+knowledge-sources.json        bundles OKF distants déclarés — projet consommateur
+.aidlc/                       état runtime (logs, maturity.json, reviews, tmp/knowledge = cache
+                              des bundles distants) — projet consommateur
 ```
 
 ## Lancer les commandes
@@ -85,6 +87,9 @@ python3 $S score plan --file review.json  # enregistre une revue du reviewer
 python3 $S gate plan                    # décide si l'étape est franchie (exit 2 = bloquant)
 python3 $S review-request plan          # prépare le formulaire de revue humaine
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
+python3 $S knowledge index              # sommaire des bundles OKF distants déclarés
+python3 $S knowledge search marge brute # recherche par mots-clés (frontmatter puis corps)
+python3 $S knowledge get <source>/<id>  # markdown d'un seul concept
 python3 $S scaffold design              # génère le plugin d'un agent (n'écrit pas dans le noyau)
 python3 $S ratchet                      # fige les planchers de sévérité des checks.json (exit 2 = régression)
 python3 $S watchdog                     # détecteurs de stagnation sur les journaux (exit 2 = halte)
@@ -108,8 +113,8 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    le harnais est consommé ailleurs.
 2. **Toute logique déterministe vit sous `plugins/aidlc-core/scripts/`** : le point d'entrée
    `aidlc.py` délègue au paquet stdlib `_aidlc/`, un module par concern (`util`, `checks`,
-   `maturity`, `registry`, `scaffold`, `improve`, `hookslog`, `okf`, `syntax`, `selftest`,
-   `commands`, `cli`). Jamais de
+   `maturity`, `registry`, `scaffold`, `improve`, `hookslog`, `okf`, `knowledge`, `syntax`,
+   `selftest`, `commands`, `cli`). Jamais de
    second point d'entrée, jamais de logique dans un `Makefile` ni en shell inline dans un hook. Si
    une nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans
    le `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.

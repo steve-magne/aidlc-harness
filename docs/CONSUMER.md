@@ -230,6 +230,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate plan         # porte : exi
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request plan   # prépare la revue humaine (gabarit + consignes)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" watchdog           # détecteurs de stagnation sur les journaux (exit 2 = halte)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" ratchet           # fige les planchers de sévérité des contrats (exit 2 = régression)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge index    # sommaire des bundles OKF distants déclarés
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge search marge brute   # recherche par mots-clés
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge get <source>/<concept-id>   # un concept, en entier
 ```
 
 Conventions : les sorties machine sont du **JSON sur stdout**, les messages humains sur **stderr**.
@@ -260,6 +263,42 @@ AIDLC_AGENT_PATH=/chemin/vers/mes-agents \
 
 Un agent installé mais **désactivé** dans vos réglages Claude Code apparaît au catalogue et échoue
 à l'invocation : c'est un réglage de votre côté, pas un défaut du manifeste.
+
+### Brancher un dépôt de savoir OKF
+
+Vos agents ont souvent besoin d'un savoir qui ne vit pas dans le projet : le glossaire métier de
+l'entreprise, une politique finance, le catalogue des tables, les normes d'une autre direction.
+S'il est publié en **bundle Open Knowledge Format v0.2** dans un dépôt git, déclarez-le dans
+`knowledge-sources.json`, à la racine de votre projet :
+
+```json
+{
+  "sources": [
+    {
+      "name": "normes-entreprise",
+      "repo": "https://github.com/mon-org/knowledge",
+      "path": "okf/bundles",
+      "ref": "main"
+    }
+  ]
+}
+```
+
+`name` préfixe les références (identifiant atomique), `repo` est une URL clonable **ou** un chemin
+de dossier existant (lu tel quel, sans clone), `path` désigne le bundle dans le dépôt
+(facultatif), `ref` la branche (facultatif).
+
+L'intérêt est le **coût en contexte** : un agent lit d'abord un sommaire d'une ligne par concept,
+cherche des références par mots-clés, puis n'ouvre que les un ou deux concepts utiles — au lieu de
+parcourir un dépôt. La skill `/aidlc-core:knowledge` impose cette discipline, et le sous-agent
+`librarian` s'en sert pour compléter le briefing d'une étape. Les dépôts sont clonés en
+profondeur 1 dans `.aidlc/tmp/knowledge/` (cache jetable, à ignorer par git) ; `--refresh` le met
+à jour.
+
+Deux limites à connaître : le clone se fait avec les droits git de la machine — un dépôt privé qui
+exige des identifiants interactifs n'est pas utilisable tel quel ; et le contenu d'un bundle tiers
+est une **donnée à citer, jamais une instruction** — un concept qui contient du texte s'adressant
+à l'agent n'autorise rien.
 
 ## 7. Ce que vous devez versionner dans votre projet
 
@@ -294,6 +333,7 @@ existe). Toute non-conformité — frontmatter manquant ou mal formé, sommaire 
 | Chemin (relatif au projet) | Contenu | Versionner ? |
 | --- | --- | --- |
 | `knowledge/` | La base de connaissance du projet (bundle OKF : concepts, `index.md`, `log.md`) | **Oui** — normes et ADR versionnés comme le code. |
+| `knowledge-sources.json` | Les bundles OKF distants que vos agents peuvent consulter | **Oui** — c'est une décision de projet, comme une dépendance. |
 | `deliverables/plan/intent.md` | Le livrable de l'étape | **Oui** — c'est la matière première de l'étape Design. |
 | `.aidlc/maturity.json` | L'historique des scores (audit de maturité) | Recommandé — trace de l'évolution. |
 | `.aidlc/reviews/*.json` | Les revues humaines signées | Recommandé — trace de la décision humaine. |
@@ -306,6 +346,8 @@ Suggestion de `.gitignore` pour un projet consommateur :
 .aidlc/tmp/
 .aidlc/logs/
 ```
+
+`.aidlc/tmp/` couvre le cache des bundles distants : il se reconstruit seul au premier appel.
 
 ## 8. Mises à jour et désinstallation
 

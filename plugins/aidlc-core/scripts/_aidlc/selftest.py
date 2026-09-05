@@ -29,6 +29,10 @@ from .hookslog import current_stage_id
 from .hookslog import guard_decision
 from .hookslog import handle_log
 from .improve import improve
+from .knowledge import catalog as knowledge_catalog
+from .knowledge import render as knowledge_render
+from .knowledge import resolve as knowledge_resolve
+from .knowledge import search as knowledge_search
 from .util import MAX_FIELD
 from .maturity import load_maturity
 from . import registry
@@ -1192,6 +1196,53 @@ def selftest() -> int:
         state = json.loads(read_text(aidlc_dir(root) / "ratchet.json"))
         check("design" in state["stages"],
               "le plancher de l'agent retire doit rester ecrit dans le ratchet")
+
+        # savoir OKF distant : sources declarees, catalogue, recherche, resolution.
+        # Une source dont le `repo` est un dossier existant est lue telle quelle : le
+        # selftest couvre le CLI de bout en bout sans jamais toucher au reseau.
+        remote = Path(tempfile.mkdtemp()) / "bundle"
+        ensure_dir(remote / "metrics")
+        (remote / "index.md").write_text("# Sommaire\n\n* [Marge](metrics/marge.md)\n",
+                                         encoding="utf-8")
+        (remote / "metrics" / "marge.md").write_text(
+            "---\ntype: Metric\ntitle: Marge brute\n"
+            "description: Marge du perimetre retail.\ntags: [finance, marge]\n---\n\n"
+            "# Definition\n\nRevenu moins cout complet.\n", encoding="utf-8")
+        write_json(root / "knowledge-sources.json",
+                   {"sources": [{"name": "local", "repo": str(remote)}]})
+        view = knowledge_catalog(root)
+        check([c["ref"] for c in view["concepts"]] == ["local/metrics/marge"],
+              "le catalogue liste les concepts, jamais les fichiers reserves de la spec")
+        concept = view["concepts"][0]
+        check(concept["title"] == "Marge brute" and concept["tags"] == ["finance", "marge"],
+              "le frontmatter OKF alimente titre et tags du catalogue")
+        check(knowledge_search(view["concepts"], ["marge"]) == view["concepts"],
+              "un mot du frontmatter doit ramener le concept")
+        check(knowledge_search(view["concepts"], ["complet"]) == view["concepts"],
+              "un mot du corps doit ramener le concept")
+        check(knowledge_search(view["concepts"], ["marge", "absent"]) == [],
+              "tous les mots doivent etre presents pour ramener un concept")
+        check(knowledge_resolve(view["concepts"], "metrics/marge") is concept,
+              "un identifiant sans source se resout s'il est sans ambiguite")
+        check("Marge brute" in knowledge_render(view["concepts"]),
+              "le rendu compact porte le titre du concept")
+
+        write_json(root / "knowledge-sources.json",
+                   {"sources": [{"name": "local", "repo": str(remote)},
+                                {"name": "absente", "repo": str(remote.parent / "nulle-part")}]})
+        view = knowledge_catalog(root)
+        check(view["errors"] and [c["ref"] for c in view["concepts"]] == ["local/metrics/marge"],
+              "une source injoignable est signalee sans faire tomber les autres")
+
+        write_json(root / "knowledge-sources.json",
+                   {"sources": [{"name": "../evasion", "repo": str(remote)}]})
+        try:
+            knowledge_catalog(root)
+            refused = False
+        except ValueError:
+            refused = True
+        check(refused, "un nom de source non atomique leve : le cache n'est pas creusable")
+        (root / "knowledge-sources.json").unlink()
 
     for name, value in saved_env.items():
         if value is None:

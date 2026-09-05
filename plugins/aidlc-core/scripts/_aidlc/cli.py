@@ -11,6 +11,7 @@ from .commands import cmd_check_python
 from .commands import cmd_gate
 from .commands import cmd_guard
 from .commands import cmd_improve
+from .commands import cmd_knowledge
 from .commands import cmd_log
 from .commands import cmd_review_request
 from .commands import cmd_ratchet
@@ -69,6 +70,20 @@ def build_parser() -> argparse.ArgumentParser:
     scaffold_cmd.add_argument("stage")
     scaffold_cmd.add_argument("--force", action="store_true",
                               help="Ecrase un plugin existant.")
+
+    knowledge = sub.add_parser(
+        "knowledge",
+        help="Savoir OKF des depots declares (knowledge-sources.json) : sommaire, "
+             "recherche, lecture d'un concept.")
+    knowledge.add_argument("action", choices=["index", "search", "get"])
+    knowledge.add_argument("terms", nargs="*",
+                           help="search : mots-cles ; get : <source>/<concept-id>.")
+    knowledge.add_argument("--source", help="Restreindre a une source declaree.")
+    knowledge.add_argument("--refresh", action="store_true",
+                           help="Met a jour le cache local (git pull) avant de repondre.")
+    knowledge.add_argument("--limit", type=int, default=40,
+                           help="Plafond de lignes affichees (defaut : 40).")
+    knowledge.add_argument("--json", action="store_true", help="Forme machine.")
 
     improve_cmd = sub.add_parser("improve", help="Diagnostic d'auto-amelioration (JSON).")
     improve_cmd.add_argument("--stage", help="Restreindre a une etape.")
@@ -136,6 +151,7 @@ def main(argv=None) -> int:
         "agents": cmd_agents,
         "review-request": cmd_review_request, "status": cmd_status,
         "scaffold": cmd_scaffold, "improve": cmd_improve,
+        "knowledge": cmd_knowledge,
         "check-okf": cmd_check_okf, "check-python": cmd_check_python,
         "check-json": cmd_check_json, "ratchet": cmd_ratchet,
         "watchdog": cmd_watchdog, "watchdog-touched": cmd_watchdog_touched,
