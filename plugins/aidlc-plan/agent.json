@@ -1,0 +1,20 @@
+{
+  "manifest_version": 1,
+  "id": "plan",
+  "team": "Produit",
+  "version": "0.2.0",
+  "description": "Cadre le besoin avec le Product Owner et produit l'intention : probleme, utilisateurs impactes, solution proposee, criteres d'acceptation testables.",
+  "capabilities": [
+    "sdlc:plan",
+    "product:framing",
+    "product:acceptance-criteria"
+  ],
+  "invocation": {
+    "claude-code": "aidlc-plan:plan",
+    "codex": "skills/plan/SKILL.md"
+  },
+  "produces": "deliverables/plan/intent.md",
+  "consumes": [],
+  "checks": "checks.json",
+  "human_role": "Product Owner / Business Analyst"
+}

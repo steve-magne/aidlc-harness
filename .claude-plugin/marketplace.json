@@ -13,6 +13,11 @@
       "name": "aidlc-plan",
       "source": "./plugins/aidlc-plan",
       "description": "Etape Plan du SDLC : dialogue avec le Product Owner et production du livrable deliverables/plan/intent.md valide par checks.json."
+    },
+    {
+      "name": "aidlc-security",
+      "source": "./plugins/aidlc-security",
+      "description": "Agent de revue de securite de l'equipe AppSec : exemple de reference d'un agent d'equipe integre au registre AI-DLC par son manifeste agent.json, sans modifier le noyau."
     }
   ]
 }

@@ -12,6 +12,7 @@ from .maturity import load_maturity
 from .maturity import AXES
 from .util import now_iso
 from .util import read_text
+from . import registry
 from .checks import validate_stage
 """Diagnostic d'amelioration : journaux de sessions, refus (humains + gate OKF), correlation et correctifs proposes."""
 
@@ -50,11 +51,11 @@ def improve(root: Path, pipe: dict, stage_filter=None) -> dict:
             per_stage_events[stage_id] = per_stage_events.get(stage_id, 0) + 1
 
     validation, error_counts = {}, {}
-    for stage in pipe.get("stages", []):
+    for stage in registry.stages():
         stage_id = stage["id"]
         if stage_filter and stage_id != stage_filter:
             continue
-        if not (root / stage.get("deliverable", "")).exists():
+        if not (root / stage["produces"]).exists():
             continue
         result = validate_stage(root, pipe, stage_id)
         validation[stage_id] = {"ok": result["ok"], "errors": result["errors"]}

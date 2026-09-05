@@ -1,7 +1,7 @@
 ---
 type: Playbook
 title: Maintenir et publier le harnais AI-DLC (guide auteur)
-description: Guide auteur prêt à publier — concevoir une nouvelle étape, remplir les squelettes générés, vérifier avant release et publier dans le marketplace.
+description: Guide auteur prêt à publier — publier l'agent de son équipe par son manifeste, concevoir une nouvelle étape, remplir les squelettes générés, vérifier avant release et publier dans le marketplace.
 tags: [maintainer, guide, harness]
 generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
 ---
@@ -16,12 +16,15 @@ exécute*, l'auteur *conçoit, génère et publie*.
 
 Trois idées structurent tout le reste :
 
-1. **Le pipeline est la source de vérité.** Il vit dans `plugins/aidlc-core/pipeline.json`, *dans
-   le plugin* — il est donc installé chez chaque consommateur avec le plugin `aidlc-core`. Ajouter
-   une étape, c'est d'abord modifier ce fichier, puis tout ce qui en découle.
-2. **Une étape = un plugin** (`plugins/aidlc-<stage>/`), référencé par le pipeline et listé dans
-   `.claude-plugin/marketplace.json`. Le consommateur n'installe le plugin d'une étape **que s'il
-   veut la jouer** ; le noyau, lui, voit toujours toutes les étapes.
+1. **Le manifeste est la source de vérité.** Chaque plugin d'agent porte un `agent.json` à sa
+   racine : identité, équipe propriétaire, capacités, version, invocation par plateforme, et — s'il
+   produit un livrable — ce qu'il produit, ce qu'il consomme et son contrat. L'orchestrateur ne
+   connaît que ça. **Publier un agent ne modifie jamais le noyau** : c'est ce qui permet à chaque
+   équipe de rester maîtresse du sien.
+2. **Un agent = un plugin** (`plugins/<nom>/`), listé dans `.claude-plugin/marketplace.json`. Le
+   consommateur installe les agents qu'il veut ; ceux qu'il n'installe pas n'existent tout
+   simplement pas dans son registre — et une entrée que plus personne ne produit lui est signalée
+   par `status`, jamais escamotée.
 3. **Publier = pousser sur le dépôt git que les consommateurs ont enregistré comme marketplace,**
    après avoir **incrémenté les versions** des plugins modifiés — la version (`version` dans le
    `plugin.json` de chaque plugin) est la clé de cache qui décide si le client d'un consommateur
@@ -68,27 +71,11 @@ systématiquement. Elle ne génère rien avant un « oui » explicite sur une fi
 appelle le scaffolder. Ses points d'arrêt : étape déjà `implemented`, synthèse non validée, refus
 d'écrasement du scaffolder.
 
-### 2.2 La voie directe : le pipeline d'abord, puis `scaffold`
+### 2.2 La voie directe : `scaffold`
 
-Le scaffolder **ne crée pas l'entrée d'étape** : il exige qu'elle existe déjà dans
-`plugins/aidlc-core/pipeline.json`. Si l'étape n'est pas encore dans le pipeline (nouvelle étape
-hors des six du cycle), ajoutez son entrée à la bonne position, sur le modèle exact des autres :
-
-```json
-{
-  "id": "design",
-  "name": "Design",
-  "plugin": "aidlc-design",
-  "skill": "aidlc-design:design",
-  "deliverable": "deliverables/design/spec.md",
-  "inputs": ["deliverables/plan/intent.md"],
-  "checks": "checks/design.json",
-  "human_role": "Architecte de solution",
-  "status": "planned"
-}
-```
-
-Puis :
+Le scaffolder n'a besoin d'aucune déclaration préalable. Si l'étape figure dans `planned_stages` de
+`plugins/aidlc-core/pipeline.json`, il en reprend le livrable, les entrées, le rôle humain et
+l'équipe pour pré-remplir le manifeste ; sinon il part de zéro et vous complétez `agent.json`.
 
 ```bash
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold design
@@ -104,15 +91,24 @@ python3 plugins/aidlc-core/scripts/aidlc.py scaffold design
 | `plugins/aidlc-<stage>/skills/<stage>/SKILL.md` | La recette du livrable, appelée par l'orchestrateur. |
 | `plugins/aidlc-<stage>/templates/<livrable>` | Le squelette du document, marqueurs `<…>` compris. |
 | `plugins/aidlc-<stage>/checks.json` | Le contrat déterministe (squelette générique à affiner). |
-| `plugins/aidlc-core/pipeline.json` | `status` passe à `implemented`, `checks` à `checks/<stage>.json`. |
-| `plugins/aidlc-core/checks/<stage>.json` | **Miroir** du contrat (lien symbolique vers le `checks.json` du plugin d'étape ; copie si votre système de fichiers l'exige). |
+| `plugins/aidlc-<stage>/agent.json` | **Le manifeste** : identité, équipe, capacité `sdlc:<stage>`, invocation, `produces`, `consumes`, `checks`. |
 | `.claude-plugin/marketplace.json` | Nouvelle entrée `aidlc-<stage>` (`source: ./plugins/aidlc-<stage>`). |
 
-Le miroir est le point clé : le noyau lit **toujours** le contrat d'une étape dans
-`plugins/aidlc-core/checks/`, quel que soit l'agencement des plugins dans le cache de Claude Code.
-C'est pourquoi **ajouter une étape ne touche ni aux hooks ni à `aidlc.py`** : la validation à
-l'écriture et le garde-fou d'intégrité s'appliquent automatiquement au nouveau livrable dès que le
-pipeline le déclare.
+**Rien n'est écrit dans le noyau.** Le manifeste est le point clé : il suffit à faire entrer
+l'agent au registre, et le contrat `checks.json` est résolu relativement à lui — donc lu dans votre
+plugin, où qu'il soit installé. C'est pourquoi **publier un agent ne touche ni au pipeline, ni aux
+hooks, ni à `aidlc.py`** : la validation à l'écriture et le garde-fou d'intégrité s'appliquent au
+nouveau livrable dès que le manifeste le déclare.
+
+### 2.3bis Publier un agent consultatif (le cas d'une équipe métier)
+
+Un agent qui rend un **avis** et non un livrable omet simplement `produces` : ni contrat, ni
+notation, ni porte. C'est la forme que prendront la plupart des agents d'équipe — sécurité,
+architecture, QA. Le dépôt en livre un exemple complet et copiable :
+`plugins/aidlc-security/` (équipe AppSec, capacités `security:review` et `security:threat-model`).
+
+Un agent développé **hors de ce dépôt** n'a rien à y ajouter : le consommateur pointe
+`AIDLC_AGENT_PATH` sur le répertoire qui le contient, et il entre au registre.
 
 ### 2.4 Remplir les squelettes — dans cet ordre
 
@@ -180,20 +176,21 @@ lui, un push ne change rien chez les consommateurs.
 
 | Vous modifiez… | Vous incrémentez la version de… |
 | --- | --- |
-| `plugins/aidlc-core/pipeline.json` (nouvelle étape, nouvel input, nouveau seuil…) | `plugins/aidlc-core/.claude-plugin/plugin.json` |
+| `plugins/aidlc-core/pipeline.json` (seuil, feuille de route, watchdog) | `plugins/aidlc-core/.claude-plugin/plugin.json` |
 | Les hooks, le script `aidlc.py`, les skills ou agents du noyau | `plugins/aidlc-core/.claude-plugin/plugin.json` |
-| Un miroir `plugins/aidlc-core/checks/<stage>.json` (donc le `checks.json` d'une étape) | `aidlc-core` **et** le plugin de l'étape concernée |
-| Le contenu d'un plugin d'étape (SKILL, agent, template, checks) | `plugins/aidlc-<stage>/.claude-plugin/plugin.json` |
+| Le contenu d'un plugin d'agent (manifeste, SKILL, agent, template, checks) | `plugins/<nom>/.claude-plugin/plugin.json` |
 
-Exemple : l'ajout de l'étape `design` modifie le pipeline du noyau et crée un nouveau plugin —
-vous incrémentez `aidlc-core` (0.1.0 → 0.2.0) et le nouveau plugin naît en 0.1.0. Sans le bump de
-`aidlc-core`, le tableau de bord d'un consommateur continuerait d'ignorer `design`.
+Exemple : l'ajout de l'étape `design` **ne touche pas au noyau** — vous publiez un nouveau plugin
+en 0.1.0, et c'est tout. Le consommateur qui l'installe le voit apparaître à son tableau de bord ;
+celui qui ne l'installe pas voit une entrée `missing_producers` s'il en dépend. Incrémentez
+`aidlc-core` seulement si vous avez modifié le noyau lui-même.
 
 ### 3.2 Checklist de publication
 
 1. Les vérifications de la section 2.5 passent (check-python, check-json, selftest, `claude plugin validate`).
-2. Les versions sont incrémentées pour **tous** les plugins modifiés, y compris `aidlc-core` dès
-   que `pipeline.json` change.
+2. Les versions sont incrémentées pour **tous** les plugins modifiés (`aidlc-core` seulement si
+   le noyau a changé). Le manifeste `agent.json` de chaque agent touché est valide :
+   `python3 plugins/aidlc-core/scripts/aidlc.py agents --strict` (porte CI).
 3. `.claude-plugin/marketplace.json` liste chaque plugin d'étape avec un `source` relatif
    (`./plugins/aidlc-<stage>`) — les chemins relatifs sont résolus par rapport à la racine du
    marketplace, donc ils fonctionnent que le consommateur ait ajouté le dépôt par chemin local ou

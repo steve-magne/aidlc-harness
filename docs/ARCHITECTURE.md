@@ -16,10 +16,12 @@ considérée comme franchie.
 
 ## 1. Intention
 
-Le harness industrialise un cycle de développement logiciel piloté par des agents. Un
-orchestrateur instancie une session agentique par étape du SDLC. Chaque étape produit un
-livrable écrit, versionné dans **le projet qui consomme le harnais** (pas dans le dépôt du
-harnais), qui devient l'entrée de l'étape suivante.
+Le harness industrialise un cycle de développement logiciel piloté par des agents. C'est un
+**orchestrateur d'agents modulaire** : chaque équipe publie son agent dans son propre plugin,
+qu'elle maintient seule, et l'orchestrateur le découvre par son **manifeste** sans rien connaître
+de son implémentation. Un agent qui produit un livrable est une étape du SDLC ; le livrable est
+versionné dans **le projet qui consomme le harnais** (pas dans le dépôt du harnais) et devient
+l'entrée de l'agent suivant.
 
 Le dépôt `aidlc-harness` est distribué comme un **marketplace de plugins Claude Code**. Il
 distingue deux racines : le **harnais** (`plugins/aidlc-core/` : `pipeline.json`, contrats,
@@ -30,19 +32,86 @@ le dépôt sert de projet d'essai, les deux racines se confondent.
 Trois principes gouvernent l'ensemble :
 
 1. **Le livrable est le contrat.** Rien ne circule entre deux étapes en dehors d'un fichier
-   présent dans `deliverables/` du projet consommateur. Pas de mémoire implicite, pas de contexte transmis de vive voix.
+   présent dans `deliverables/` du projet consommateur. Pas de mémoire implicite, pas de contexte
+   transmis de vive voix. C'est aussi ce qui **ordonne** les étapes : l'agent qui consomme un
+   livrable passe après celui qui le produit, sans qu'aucun fichier n'ait à fixer un rang.
 2. **La qualité se mesure deux fois.** D'abord de façon déterministe (un script applique un
    fichier de règles), ensuite de façon qualitative (un agent reviewer note sur une grille de
    maturité). Les deux doivent passer.
 3. **L'autonomie se mérite.** Une étape ne se passe de revue humaine qu'après avoir démontré sa
    fiabilité sur plusieurs exécutions consécutives.
+4. **Le noyau ne connaît personne.** Aucun composant ne contient une liste d'agents. Ajouter un
+   agent, c'est publier un plugin qui porte un `agent.json` — jamais modifier l'orchestrateur.
+   C'est la condition pour que chaque direction reste autonome sur son agent.
 
 ---
 
-## 2. Les six étapes
+## 2. Le registre d'agents
 
-Le pipeline suit les six phases du AI-native SDLC : `plan`, `design`, `build`, `test`, `deploy`,
-`maintain`. Chaque étape a un livrable unique, un rôle humain responsable, et un plugin dédié.
+### 2.1 Le manifeste `agent.json`
+
+Chaque plugin d'agent porte, à sa racine, un manifeste standardisé. C'est le **seul** contrat que
+l'orchestrateur lit : tout y est neutre vis-à-vis de la plateforme, **sauf le bloc `invocation`**,
+indexé par plateforme — c'est là, et seulement là, que vit l'implémentation propre à Claude Code
+ou à Codex.
+
+```json
+{
+  "manifest_version": 1,
+  "id": "security-review",
+  "team": "AppSec",
+  "version": "0.1.0",
+  "description": "Relit une conception et signale les risques exploitables.",
+  "capabilities": ["security:review", "security:threat-model"],
+  "invocation": {
+    "claude-code": "aidlc-security:security-review",
+    "codex": "skills/security-review/SKILL.md"
+  }
+}
+```
+
+| Champ | Obligatoire | Rôle |
+| --- | --- | --- |
+| `manifest_version` | oui | Version du contrat. Le noyau refuse explicitement toute valeur autre que `1`. |
+| `id` | oui | Adresse de l'agent, unique dans le registre. Deux équipes qui publient le même id sont signalées, la première source gagne. |
+| `team` | oui | L'équipe propriétaire — qui appeler quand l'agent se trompe. |
+| `description` | oui | La phrase sur laquelle l'orchestrateur choisit. Sans elle, il devrait ouvrir l'implémentation : c'est précisément ce que le manifeste interdit. |
+| `capabilities` | oui | Chaînes libres, convention `domaine:action`. Aucune taxonomie imposée : les collisions entre équipes sont un sujet de gouvernance, rendu visible par `team`. |
+| `invocation` | oui | `{plateforme: invocation}`. Une plateforme absente rend l'agent non invocable **ici**, ce qui est signalé, jamais deviné. |
+| `version` | non | Informatif, affiché. Jamais résolu en plage sémantique : le harnais n'est pas un gestionnaire de paquets. |
+| `produces` | non | Le livrable unique. **Sa présence fait de l'agent une étape gouvernée.** |
+| `consumes` | non | Les livrables amont attendus. C'est ce qui place l'agent dans la chaîne. |
+| `requires` | non | Dépendance sur un agent qui ne produit rien (rare : la dépendance normale passe par les livrables). |
+| `checks` | non | Contrat déterministe, **relatif au manifeste** — donc lu dans le plugin de l'équipe. |
+| `human_role` | non | Le rôle humain responsable de la revue. |
+
+Un agent **sans `produces`** est *consultatif* : invocable pour un avis, jamais noté, aucune porte.
+Un agent **avec `produces`** est une *étape* : validation déterministe, notation par le reviewer,
+porte de qualité, ratchet. Un seul concept, un champ qui bascule.
+
+### 2.2 La découverte
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json
+```
+
+Trois sources, par ordre de précédence :
+
+1. **`AIDLC_AGENT_PATH`** — répertoires séparés par `:`. Le contrat documenté : explicite,
+   portable, utilisable en CI et sous Codex.
+2. **Les plugins du dépôt et du projet** — `plugins/*/agent.json`.
+3. **Les plugins installés par Claude Code**, au mieux. Cette source repose sur un fichier interne
+   non documenté et n'existe pas sous Codex : elle **n'est jamais porteuse**. Toute erreur y est un
+   avertissement, jamais une exception ni un échec.
+
+Le scan est de profondeur 1, jamais récursif : la découverte est sur le chemin chaud du hook
+`guard`, qui s'exécute à chaque écriture.
+
+### 2.3 Les étapes du SDLC
+
+Le cycle suit les six phases du AI-native SDLC : `plan`, `design`, `build`, `test`, `deploy`,
+`maintain`. Chaque étape a un livrable unique, un rôle humain responsable, et un plugin dédié qui
+la déclare par son manifeste.
 
 | Étape      | Livrable                                | Rôle humain               | État            |
 | ---------- | --------------------------------------- | ------------------------- | --------------- |
@@ -53,9 +122,14 @@ Le pipeline suit les six phases du AI-native SDLC : `plan`, `design`, `build`, `
 | `deploy`   | `deliverables/deploy/release-notes.md`   | SRE / Release Manager     | planifiée       |
 | `maintain` | `deliverables/maintain/ops-report.md`    | Ops / Support             | planifiée       |
 
-Seule l'étape `plan` est livrée en entier : elle sert de tranche verticale de référence. Les
-cinq autres sont déclarées dans `pipeline.json` et se matérialisent à la demande via
+Seule l'étape `plan` est livrée en entier : elle sert de tranche verticale de référence. Les cinq
+autres figurent dans `planned_stages` de `pipeline.json` — une **feuille de route consultative**,
+affichée par `status` et utilisée pour pré-remplir le scaffold, qui n'exécute rien et n'oblige à
+rien : un agent peut naître sans y figurer. Elles se matérialisent à la demande via
 `aidlc.py scaffold <stage>`, piloté par la skill `/aidlc-core:new-stage`.
+
+Le dépôt livre aussi `plugins/aidlc-security/` : un agent **consultatif** de l'équipe AppSec, qui
+sert d'exemple de référence à toute équipe voulant publier le sien.
 
 ### Chaîne livrable vers entrée
 
@@ -72,7 +146,7 @@ cinq autres sont déclarées dans `pipeline.json` et se matérialisent à la dem
  ops-report.md --> (nouveau tour de plan)
 ```
 
-Le champ `inputs` de chaque étape dans `pipeline.json` énumère les fichiers amont obligatoires.
+Le champ `consumes` du manifeste de chaque agent énumère les fichiers amont obligatoires.
 La règle `must_reference_inputs` des `checks.json` vérifie que le livrable cite réellement ces
 fichiers : un livrable qui ne s'appuie sur rien est rejeté par le contrôle déterministe, avant
 même d'atteindre le reviewer.
@@ -81,28 +155,31 @@ même d'atteindre le reviewer.
 
 ## 3. Composants
 
-### 3.1 `pipeline.json` — source de vérité des étapes
+### 3.1 `pipeline.json` — la gouvernance, et rien d'autre
 
 Fichier unique installé avec le plugin noyau : `plugins/aidlc-core/pipeline.json` (dans la copie
-installée, il est résolu via `CLAUDE_PLUGIN_ROOT` ou par auto-localisation du script). Il déclare
-la liste ordonnée des étapes, pour chacune : son identifiant, son plugin, sa skill, son livrable
-(chemin relatif au **projet consommateur**), ses entrées, son fichier de contrôles — `checks/<stage>.json`,
-relatif au plugin noyau — le rôle humain responsable et son statut (`implemented` ou `planned`).
-Il porte aussi les deux paramètres de gouvernance :
+installée, il est résolu via `CLAUDE_PLUGIN_ROOT` ou par auto-localisation du script).
+
+**Il ne contient plus aucun registre d'étapes.** « Quels agents existent » se lit dans les
+manifestes (§2) ; l'ordre se dérive des livrables. Ce fichier ne porte que les réglages qui
+appartiennent à l'entreprise et non à une équipe : les seuils, ceux du watchdog, et
+`planned_stages` — la feuille de route consultative. Les deux paramètres de gouvernance :
 
 - `maturity_threshold` (4.0) : note globale minimale pour qu'un livrable soit accepté.
 - `consecutive_runs_to_autonomy` (3) : nombre d'exécutions consécutives au-dessus du seuil avant
   qu'une étape puisse passer en mode autonome.
 
-Aucun composant ne doit contenir une liste d'étapes en dur. Tout ce qui a besoin de connaître le
-pipeline lit ce fichier.
+Aucun composant ne doit contenir une liste d'agents en dur — ni ce fichier, ni le moteur, ni un
+prompt. Tout ce qui a besoin de savoir quels agents existent interroge le registre
+(`aidlc.py agents`, module `_aidlc/registry.py`).
 
 ### 3.2 `checks.json` — validation déclarative
 
-Chaque plugin d'étape embarque un `checks.json` (la source, dans `plugins/aidlc-<stage>/`) dont le
-plugin noyau garde un miroir (`plugins/aidlc-core/checks/<stage>.json`) : c'est ce miroir que
-`aidlc.py` lit, ce qui le rend indépendant de l'emplacement des plugins après installation. Le
-fichier décrit, sans code, ce qu'un livrable acceptable doit contenir. Les règles disponibles :
+Chaque plugin d'agent embarque son `checks.json`, désigné par le champ `checks` de son manifeste
+et résolu **relativement à ce manifeste** : le contrat vit donc dans le plugin de l'équipe qui le
+porte, et le noyau n'en garde aucune copie. C'était la dernière centralisation qui obligeait à
+toucher le harnais pour publier un agent. Le fichier décrit, sans code, ce qu'un livrable
+acceptable doit contenir. Les règles disponibles :
 
 | Règle | Effet |
 | ----- | ----- |
@@ -125,8 +202,8 @@ transposées en règles déclaratives, sans dépendance externe.
 
 L'étape `plan` (tranche verticale de référence) active dès maintenant la preuve d'exécution sur
 `## Contexte` et `## Critères d'acceptation` ainsi que le holdout
-`checks_do_not_self_reference` (source `plugins/aidlc-plan/checks.json`, miroir
-`plugins/aidlc-core/checks/plan.json`) : un `intent.md` doit citer un fait mesuré dans son
+`checks_do_not_self_reference` (`plugins/aidlc-plan/checks.json`, désigné par le champ `checks` du
+manifeste de l'agent) : un `intent.md` doit citer un fait mesuré dans son
 Contexte, chiffrer ses critères, et ne jamais citer les lignes de son propre `checks.json`. Les
 règles `required_input_section` et `must_not_violate_scope` s'activeront avec les étapes qui ont
 des entrées amont (design et suivantes).

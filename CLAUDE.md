@@ -5,23 +5,32 @@ Ce fichier est lu par **tout agent** qui travaille dans ce dépôt. Il prime sur
 ## Rôle du dépôt
 
 `aidlc-harness` est la **source d'un harnais agentique d'entreprise pour le AI-native SDLC**,
-distribué comme un marketplace de plugins Claude Code (`.claude-plugin/marketplace.json`). Un
-orchestrateur instancie une session agentique par étape du cycle de vie (Plan → Design → Build →
-Test → Deploy → Maintain). Le livrable d'une étape est l'entrée de la suivante. Chaque étape est un
-**plugin Claude Code** : un agent, une ou plusieurs skills, un template, des vérifications
-déterministes (`checks.json`) et des hooks. Chaque session est journalisée en JSONL. Après chaque
-livrable, un agent *reviewer* note la maturité ; sous le seuil, une revue humaine est obligatoire ;
-les refus alimentent une boucle d'auto-amélioration.
+distribué comme un marketplace de plugins Claude Code (`.claude-plugin/marketplace.json`).
+
+C'est un **orchestrateur d'agents modulaire**. Chaque équipe publie son agent dans son propre
+plugin, qu'elle maintient seule, et l'y déclare par un **manifeste `agent.json`** : identité,
+équipe propriétaire, capacités, version, invocation par plateforme, et — s'il produit un livrable
+— ce qu'il produit, ce qu'il consomme et son contrat. L'orchestrateur **découvre** les agents par
+ces manifestes : il ne tient aucune liste, et ajouter un agent ne modifie jamais le noyau.
+
+Un agent qui déclare `produces` est une **étape gouvernée** : son livrable est validé, noté par un
+agent *reviewer*, et soumis à une porte de qualité ; l'ordre des étapes se dérive de la chaîne
+producteur → consommateur, pas d'une position dans un fichier. Un agent sans `produces` est
+**consultatif** : invocable pour un avis, jamais noté. Chaque session est journalisée en JSONL ;
+sous le seuil de maturité une revue humaine est obligatoire, et les refus alimentent une boucle
+d'auto-amélioration.
 
 ### Deux racines
 
 Le harnais distingue **le harnais** (les plugins, leur pipeline et leurs contrats) du **projet
 consommateur** (le projet qui installe les plugins et dans lequel sont produits les livrables) :
 
-- **Harnais** — `plugins/aidlc-core/` contient `pipeline.json` (source de vérité des étapes), le
-  miroir `checks/<stage>.json` des contrats, le moteur `scripts/` (point d'entrée `aidlc.py`,
+- **Harnais** — `plugins/aidlc-core/` contient `pipeline.json` (gouvernance seule : seuils,
+  autonomie, watchdog, et `planned_stages` — feuille de route consultative), le moteur `scripts/` (point d'entrée `aidlc.py`,
   paquet stdlib `_aidlc/`) et les hooks. Une fois les plugins
   installés par Claude Code, cette racine est la copie en cache désignée par `CLAUDE_PLUGIN_ROOT`.
+  **Le noyau ne contient aucun registre d'étapes ni miroir de contrat** : chaque contrat vit dans
+  le plugin de l'équipe qui le porte.
 - **Projet consommateur** — `CLAUDE_PROJECT_DIR` : `deliverables/`, `.aidlc/` et `knowledge/` y
   vivent. Quand ce dépôt est utilisé comme projet d'essai (session Claude Code ouverte ici), les
   deux racines se confondent dans le dépôt.
@@ -44,15 +53,16 @@ CLAUDE.md                     ce fichier
 docs/                         documentation publiée — bundle OKF v0.2 (index.md, log.md)
   ARCHITECTURE.md              architecture, grille de maturité, cycle de vie
   CONSUMER.md                  guide consommateur prêt à publier (installation, premier run, revue humaine)
-  MAINTAINER.md                guide auteur prêt à publier (nouvelle étape, release, mises à jour)
+  MAINTAINER.md                guide auteur prêt à publier (nouvel agent, release, mises à jour)
 knowledge/                    base de connaissance du dépôt (projet d'essai) — bundle OKF v0.2
                               (index.md, log.md, glossary.md, conventions.md, sources/)
 
 plugins/aidlc-core/           noyau : orchestrator, reviewer, librarian, aidlc.py, hooks, skills
-  pipeline.json                 source de vérité des étapes du SDLC (installé avec le plugin ; bloc `watchdog` = seuils des détecteurs)
-  checks/<stage>.json           contrats déterministes (miroirs des plugins d'étape)
+  pipeline.json                 gouvernance seule (seuils, `watchdog`, `planned_stages`) — aucun registre d'étapes
+plugins/<plugin>/agent.json   manifeste d'un agent : le seul contrat que l'orchestrateur lit
+plugins/aidlc-plan/           agent d'étape (produit un livrable, donc gouverné)
+plugins/aidlc-security/       agent d'équipe consultatif (exemple de référence, équipe AppSec)
 planchers figés               .aidlc/ratchet.json — planchers de sévérité (guard protégé)
-plugins/aidlc-<stage>/        une étape = un plugin (agent, skill, template, checks.json)
 
 deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR)
 .aidlc/                       état runtime (logs, maturity.json, reviews, tmp) — projet consommateur
@@ -66,13 +76,15 @@ stdlib `_aidlc/`. Depuis la racine du dépôt (mode auteur, le moteur s'auto-loc
 ```bash
 S=plugins/aidlc-core/scripts/aidlc.py
 
-python3 $S status                       # tableau de bord du pipeline
+python3 $S agents                       # catalogue du registre (équipes, capacités, invocation)
+python3 $S agents --capability security:review --json
+python3 $S status                       # tableau de bord des étapes
 python3 $S validate plan                # vérifie le livrable de l'étape plan
 python3 $S score plan --file review.json  # enregistre une revue du reviewer
 python3 $S gate plan                    # décide si l'étape est franchie (exit 2 = bloquant)
 python3 $S review-request plan          # prépare le formulaire de revue humaine
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
-python3 $S scaffold design              # génère le plugin d'une nouvelle étape
+python3 $S scaffold design              # génère le plugin d'un agent (n'écrit pas dans le noyau)
 python3 $S ratchet                      # fige les planchers de sévérité des checks.json (exit 2 = régression)
 python3 $S watchdog                     # détecteurs de stagnation sur les journaux (exit 2 = halte)
 python3 $S check-okf knowledge          # conformité OKF v0.2 du bundle knowledge/ (exit 1 = non conforme)
@@ -90,13 +102,13 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
 ## Règles non négociables
 
 1. **Un livrable = un fichier dans `deliverables/<stage>/` du projet consommateur**, au chemin exact
-   déclaré par `pipeline.json` (lui-même dans le plugin `aidlc-core`). Pas de livrable ailleurs, pas
-   de livrable éclaté en plusieurs fichiers. Les livrables ne sont jamais écrits dans ce dépôt quand
+   déclaré par le champ `produces` du manifeste de l'agent. Pas de livrable ailleurs, pas de
+   livrable éclaté en plusieurs fichiers. Les livrables ne sont jamais écrits dans ce dépôt quand
    le harnais est consommé ailleurs.
 2. **Toute logique déterministe vit sous `plugins/aidlc-core/scripts/`** : le point d'entrée
    `aidlc.py` délègue au paquet stdlib `_aidlc/`, un module par concern (`util`, `checks`,
-   `maturity`, `scaffold`, `improve`, `hookslog`, `okf`, `syntax`, `selftest`, `commands`,
-   `cli`). Jamais de
+   `maturity`, `registry`, `scaffold`, `improve`, `hookslog`, `okf`, `syntax`, `selftest`,
+   `commands`, `cli`). Jamais de
    second point d'entrée, jamais de logique dans un `Makefile` ni en shell inline dans un hook. Si
    une nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans
    le `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.
@@ -108,9 +120,11 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    `.aidlc/improvement-queue.jsonl` et `.aidlc/logs/` ne sont écrits que par les scripts
    (`score`, `ratchet`, hooks) et l'humain (revues). Un hook `PreToolUse` refuse activement ces
    écritures, ainsi que toute écriture dans la **copie installée du harnais** hors du projet
-   (pipeline.json, checks/, hooks/, script, agents, skills, templates — la liste protégée) :
-   un agent n'édite pas les règles qui le jugent, ni sa propre note. C'est un garde-fou
-   d'intégrité, pas une gêne à contourner ; la conception du harnais vit dans le dépôt auteur.
+   (pipeline.json, hooks/, script, agents, skills, templates — la liste protégée) **et dans le
+   plugin d'un agent appartenant à une autre équipe, installé hors du projet** : un agent n'édite
+   ni les règles qui le jugent, ni sa propre note, ni l'implémentation d'une direction voisine —
+   son manifeste est lu, pas réécrit. C'est un garde-fou d'intégrité, pas une gêne à contourner ;
+   chaque agent évolue dans le dépôt de son équipe.
 5. **Aucun placeholder non résolu** (`TODO`, `TBD`, `<à remplir>`, « lorem ») dans un fichier livré.
    Seule exception : les marqueurs entre chevrons des `templates/`, qui sont documentés comme tels.
 6. **Tout JSON doit parser, tout Python doit compiler** (`python3 -m py_compile`). Les chemins écrits
@@ -118,11 +132,16 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
 7. Les raccourcis assumés sont marqués par un commentaire `# ponytail: ...` expliquant le compromis.
    Pas d'abstraction spéculative : le moins de fichiers possible.
 
-## Ajouter une étape
+## Ajouter un agent
 
-Ne créez pas un plugin d'étape à la main, et ne le faites pas depuis un projet consommateur (la
+Ne créez pas un plugin d'agent à la main, et ne le faites pas depuis un projet consommateur (la
 copie installée du harnais n'est pas le lieu de conception). Utilisez la skill `/aidlc-core:new-stage`
-dans ce dépôt : elle dialogue avec le référent métier puis appelle `aidlc.py scaffold <stage>` :
-celui-ci génère le plugin complet sous `plugins/`, met le `status` à `implemented` dans
-`plugins/aidlc-core/pipeline.json`, crée le miroir `plugins/aidlc-core/checks/<stage>.json` et
-ajoute l'entrée dans `.claude-plugin/marketplace.json`.
+dans ce dépôt : elle dialogue avec le référent métier puis appelle `aidlc.py scaffold <stage>`,
+qui génère le plugin complet sous `plugins/` — dont son manifeste `agent.json` — et ajoute
+l'entrée dans `.claude-plugin/marketplace.json`.
+
+**Le noyau n'est jamais modifié.** C'est la condition de la modularité : une équipe publie son
+agent, l'orchestrateur le découvre par son manifeste. Un agent consultatif (un avis, pas de
+livrable) omet simplement `produces` : voir `plugins/aidlc-security/agent.json`. Un agent
+développé hors de ce dépôt se déclare par `AIDLC_AGENT_PATH` (répertoires séparés par `:`), qui a
+la précédence sur toutes les autres sources de découverte.

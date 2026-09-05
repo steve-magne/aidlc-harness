@@ -1,5 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
+  "_comment": "Gouvernance du harnais. Ce fichier ne porte plus de registre d'etapes : « quels agents existent » se lit dans les manifestes agent.json des plugins (aidlc.py agents). planned_stages est une feuille de route consultative — elle est affichee par status et pre-remplit scaffold, elle n'execute rien.",
   "maturity_threshold": 4.0,
   "consecutive_runs_to_autonomy": 3,
   "watchdog": {
@@ -8,82 +9,46 @@
     "rerun_threshold": 5,
     "window": 60
   },
-  "stages": [
-    {
-      "id": "plan",
-      "name": "Plan",
-      "plugin": "aidlc-plan",
-      "skill": "aidlc-plan:plan",
-      "deliverable": "deliverables/plan/intent.md",
-      "inputs": [],
-      "checks": "checks/plan.json",
-      "human_role": "Product Owner / Business Analyst",
-      "status": "implemented"
-    },
+  "planned_stages": [
     {
       "id": "design",
       "name": "Design",
-      "plugin": "aidlc-design",
-      "skill": "aidlc-design:design",
       "deliverable": "deliverables/design/spec.md",
-      "inputs": [
-        "deliverables/plan/intent.md"
-      ],
-      "checks": "checks/design.json",
+      "inputs": ["deliverables/plan/intent.md"],
       "human_role": "Architecte de solution",
-      "status": "planned"
+      "team": "Architecture"
     },
     {
       "id": "build",
       "name": "Build",
-      "plugin": "aidlc-build",
-      "skill": "aidlc-build:build",
       "deliverable": "deliverables/build/plan.md",
-      "inputs": [
-        "deliverables/design/spec.md"
-      ],
-      "checks": "checks/build.json",
+      "inputs": ["deliverables/design/spec.md"],
       "human_role": "Tech Lead",
-      "status": "planned"
+      "team": "Ingenierie"
     },
     {
       "id": "test",
       "name": "Test",
-      "plugin": "aidlc-test",
-      "skill": "aidlc-test:test",
       "deliverable": "deliverables/test/test-plan.md",
-      "inputs": [
-        "deliverables/build/plan.md"
-      ],
-      "checks": "checks/test.json",
+      "inputs": ["deliverables/build/plan.md"],
       "human_role": "QA Lead",
-      "status": "planned"
+      "team": "Qualite"
     },
     {
       "id": "deploy",
       "name": "Deploy",
-      "plugin": "aidlc-deploy",
-      "skill": "aidlc-deploy:deploy",
       "deliverable": "deliverables/deploy/release-notes.md",
-      "inputs": [
-        "deliverables/test/test-plan.md"
-      ],
-      "checks": "checks/deploy.json",
+      "inputs": ["deliverables/test/test-plan.md"],
       "human_role": "SRE / Release Manager",
-      "status": "planned"
+      "team": "Plateforme"
     },
     {
       "id": "maintain",
       "name": "Maintain",
-      "plugin": "aidlc-maintain",
-      "skill": "aidlc-maintain:maintain",
       "deliverable": "deliverables/maintain/ops-report.md",
-      "inputs": [
-        "deliverables/deploy/release-notes.md"
-      ],
-      "checks": "checks/maintain.json",
+      "inputs": ["deliverables/deploy/release-notes.md"],
       "human_role": "Ops / Support",
-      "status": "planned"
+      "team": "Exploitation"
     }
   ]
 }

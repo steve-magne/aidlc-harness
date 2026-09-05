@@ -5,6 +5,7 @@ import os
 import select
 import sys
 
+from . import registry
 from .okf import PROJECT_OKF_BUNDLES
 from .ratchet import ratchet_reset
 from .ratchet import ratchet_run
@@ -198,6 +199,54 @@ def cmd_scaffold(root: Path, args) -> int:
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
         return 1
+    return 0
+
+
+def cmd_agents(root: Path, args) -> int:
+    """Catalogue du registre : quels agents existent, a quelle equipe ils appartiennent,
+    ce qu'ils savent faire et comment les invoquer sur la plateforme courante. C'est
+    l'entree de l'orchestrateur — le script sait qui existe, l'agent sait qui appeler.
+
+    Severite asymetrique : un manifeste invalide DANS ce depot est notre responsabilite
+    (exit 1, porte CI) ; celui d'une autre equipe, decouvert ailleurs, est un
+    avertissement — la CI d'un consommateur ne doit pas rougir pour le manifeste casse
+    d'une direction voisine.
+    """
+    view = registry.catalog(capability=getattr(args, "capability", None),
+                            platform=getattr(args, "platform", None))
+    if args.json:
+        emit(view)
+    else:
+        emit(view)
+        for agent in view["agents"]:
+            sys.stderr.write("  {:<20} {:<16} {:<10} {}\n".format(
+                agent["id"], (agent.get("team") or "-")[:16], agent["kind"],
+                ", ".join(agent["capabilities"])))
+            sys.stderr.write("      {}\n".format(agent.get("description") or ""))
+            sys.stderr.write("      invocation ({}) : {}\n".format(
+                view["platform"],
+                agent.get("invoke") or "AUCUNE — agent non invocable ici"))
+        if not view["agents"]:
+            sys.stderr.write("Aucun agent dans le registre. Poser un agent.json a la "
+                             "racine d'un plugin, ou pointer AIDLC_AGENT_PATH vers un "
+                             "repertoire qui en contient.\n")
+        for hole in view["missing_producers"]:
+            sys.stderr.write("  [manque] {} attend {} : aucun agent installe ne le "
+                             "produit.\n".format(hole["agent"], hole["input"]))
+        if view["cycle"]:
+            sys.stderr.write("  [cycle] dependances circulaires entre agents : "
+                             + ", ".join(view["cycle"]) + "\n")
+        for message in view["warnings"]:
+            sys.stderr.write(f"  [avertissement] {message}\n")
+        for message in view["problems"]:
+            sys.stderr.write(f"  [manifeste] {message}\n")
+    if view["cycle"]:
+        return 1
+    if getattr(args, "strict", False):
+        # --strict : seuls les manifestes du depot courant font echouer la porte.
+        local = [message for message in view["problems"]
+                 if str(root.resolve()) in message]
+        return 1 if local else 0
     return 0
 
 

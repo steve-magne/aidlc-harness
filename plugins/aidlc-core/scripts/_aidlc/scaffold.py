@@ -4,12 +4,14 @@ import json
 import os
 
 from pathlib import Path
+from . import registry
 from .util import ensure_dir
-from .util import find_stage
 from .util import harness_root
 from .util import read_text
 from .util import write_json
-"""Generation du plugin d'une etape declaree : squelettes, checks miroir, inscription au marketplace, pipeline."""
+"""Generation du plugin d'un agent : squelettes, manifeste agent.json, contrat checks.json
+et inscription au marketplace du depot. Le noyau n'est jamais modifie — c'est la condition
+pour qu'une equipe publie son agent sans toucher a l'orchestrateur."""
 
 # ------------------------------------------------------------------------ scaffold
 
@@ -135,32 +137,29 @@ def authoring_root() -> Path:
     return harness
 
 
-def mirror_checks(source: Path, target: Path) -> None:
-    """Met le checks.json du plugin d'etape a cote du pipeline (miroir checks/<stage>.json).
-
-    # ponytail: symlink quand le systeme de fichiers le permet (depot auteur, macOS/Linux),
-    # copie sinon (Windows). Le miroir garantit que le noyau lit TOUJOURS le contrat de
-    # l'etape sans dependre de l'agencement des plugins dans le cache de Claude Code.
-    """
-    ensure_dir(target.parent)
-    if target.exists() or target.is_symlink():
-        target.unlink()
-    try:
-        target.symlink_to(os.path.relpath(source, target.parent))
-    except OSError:
-        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+def planned_stage(pipe: dict, stage_id: str) -> dict:
+    """Entree de la feuille de route consultative (pipeline.json > planned_stages), si
+    l'etape y figure. C'est un pre-remplissage, jamais une condition : un agent peut
+    naitre sans avoir ete prevu."""
+    for stage in pipe.get("planned_stages", []):
+        if stage.get("id") == stage_id:
+            return dict(stage)
+    return {}
 
 
 def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
-    """Genere le plugin d'une etape dans le depot auteur du harnais (jamais dans le projet
-    consommateur). Bascule le statut dans le pipeline.json du noyau et inscrit le plugin
-    au marketplace du depot.
+    """Genere le plugin d'un agent dans le depot auteur (jamais dans le projet
+    consommateur), avec son manifeste agent.json et son contrat checks.json, et
+    l'inscrit au marketplace du depot.
+
+    Le noyau n'est pas touche : ni pipeline.json, ni miroir de contrat. C'est ce qui
+    permet a chaque equipe de publier son agent de facon autonome — l'orchestrateur le
+    decouvre par son manifeste.
     """
-    stage = find_stage(pipe, stage_id)
-    if stage is None:
-        raise ValueError(
-            f"Etape '{stage_id}' absente de pipeline.json : l'ajouter d'abord au pipeline."
-        )
+    if registry.find_agent(stage_id) and not force:
+        raise ValueError(f"L'agent '{stage_id}' existe deja dans le registre "
+                         "(utiliser --force).")
+    stage = planned_stage(pipe, stage_id)
     base = authoring_root()
     plugin_dir = base / "plugins" / f"aidlc-{stage_id}"
     if plugin_dir.exists() and not force:
@@ -170,6 +169,7 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
     deliverable = stage.get("deliverable", f"deliverables/{stage_id}/{stage_id}.md")
     template_name = Path(deliverable).name
     inputs = stage.get("inputs", [])
+    team = stage.get("team", "<equipe proprietaire de cet agent>")
     inputs_txt = ", ".join(inputs) if inputs else "aucun"
     inputs_list = "\n".join(f"- `{i}`" for i in inputs) if inputs else "- Aucun input amont."
     role = stage.get("human_role", "role metier a preciser")
@@ -203,11 +203,26 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
     write_json(checks_path, checks)
     created.append(os.path.relpath(checks_path, base))
 
-    stage["status"] = "implemented"
-    stage["checks"] = f"checks/{stage_id}.json"
-    write_json(harness_root() / "pipeline.json", pipe)
-    mirror_checks(checks_path, harness_root() / "checks" / f"{stage_id}.json")
-    created.append(os.path.relpath(harness_root() / "checks" / f"{stage_id}.json", base))
+    # Le manifeste : le seul contrat que l'orchestrateur lit. Tout y est neutre sauf
+    # `invocation`, indexe par plateforme — c'est la, et seulement la, que vit
+    # l'implementation propre a Claude Code ou a Codex.
+    manifest = {
+        "manifest_version": 1,
+        "id": stage_id,
+        "team": team,
+        "version": "0.1.0",
+        "description": f"Etape {name} du cycle de vie : produit {deliverable}.",
+        "capabilities": [f"sdlc:{stage_id}"],
+        "invocation": {"claude-code": f"aidlc-{stage_id}:{stage_id}"},
+        "produces": deliverable,
+        "consumes": inputs,
+        "checks": "checks.json",
+        "human_role": role,
+    }
+    manifest_path = plugin_dir / "agent.json"
+    write_json(manifest_path, manifest)
+    created.append(os.path.relpath(manifest_path, base))
+    registry.reset_cache()  # le registre vient de changer dans ce processus
 
     market_path = base / ".claude-plugin" / "marketplace.json"
     if market_path.exists():
@@ -226,5 +241,7 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
 
     return {"stage": stage_id, "plugin": f"aidlc-{stage_id}", "created": created,
             "template": template_name,
-            "next": f"Éditer {os.path.relpath(checks_path, base)} et le SKILL.md "
-                    f"pour coller au metier de l'étape."}
+            "manifest": os.path.relpath(manifest_path, base),
+            "next": f"Éditer {os.path.relpath(manifest_path, base)} (équipe "
+                    f"propriétaire, capacités) et {os.path.relpath(checks_path, base)} "
+                    f"pour coller au métier de l'étape."}

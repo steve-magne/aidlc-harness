@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import uuid
 
 from pathlib import Path
+from . import registry
 from .util import aidlc_dir
 from .util import ensure_dir
 from .util import harness_root
@@ -18,6 +18,9 @@ from .checks import validate_stage
 
 # ponytail: liste blanche des cles de payload journalisees. Plafond : un hook exotique
 # perd ses champs specifiques. Upgrade : journaliser l'entree entiere tronquee.
+LOG_TAIL_BYTES = 64 * 1024
+"""Queue de journal relue pour retrouver la derniere etape d'une session."""
+
 PAYLOAD_KEYS = [
     "hook_event_name", "tool_name", "tool_input", "tool_response", "prompt",
     "source", "message", "reason", "trigger", "stop_hook_active", "permission_mode",
@@ -28,34 +31,89 @@ PAYLOAD_KEYS = [
 
 def current_stage_id(root: Path, pipe: dict):
     try:
-        for stage in pipe.get("stages", []):
-            deliverable = root / stage.get("deliverable", "")
-            if not deliverable.exists():
+        stages = registry.stages()
+        for stage in stages:
+            if not (root / stage["produces"]).exists():
                 return stage["id"]
             if not validate_stage(root, pipe, stage["id"])["ok"]:
                 return stage["id"]
-        stages = pipe.get("stages", [])
         return stages[-1]["id"] if stages else None
     except Exception:
         return None
 
 
-def guess_stage(root: Path, pipe: dict, raw: str):
-    """Devine l'etape courante depuis le texte du hook.
+def stage_from_payload(root: Path, data: dict):
+    """Etape portee par l'evenement lui-meme : le chemin de fichier qu'il touche.
 
-    # ponytail: heuristique par sous-chaine (chemin de livrable puis identifiant d'etape).
-    Plafond : un texte francais contenant "plan" peut faussement matcher. Upgrade : faire
-    porter l'etape par une variable d'environnement posee par l'orchestrateur.
+    Chemin exact du livrable d'un agent d'abord (certitude), sinon le repertoire de ce
+    livrable — l'ecriture porte alors sur une annexe, ou sur le livrable avant sa
+    creation. Deux agents qui partagent un repertoire : le premier de l'ordre gagne,
+    ce qui est deja un defaut de conception a corriger cote manifestes.
+    """
+    tool_input = data.get("tool_input") or {}
+    target = (tool_input.get("file_path") or tool_input.get("notebook_path")
+              or data.get("file_path"))
+    if not target:
+        return None
+    agent = registry.agent_for_file(root, target)
+    if agent:
+        return agent["id"]
+    try:
+        resolved = Path(target).resolve()
+    except OSError:
+        return None
+    for stage in registry.stages():
+        try:
+            resolved.relative_to((root / stage["produces"]).parent.resolve())
+        except (OSError, ValueError):
+            continue
+        return stage["id"]
+    return None
+
+
+def last_known_stage(root: Path, session_id: str):
+    """Derniere etape attribuee dans cette session. Une session qui vient d'ecrire un
+    livrable garde son etape pour les evenements qui ne portent aucun chemin (prompt,
+    demarrage, arret) : c'est de la continuite constatee, pas une devinette.
+
+    # ponytail: on ne relit que la queue du journal. Plafond : une etape attribuee il y
+    # a plus de LOG_TAIL_BYTES est oubliee, l'evenement retombe alors sur l'etape
+    # courante du pipeline. Upgrade : indexer la derniere etape par session si les
+    # journaux deviennent enormes.
+    """
+    log_path = aidlc_dir(root) / "logs" / f"{session_id}.jsonl"
+    try:
+        with log_path.open("rb") as handle:
+            handle.seek(max(0, log_path.stat().st_size - LOG_TAIL_BYTES))
+            lines = handle.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict) and entry.get("stage"):
+            return entry["stage"]
+    return None
+
+
+def guess_stage(root: Path, pipe: dict, data: dict, session_id: str):
+    """Etape d'un evenement de hook, par fiabilite decroissante : le chemin de fichier
+    qu'il porte, puis la derniere etape attribuee dans la meme session, puis l'etape
+    courante du pipeline.
+
+    Aucune correspondance n'est cherchee dans le texte libre. L'ancienne heuristique
+    reconnaissait l'identifiant d'une etape comme mot du prompt : « le plan de charge »
+    etait attribue a `plan`, « lance les test » a `test`, ce qui faussait
+    `improve --stage` et le detecteur de relances du watchdog. Un registre ouvert
+    aggrave le probleme, les identifiants d'agents etant des mots courants choisis par
+    chaque equipe.
     """
     try:
-        for stage in pipe.get("stages", []):
-            folder = os.path.dirname(stage.get("deliverable", ""))
-            if folder and folder in raw:
-                return stage["id"]
-        for stage in pipe.get("stages", []):
-            if re.search(r"\b" + re.escape(stage["id"]) + r"\b", raw, re.IGNORECASE):
-                return stage["id"]
-        return current_stage_id(root, pipe)
+        return (stage_from_payload(root, data)
+                or last_known_stage(root, session_id)
+                or current_stage_id(root, pipe))
     except Exception:
         return None
 
@@ -78,7 +136,7 @@ def handle_log(root: Path, raw: str) -> dict:
         "agent_id": data.get("agent_id"),
         "agent_type": data.get("agent_type"),
         "cwd": data.get("cwd"),
-        "stage": guess_stage(root, pipe, raw[:8000]),
+        "stage": guess_stage(root, pipe, data, session_id),
         "payload": payload,
     }
     log_path = ensure_dir(aidlc_dir(root) / "logs") / f"{session_id}.jsonl"
@@ -142,7 +200,18 @@ def guard_decision(root: Path, raw: str):
     reason = _aidlc_protection_reason(root, resolved)
     if reason:
         return reason
-    return _harness_protection_reason(root, resolved)
+    # Ordre impératif : test de chemin pur d'abord. Ce hook tourne à chaque Write avec
+    # un timeout de 5 s ; la découverte des manifestes (I/O) n'a lieu que pour une cible
+    # déjà connue comme extérieure au projet, donc jamais sur le chemin chaud courant.
+    try:
+        resolved.relative_to(root.resolve())
+        return None
+    except (OSError, ValueError):
+        pass
+    reason = _harness_protection_reason(root, resolved)
+    if reason:
+        return reason
+    return _agent_protection_reason(resolved)
 
 
 def _aidlc_protection_reason(root: Path, resolved: Path):
@@ -192,13 +261,30 @@ def _harness_protection_reason(root: Path, resolved: Path):
         resolved.relative_to(harness)
     except (OSError, ValueError):
         return None  # hors harnais : jamais concerne
-    try:
-        resolved.relative_to(root.resolve())
-        return None  # sous le projet : livrables, knowledge, depot auteur — editable
-    except (OSError, ValueError):
-        pass
     return ("Ecriture refusee : la copie installée du harnais (hors du projet) est sa "
             "liste protégée (pipeline.json, checks/, hooks/, script, agents, skills, "
             "templates). Un agent n'édite pas les règles qui le jugent ; faire évoluer "
             "le harnais dans son dépôt auteur, via /aidlc-core:improve ou "
             "/aidlc-core:new-stage.")
+
+
+def _agent_protection_reason(resolved: Path):
+    """Le plugin d'un agent d'une autre équipe, installé hors du projet, est protégé au
+    même titre que le noyau : chaque équipe reste maîtresse de son agent, et une session
+    ne réécrit pas l'implémentation d'une direction voisine depuis le cache de plugins.
+    N'est appelée qu'après le test de chemin pur (cible hors du projet)."""
+    try:
+        for agent in registry.agents_list():
+            if agent.get("in_project"):
+                continue
+            try:
+                resolved.relative_to(Path(agent["root"]).resolve())
+            except (OSError, ValueError):
+                continue
+            return ("Ecriture refusée : {} appartient au plugin de l'agent '{}' (équipe "
+                    "{}), installé hors de ce projet. Chaque équipe maintient son agent "
+                    "dans son propre dépôt ; ici, seul son manifeste est lu."
+                    .format(resolved.name, agent["id"], agent.get("team") or "inconnue"))
+    except Exception:
+        return None
+    return None

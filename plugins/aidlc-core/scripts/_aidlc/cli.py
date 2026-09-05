@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from .commands import cmd_agents
 from .commands import cmd_check_json
 from .commands import cmd_check_okf
 from .commands import cmd_check_python
@@ -50,6 +51,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     request = sub.add_parser("review-request", help="Prepare la revue humaine d'une etape.")
     request.add_argument("stage")
+
+    agents_cmd = sub.add_parser(
+        "agents", help="Catalogue du registre d'agents (manifestes agent.json).")
+    agents_cmd.add_argument("--capability", help="Ne garder que les agents qui portent "
+                                                 "cette capacite.")
+    agents_cmd.add_argument("--platform", help="Plateforme d'invocation "
+                                               "(defaut : AIDLC_PLATFORM ou claude-code).")
+    agents_cmd.add_argument("--json", action="store_true", help="JSON seul, sans resume humain.")
+    agents_cmd.add_argument("--strict", action="store_true",
+                            help="Exit 1 si un manifeste de ce depot est invalide (porte CI).")
 
     status = sub.add_parser("status", help="Tableau de bord du pipeline.")
     status.add_argument("--json", action="store_true")
@@ -122,6 +133,7 @@ def main(argv=None) -> int:
 
     handlers = {
         "validate": cmd_validate, "score": cmd_score, "gate": cmd_gate,
+        "agents": cmd_agents,
         "review-request": cmd_review_request, "status": cmd_status,
         "scaffold": cmd_scaffold, "improve": cmd_improve,
         "check-okf": cmd_check_okf, "check-python": cmd_check_python,

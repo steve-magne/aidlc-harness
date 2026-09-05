@@ -1,0 +1,9 @@
+{
+  "name": "aidlc-security",
+  "description": "Agent de revue de sécurité de l'équipe AppSec, publié comme plugin autonome : relit une conception ou un changement et signale les risques exploitables. Exemple de référence d'un agent d'équipe intégré au registre AI-DLC par son manifeste agent.json.",
+  "version": "0.1.0",
+  "author": {
+    "name": "AppSec"
+  },
+  "keywords": ["aidlc", "agent", "securite", "appsec", "revue"]
+}

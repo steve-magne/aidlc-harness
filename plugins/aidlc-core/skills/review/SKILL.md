@@ -9,8 +9,9 @@ argument-hint: "[stage] — id d'étape ; vide = étape du dernier livrable modi
 ## Conventions
 
 Le script unique vit dans le plugin `aidlc-core` (`${CLAUDE_PLUGIN_ROOT}`) ; les livrables, les
-logs et `.aidlc/` sont dans le projet consommateur (`$CLAUDE_PROJECT_DIR`). Le pipeline se lit dans
-`${CLAUDE_PLUGIN_ROOT}/pipeline.json`, les contrats dans `${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`.
+logs et `.aidlc/` sont dans le projet consommateur (`$CLAUDE_PROJECT_DIR`). La gouvernance se lit
+dans `${CLAUDE_PLUGIN_ROOT}/pipeline.json` ; les agents et leurs contrats se lisent dans le registre
+(`aidlc.py agents --json`), chaque contrat vivant dans le plugin de l'équipe qui le porte.
 
 Le fichier de revue de travail va dans `.aidlc/tmp/` (scratch, gitignoré). **Jamais** dans
 `.aidlc/reviews/` ni dans `.aidlc/maturity.json` : ces chemins sont réservés à l'humain et au script,
@@ -44,8 +45,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" validate <stage> --json
 Invoque le sous-agent `reviewer` (agent `aidlc-core:reviewer`) avec, dans son prompt :
 
 - le chemin du livrable et son contenu intégral ;
-- les chemins et le contenu des `inputs` de l'étape (indispensable pour noter la traçabilité) ;
-- le contrat de l'étape (`${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`) et les `warnings` de la
+- les chemins et le contenu des `consumes` de l'étape (indispensable pour noter la traçabilité) ;
+- le contrat de l'étape (champ `checks` du manifeste, relatif à celui-ci) et les `warnings` de la
   validation ;
 - le contexte du bundle `knowledge/` (via le sous-agent `librarian` si l'étape en dépend) ;
 - le nombre de tours et d'allers-retours humains de la session, extraits des logs :

@@ -21,7 +21,7 @@ plugins (`plugins/`) et la documentation. Il sert aussi de projet d'essai quand 
 « en interne ». Mais quand le harnais est **consommé**, les livrables ne sont pas écrits ici : ils
 le sont dans le projet qui a installé les plugins.
 
-- **Le harnais** — le pipeline, les contrats `checks/<stage>.json` et le script `aidlc.py` vivent
+- **Le harnais** — la gouvernance (`pipeline.json`) et le script `aidlc.py` vivent
   dans le plugin `plugins/aidlc-core/` (et, une fois installé, dans la copie que Claude Code met en
   cache ; `${CLAUDE_PLUGIN_ROOT}` pointe cette copie).
 - **Le projet consommateur** — `$CLAUDE_PROJECT_DIR` : c'est là que sont produits les livrables
@@ -39,20 +39,23 @@ docs/                               documentation publiée — bundle OKF v0.2 (
 knowledge/                          base de connaissance du dépôt (projet d'essai) — bundle OKF v0.2 (index.md, log.md, concepts)
 
 plugins/aidlc-core/                  le noyau — un plugin
-  pipeline.json                        source de vérité : étapes, livrables, checks, statuts
-  checks/<stage>.json                  contrats déterministes (miroir des plugins d'étape)
-  agents/orchestrator.md               pilote le pipeline, ne rédige jamais un livrable
+  pipeline.json                        gouvernance : seuils, watchdog, feuille de route (aucun registre d'agents)
+  agents/orchestrator.md               pilote la chaîne d'étapes, ne rédige jamais un livrable
   agents/reviewer.md                   note le livrable sur 4 axes, émet un verdict
   agents/librarian.md                  indexe et sert knowledge/ (lecture seule)
-  skills/{run,status,review,new-stage,improve}/SKILL.md
+  skills/{run,dispatch,status,review,new-stage,improve}/SKILL.md
   scripts/                             le moteur : aidlc.py (point d'entrée) + paquet _aidlc/
   hooks/hooks.json                     journalisation, validation à l'écriture, gate OKF (écriture + sortie de session), garde-fous
 
 plugins/aidlc-plan/                  l'étape Plan (tranche verticale de référence) — un plugin
+  agent.json                           le manifeste : identité, équipe, capacités, invocation, produces
   agents/plan-analyst.md               dialogue avec le Product Owner
   skills/plan/SKILL.md                 la recette du livrable
   templates/intent.md                  le squelette du livrable
-  checks.json                          le contrat de l'étape (source, miroir dans le noyau)
+  checks.json                          le contrat de l'étape (lu ici, sans miroir dans le noyau)
+
+plugins/aidlc-security/              un agent d'équipe consultatif (AppSec) — l'exemple à copier
+  agent.json                           manifeste sans `produces` : un avis, pas un livrable
 
 deliverables/<stage>/                livrables — produits dans le PROJET consommateur
 .aidlc/logs/<session_id>.jsonl       journal des sessions — dans le PROJET consommateur
@@ -178,6 +181,25 @@ uniquement des prompts :
   le branche non bloquant à chaque écriture. Seuils configurables dans le bloc `watchdog` de
   `pipeline.json`.
 
+### Registre d'agents
+
+Le noyau ne contient la liste d'aucun agent : il les **découvre**. Chaque plugin d'agent porte un
+manifeste `agent.json` à sa racine — identité, équipe propriétaire, capacités, version, invocation
+indexée par plateforme (`claude-code`, `codex`), et, s'il produit un livrable, ce qu'il produit, ce
+qu'il consomme et son contrat. Publier un agent ne modifie jamais le noyau.
+
+```bash
+python3 plugins/aidlc-core/scripts/aidlc.py agents                          # le catalogue
+python3 plugins/aidlc-core/scripts/aidlc.py agents --capability security:review --json
+AIDLC_AGENT_PATH=/chemin/vers/mes-agents \
+  python3 plugins/aidlc-core/scripts/aidlc.py agents                        # agents hors dépôt
+```
+
+Un agent qui déclare `produces` est une **étape gouvernée** (validation, notation, porte) et
+s'ordonne d'après la chaîne producteur → consommateur. Sans `produces`, il est **consultatif** :
+`/aidlc-core:dispatch` mobilise ceux dont les capacités correspondent à une demande transverse et
+rend une synthèse qui attribue nommément ce que chacun a dit, désaccords compris.
+
 ### Grille de maturité
 
 | Note | Signification |
@@ -204,10 +226,9 @@ Ne créez pas un plugin d'étape à la main — et ne le faites pas depuis un pr
 
 La skill dialogue avec le référent métier — quel livrable, quelles sections, quels critères
 déterministes, quel rôle humain — puis appelle le scaffolder, qui génère
-`plugins/aidlc-<stage>/` complet (`plugin.json`, agent, `SKILL.md`, template, `checks.json`),
-bascule le `status` de l'étape à `implemented` dans `plugins/aidlc-core/pipeline.json`, crée le
-miroir `plugins/aidlc-core/checks/<stage>.json` et ajoute l'entrée dans
-`.claude-plugin/marketplace.json`.
+`plugins/aidlc-<stage>/` complet (`plugin.json`, `agent.json`, agent, `SKILL.md`, template,
+`checks.json`) et ajoute l'entrée dans `.claude-plugin/marketplace.json`. **Le noyau n'est pas
+modifié** : c'est le manifeste qui fait entrer l'agent au registre.
 
 Le scaffolder s'appelle aussi directement, si vous savez ce que vous faites :
 

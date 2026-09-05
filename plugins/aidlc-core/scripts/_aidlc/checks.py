@@ -5,7 +5,7 @@ import os
 import re
 
 from pathlib import Path
-from .util import find_stage
+from . import registry
 from .util import harness_root
 from .util import read_text
 """Validation deterministe des livrables d'etape : regles declarees (checks.json), sections, frontmatter, mots interdits, preuve d'execution, holdout (le livrable ne cite pas ses propres regles)."""
@@ -73,20 +73,29 @@ KNOWN_RULES = {
 
 
 def resolve_checks_path(pipe_root: Path, stage: dict) -> Path:
-    """Chemin du checks.json d'une etape : le miroir du harnais (checks/<stage>.json,
-    a cote du pipeline.json), avec repli sur le checks.json du plugin d'etape."""
+    """Chemin du checks.json d'un agent : relatif a son manifeste, donc lu dans le
+    plugin de l'equipe qui le maintient. Le noyau ne garde plus de miroir — c'etait la
+    centralisation qui obligeait a toucher le harnais pour publier un agent.
+
+    # ponytail: repli conserve sur l'ancien miroir checks/<id>.json du noyau, pour une
+    # installation heritee ou l'agent n'a pas encore de manifeste. Plafond : le repli
+    # disparaitra quand plus aucun consommateur ne portera de miroir.
+    """
     checks_rel = stage.get("checks")
     if not checks_rel:
         return None
+    root = stage.get("root")
+    if root:
+        candidate = Path(root) / checks_rel
+        if candidate.exists():
+            return candidate
     checks_path = pipe_root / checks_rel
     if checks_path.exists():
         return checks_path
-    # ponytail: repli si le miroir checks/<stage>.json est absent (depot auteur sans
-    # symlink) : chercher le checks.json dans le plugin de l'etape, voisin du noyau.
     plugin_name = stage.get("plugin")
-    candidate = pipe_root.parent / f"{plugin_name}/checks.json" if plugin_name else None
-    if candidate and candidate.exists():
-        return candidate
+    fallback = pipe_root.parent / f"{plugin_name}/checks.json" if plugin_name else None
+    if fallback and fallback.exists():
+        return fallback
     return checks_path
 
 
@@ -116,7 +125,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
     try:
         checks = json.loads(read_text(checks_path))
     except json.JSONDecodeError as exc:
-        result["errors"].append(f"checks.json illisible ({checks_rel}) : {exc}")
+        result["errors"].append(f"checks.json illisible ({checks_path}) : {exc}")
         return result
 
     text = read_text(file_path)
@@ -169,7 +178,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
 
     if checks.get("must_reference_inputs"):
         ran += 1
-        for input_path in stage.get("inputs", []):
+        for input_path in stage.get("consumes", []):
             name = Path(input_path).name
             if input_path not in text and name not in text:
                 errors.append(f"Input non reference dans le livrable : {input_path}.")
@@ -220,7 +229,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
     if checks.get("must_not_violate_scope"):
         ran += 1
         scope_section = checks["must_not_violate_scope"].get("section", "## Hors périmètre")
-        for input_path in stage.get("inputs", []):
+        for input_path in stage.get("consumes", []):
             source = root / input_path
             if not source.exists():
                 continue
@@ -309,21 +318,22 @@ def scope_respected(downstream_text: str, item: str) -> bool:
 
 
 def validate_stage(root: Path, pipe: dict, stage_id: str, file_override=None) -> dict:
-    stage = find_stage(pipe, stage_id)
+    stage = registry.find_agent(stage_id)
     if stage is None:
         return {"stage": stage_id, "file": None, "ok": False,
-                "errors": [f"Etape inconnue dans pipeline.json : {stage_id}"],
+                "errors": [f"Agent inconnu du registre : {stage_id}. "
+                           "Lister les agents disponibles : aidlc.py agents"],
                 "warnings": [], "checks_run": 0}
-    path = Path(file_override).resolve() if file_override else (root / stage["deliverable"])
+    if not stage.get("produces"):
+        return {"stage": stage_id, "file": None, "ok": False,
+                "errors": [f"L'agent '{stage_id}' ne produit pas de livrable "
+                           "(pas de champ 'produces') : rien a valider."],
+                "warnings": [], "checks_run": 0}
+    path = Path(file_override).resolve() if file_override else (root / stage["produces"])
     return run_checks(root, stage, path)
 
 
 def stage_for_file(root: Path, pipe: dict, file_path: str):
-    try:
-        target = Path(file_path).resolve()
-    except OSError:
-        return None
-    for stage in pipe.get("stages", []):
-        if (root / stage.get("deliverable", "")).resolve() == target:
-            return stage
-    return None
+    """L'agent dont le livrable est exactement ce fichier. Delegue au registre : le
+    noyau ne tient plus de liste d'etapes."""
+    return registry.agent_for_file(root, file_path)
