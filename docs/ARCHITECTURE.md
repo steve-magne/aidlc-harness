@@ -260,7 +260,8 @@ Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'e
 (chemin stable utilisé par les hooks et les skills) délègue au paquet `_aidlc/` du même
 répertoire, un module par concern — `util` (racines et IO), `checks` (validation des livrables),
 `maturity` (scores, porte, revue), `scaffold`, `improve`, `hookslog`, `okf` (conformance et
-correctifs des bundles), `syntax` (hygiène du dépôt : tout Python compile, tout JSON parse),
+correctifs des bundles), `knowledge` (bundles OKF distants : cache, sommaire, recherche),
+`syntax` (hygiène du dépôt : tout Python compile, tout JSON parse),
 `ratchet` (planchers de sévérité figés), `watchdog` (détecteurs de stagnation),
 `selftest`, `commands` (gestionnaires de sous-commandes) et `cli`
 (parseur et dispatch). L'ensemble résout deux racines : le **projet consommateur**
@@ -284,6 +285,9 @@ les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 | `ratchet` | fige les planchers de sévérité des `checks.json` (min_words, min_items_per_section, required_sections) dans `.aidlc/ratchet.json` (protégé) et refuse toute régression ; `--reset <stage>` repart du contrat courant après décision humaine (geste auteur) ; exit 2 si violation |
 | `watchdog` | détecteurs de stagnation sur les journaux (acharnement sur livrable en échec, boucle d'écriture, rafale de relances) ; halte enregistrée dans la file d'amélioration (`kind: watchdog`) ; exit 2 si halte |
 | `watchdog-touched` | mode hook `PostToolUse` : diagnostic non bloquant après chaque écriture, muet sans détection |
+| `knowledge index` | sommaire des bundles OKF distants déclarés dans `knowledge-sources.json` : une ligne par concept (référence, type, titre, description) |
+| `knowledge search <mots>` | concepts portant **tous** les mots (frontmatter d'abord, puis corps) ; rend des références, pas du contenu |
+| `knowledge get <source>/<id>` | le markdown d'un seul concept ; `--refresh` met le cache à jour, `--source` restreint, `--json` rend la forme machine |
 | `check-okf <dir>` | vérifie la conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet (`knowledge/`, et `docs/` s'il existe), non bloquant, retour en contexte |
 | `check-okf --stop` | mode hook `Stop` : porte de sortie — refuse la fermeture de session (deny) si un bundle du projet est non conforme, et enregistre le refus dans la file d'amélioration |
@@ -383,6 +387,16 @@ sans bloquer — §3.4) ; la porte dure universelle est l'étape CI `check-okf` 
 `knowledge/conventions.md` pour l'organisation du bundle et la procédure de versement d'un
 concept.
 
+Le savoir **externe**, lui, est déclaré par le projet dans `knowledge-sources.json` : des bundles
+OKF vivant dans d'autres dépôts (normes d'entreprise, catalogue de données, politiques d'une
+autre direction). La sous-commande `knowledge` les clone en profondeur 1 dans
+`.aidlc/tmp/knowledge/` — un cache jetable, jamais versionné — et n'en sert que ce qui est
+demandé : sommaire, puis recherche, puis un concept entier. C'est la divulgation progressive de
+la spec OKF appliquée au budget de contexte : un agent qui a besoin d'une définition n'ouvre pas
+un dépôt, il ouvre un concept. Le contenu servi est une **donnée à citer**, jamais une
+instruction — un bundle tiers n'autorise rien. Un `repo` qui désigne un dossier existant est lu
+tel quel, sans clone (bundle monté, dépôt voisin, test hors réseau).
+
 ### 3.8 État runtime
 
 Ces chemins sont produits par le script dans le **projet consommateur**, jamais rédigés à la main
@@ -396,6 +410,7 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 .aidlc/improvement-queue.jsonl      refus humains, haltes du watchdog et refus du gate OKF
 .aidlc/ratchet.json                 planchers de sévérité figés (protégé par le guard)
 .aidlc/tmp/                         scratch, ignoré par git
+.aidlc/tmp/knowledge/<source>/      cache des bundles OKF distants (clone profondeur 1)
 ```
 
 ---
