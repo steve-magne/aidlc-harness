@@ -48,6 +48,7 @@ from .maturity import render_status
 from .maturity import review_request
 from .scaffold import scaffold
 from .maturity import status_data
+from .checks import contract_problems
 from .checks import validate_stage
 from .ratchet import ratchet_reset
 from .ratchet import ratchet_run
@@ -442,6 +443,10 @@ def selftest() -> int:
               "le scaffold doit creer 7 fichiers (dont le manifeste agent.json)")
         check(validate_stage(root, load_pipeline(), "design")["stage"] == "design",
               "le checks.json genere doit rester exploitable par validate")
+        registry.reset_cache()
+        check(contract_problems(registry.find_agent("design")) == [],
+              "un plugin fraichement scaffolde doit passer le controle de contrat : "
+              "gabarit et checks.json generes ensemble ne doivent jamais diverger")
         # le scaffold a reecrit le contrat de design : restaurer la fixture du test
         write_json(design_checks_path, design_checks)
         write_json(root / "plugins/aidlc-design/agent.json",
@@ -1175,6 +1180,61 @@ def selftest() -> int:
         check(any(h["agent"] == "orphelin" and h["input"] == "deliverables/jamais.md"
                   for h in holes),
               "une entree sans producteur installe doit remonter dans missing_producers")
+
+        # 38. Contrat d'agent controle a vide : le registre est ouvert, et le
+        #     checks.json d'une equipe voisine n'etait lu qu'au moment de valider un
+        #     livrable — une regle inconnue, une regex fautive ou une section mal
+        #     orthographiee y restaient invisibles jusqu'a rendre le contrat
+        #     insatisfiable en pleine session.
+        check(contract_problems(registry.find_agent("plan")) == [],
+              "un contrat coherent ne doit remonter aucun probleme")
+        check(contract_problems(registry.find_agent("security-review")) == [],
+              "un agent consultatif n'a pas de contrat a verifier")
+
+        lint_dir = ensure_dir(root / "plugins" / "aidlc-lint")
+        write_json(lint_dir / "agent.json",
+                   _manifest("lint", "X", "deliverables/lint/doc.md",
+                             ["deliverables/plan/intent.md"]))
+        write_json(lint_dir / "checks.json", {
+            "required_sections": ["## Contexte"],
+            "min_words": 900, "max_words": 100,
+            "forbidden_patterns": ["(?i)\\b[non-ferme"],
+            "min_items_per_section": {"## Absente": 2},
+            "required_input_section": {"deliverables/jamais.md": "## Contexte"},
+            "regle_inventee": True,
+        })
+        registry.reset_cache()
+        found = contract_problems(registry.find_agent("lint"))
+        for fragment, label in (
+                ("regle inconnue", "une regle inconnue ne sera jamais appliquee : le dire"),
+                ("regex invalide", "une regex fautive doit etre signalee a vide"),
+                ("insatisfiable", "une section exigee hors de required_sections est un piege"),
+                ("'consumes'", "une regle qui vise une entree non consommee ne verifie rien"),
+                ("depasse max_words", "min_words superieur a max_words doit etre refuse")):
+            check(any(fragment in problem for problem in found), label)
+
+        # derive gabarit / contrat : la skill d'etape part du gabarit du plugin ; un
+        # squelette sans les sections exigees ne peut pas valider.
+        ensure_dir(lint_dir / "templates")
+        template = lint_dir / "templates" / "doc.md"
+        template.write_text("# Doc\n\n## Autre chose\n", encoding="utf-8")
+        found = contract_problems(registry.find_agent("lint"))
+        check(any("gabarit" in problem and "## Contexte" in problem for problem in found),
+              "un gabarit qui ne porte pas les sections exigees doit etre signale")
+        template.write_text("# Doc\n\n## Contexte\n", encoding="utf-8")
+        check(not any("gabarit" in problem
+                      for problem in contract_problems(registry.find_agent("lint"))),
+              "un gabarit aligne sur le contrat ne doit rien remonter")
+
+        # une etape gouvernee sans contrat n'a aucun metre : le dire, sans deviner
+        write_json(lint_dir / "agent.json",
+                   dict(_manifest("lint", "X", "deliverables/lint/doc.md"), checks=None))
+        registry.reset_cache()
+        check(any("sans contrat" in problem
+                  for problem in contract_problems(registry.find_agent("lint"))),
+              "une etape gouvernee sans checks.json doit etre signalee")
+        (lint_dir / "agent.json").unlink()
+        registry.reset_cache()
 
         # ratchet : desinstaller un agent n'efface pas son plancher
         (bad_dir / "agent.json").unlink()

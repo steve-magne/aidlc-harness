@@ -337,3 +337,94 @@ def stage_for_file(root: Path, pipe: dict, file_path: str):
     """L'agent dont le livrable est exactement ce fichier. Delegue au registre : le
     noyau ne tient plus de liste d'etapes."""
     return registry.agent_for_file(root, file_path)
+
+
+# ------------------------------------------------- lint du contrat d'un agent
+
+def contract_problems(stage: dict) -> list:
+    """Incoherences du contrat d'un agent gouverne, detectables sans livrable.
+
+    Le registre est ouvert : le noyau decouvre le checks.json d'une equipe voisine et ne
+    le lisait qu'au moment de valider un livrable. Une regle inconnue, une regex fautive
+    ou une section mal orthographiee y restaient invisibles jusqu'a rendre le contrat
+    insatisfiable en pleine session — l'agent corrige, revalide, et n'y arrive jamais.
+    Cette passe les remonte a vide, avant la premiere ligne du livrable.
+    """
+    if not stage.get("produces"):
+        return []  # agent consultatif : pas de metre, donc rien a verifier.
+    manifest = stage.get("manifest") or stage.get("id")
+    if not stage.get("checks"):
+        return [f"{manifest} : etape gouvernee sans contrat (champ 'checks' absent) — "
+                "son livrable ne serait valide par aucune regle."]
+    path = resolve_checks_path(harness_root(), stage)
+    if path is None or not path.exists():
+        return [f"{manifest} : contrat introuvable ({stage['checks']})."]
+    try:
+        checks = json.loads(read_text(path))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"{path} : contrat illisible ({exc})."]
+    if not isinstance(checks, dict):
+        return [f"{path} : le contrat doit etre un objet JSON."]
+
+    problems = []
+
+    def add(message):
+        problems.append(f"{path} : {message}")
+
+    for key in checks:
+        if key not in KNOWN_RULES and not key.startswith("_"):
+            add(f"regle inconnue '{key}' — elle ne sera jamais appliquee.")
+
+    for rule in ("forbidden_patterns", "required_patterns"):
+        for pattern in checks.get(rule) or []:
+            try:
+                re.compile(pattern)
+            except (re.error, TypeError) as exc:
+                add(f"{rule} : regex invalide {pattern!r} ({exc}).")
+
+    # Une regle qui vise une section absente de required_sections ne sera jamais
+    # satisfaite : la section n'etant pas exigee, elle peut manquer, et count_items /
+    # find_evidence tombent alors sur un bloc vide.
+    declared = {str(section).strip() for section in checks.get("required_sections") or []}
+    referenced = list(checks.get("min_items_per_section") or {})
+    referenced += list(checks.get("proof_of_run") or [])
+    referenced += list((checks.get("required_input_section") or {}).values())
+    scope = checks.get("must_not_violate_scope")
+    if isinstance(scope, dict) and scope.get("section"):
+        referenced.append(scope["section"])
+    for section in referenced:
+        if str(section).strip() not in declared:
+            add(f"section '{section}' exigee par une regle mais absente de "
+                "'required_sections' — le contrat est insatisfiable.")
+
+    consumes = set(stage.get("consumes") or [])
+    for source in checks.get("required_input_section") or {}:
+        if source not in consumes:
+            add(f"required_input_section porte sur '{source}', qui n'est pas une entree "
+                "de l'agent ('consumes' du manifeste).")
+    if checks.get("must_reference_inputs") and not consumes:
+        add("must_reference_inputs est actif alors que l'agent ne consomme aucune "
+            "entree : la regle ne verifie rien.")
+    if "min_words" in checks and "max_words" in checks:
+        try:
+            if int(checks["min_words"]) > int(checks["max_words"]):
+                add(f"min_words ({checks['min_words']}) depasse max_words "
+                    f"({checks['max_words']}).")
+        except (TypeError, ValueError):
+            add("min_words et max_words doivent etre des entiers.")
+
+    # Le gabarit du plugin est le point de depart du livrable (les skills d'etape le
+    # copient) : s'il ne porte pas les sections exigees, l'agent part d'un squelette qui
+    # ne peut pas valider. Convention de scaffold : templates/<nom du livrable>.
+    # ponytail: seules les sections sont confrontees — un gabarit est court et plein de
+    # marqueurs, il ne peut satisfaire ni min_words ni forbidden_patterns.
+    root = stage.get("root")
+    if root and declared:
+        template = Path(root) / "templates" / Path(stage["produces"]).name
+        if template.is_file():
+            present = {line.strip() for line in read_text(template).splitlines()}
+            for section in sorted(declared - present):
+                problems.append(
+                    f"{template} : le gabarit ne porte pas la section obligatoire "
+                    f"'{section}' — le livrable partirait d'un squelette invalide.")
+    return problems

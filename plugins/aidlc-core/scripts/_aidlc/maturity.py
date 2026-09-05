@@ -12,6 +12,7 @@ from . import registry
 from .util import now_iso
 from .util import read_text
 from .util import truncate
+from .checks import contract_problems
 from .checks import validate_stage
 from .util import write_json
 
@@ -373,6 +374,8 @@ def status_data(root: Path, pipe: dict) -> dict:
         "planned": planned,
         "cycle": view["cycle"],
         "problems": view["problems"],
+        "contract_problems": [problem for agent in view["agents"]
+                              for problem in contract_problems(agent)],
         "warnings": view["warnings"],
     }
 
@@ -423,4 +426,6 @@ def render_status(data: dict) -> str:
         lines.append("Avertissement : " + message)
     for message in data.get("problems", []):
         lines.append("Manifeste rejete : " + message)
+    for message in data.get("contract_problems", []):
+        lines.append("Contrat incoherent : " + message)
     return "\n".join(lines)

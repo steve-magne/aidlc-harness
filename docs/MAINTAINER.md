@@ -148,6 +148,11 @@ python3 plugins/aidlc-core/scripts/aidlc.py --selftest
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
 
+# 2ter. Manifestes ET contrats du dépôt (exit 1) : agent.json valides, et chaque
+#    checks.json cohérent à vide — règle inconnue, regex fautive, section exigée hors
+#    de required_sections, dérive entre le gabarit du plugin et le contrat
+python3 plugins/aidlc-core/scripts/aidlc.py agents --strict
+
 # 3. Le plugin de l'étape est valide pour Claude Code (la CI .github/workflows/ci.yml
 #    rejoue la validation sur chaque plugin du dépôt à chaque PR)
 claude plugin validate plugins/aidlc-core
@@ -261,6 +266,7 @@ Depuis la racine du dépôt :
 
 ```bash
 python3 plugins/aidlc-core/scripts/aidlc.py status                 # tableau de bord
+python3 plugins/aidlc-core/scripts/aidlc.py agents --strict        # manifestes + contrats du dépôt (exit 1 si incohérent)
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
 python3 plugins/aidlc-core/scripts/aidlc.py check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
 python3 plugins/aidlc-core/scripts/aidlc.py check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)

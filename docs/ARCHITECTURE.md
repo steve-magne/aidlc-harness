@@ -254,6 +254,33 @@ Ajouter une exigence à une étape, c'est éditer un fichier JSON, pas écrire d
 levier principal du self-improvement : une faiblesse récurrente détectée par le reviewer se
 traduit par une règle supplémentaire dans le `checks.json` de l'étape.
 
+#### Le contrat est contrôlé à vide
+
+Le registre est ouvert : le noyau lit le `checks.json` d'une équipe qu'il ne connaît pas. Ce
+fichier n'était jusqu'ici ouvert qu'au moment de valider un livrable — une règle mal nommée, une
+regex fautive ou une section mal orthographiée y restaient donc invisibles jusqu'à rendre le
+contrat **insatisfiable en pleine session** : l'agent corrige, revalide, et n'y arrive jamais.
+
+`aidlc.py agents` contrôle désormais chaque contrat **avant tout livrable**, et remonte sous
+`contract_problems` (préfixe `[contrat]` en sortie humaine, également dans `status`) :
+
+- une clé de règle inconnue — elle ne sera jamais appliquée ;
+- une regex de `forbidden_patterns` / `required_patterns` qui ne compile pas ;
+- une section visée par `min_items_per_section`, `proof_of_run`, `required_input_section` ou
+  `must_not_violate_scope` mais absente de `required_sections` — le contrat est insatisfiable ;
+- une clé de `required_input_section` qui n'est pas une entrée `consumes` de l'agent, ou
+  `must_reference_inputs` actif sur un agent sans entrée : la règle ne vérifie rien ;
+- `min_words` supérieur à `max_words` ;
+- une étape gouvernée sans champ `checks` : son livrable ne serait validé par aucune règle ;
+- la **dérive gabarit / contrat** — les skills d'étape partent de `templates/<nom du livrable>` du
+  plugin ; si ce squelette ne porte pas les sections exigées, l'agent démarre sur un livrable qui
+  ne peut pas valider. Seules les sections sont confrontées : un gabarit est court et plein de
+  marqueurs, il ne peut satisfaire ni `min_words` ni `forbidden_patterns`.
+
+La sévérité est la même que pour les manifestes : `agents --strict` (porte CI) ne rougit que pour
+les contrats **de ce dépôt** — la CI d'un consommateur n'échoue pas sur le contrat cassé d'une
+direction voisine, elle l'affiche.
+
 ### 3.3 `plugins/aidlc-core/scripts/` — la seule logique déterministe
 
 Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'entrée `aidlc.py`
