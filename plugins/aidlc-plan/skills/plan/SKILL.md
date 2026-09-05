@@ -54,8 +54,8 @@ réponses en une ou deux phrases et fais-les confirmer.
 | --- | --- |
 | `## Contexte` | D'où vient la demande ? Quel évènement l'a déclenchée, et quand ? Qu'existe-t-il déjà (outil, procédure, contournement manuel) ? |
 | `## Problème` | Le problème en une phrase, sans nommer de solution ? Quel chiffre le prouve, mesuré où et sur quelle période ? Que coûte l'inaction ? |
-| `## Utilisateurs impactés` | Qui subit le problème, combien de personnes, à quelle fréquence ? Quels rôles internes sont touchés indirectement ? |
-| `## Solution proposée` | Quel changement observable veut-on obtenir ? Quel bénéfice mesurable, à quelle échéance ? Quelles alternatives ont été écartées, et pourquoi ? |
+| `## Utilisateurs impactés` | Quels **personas** subissent le problème — leur rôle, combien de personnes, à quelle fréquence ? Quels rôles internes sont touchés indirectement (support, back-office, conformité) ? |
+| `## Solution proposée` | Quel changement observable veut-on obtenir ? Quels **bénéfices attendus**, et pour chacun quel **KPI de succès** — sa valeur de départ observée, sa cible chiffrée, son échéance ? Quelles alternatives ont été écartées, et pourquoi ? |
 | `## Contraintes` | Quelles obligations réglementaires, et quel texte de référence ? Quel budget, quelle échéance ferme, quelles dépendances externes ? |
 | `## Critères d'acceptation` | À quoi reconnaît-on que c'est fait ? Comment le mesure-t-on, avec quel seuil ? Quel cas d'erreur doit être couvert ? |
 | `## Hors périmètre` | Qu'est-ce qui est explicitement exclu de cette itération ? Qu'est-ce qui est reporté, et à quelle échéance ? |
@@ -83,14 +83,16 @@ au projet consommateur), puis :
   littéralement par le contrôle automatique ;
 - renseigne le frontmatter : `stage: plan`, `version` (entier, incrémenté à chaque reprise),
   `status` (`draft` puis `review`), `author` (le Product Owner), `date` au format `AAAA-MM-JJ` ;
-- rédige au moins **2 puces** dans `## Contraintes` et **3 puces** dans
-  `## Critères d'acceptation` ;
+- rédige au moins **2 puces** dans `## Utilisateurs impactés` (un persona par puce), **2 puces** dans
+  `## Solution proposée` (un bénéfice et son KPI par puce), **2 puces** dans `## Contraintes` et
+  **3 puces** dans `## Critères d'acceptation` ;
 - vise 250 à 2000 mots : en dessous, le cadrage est trop pauvre ; au-dessus, il déborde sur le
   Design.
 
 **Preuve d'exécution (règle `proof_of_run`)** — le contrat exige une valeur observée concrète
-(chiffre + unité, date, chemin, id, p95/p99) dans `## Contexte` **et** dans
-`## Critères d'acceptation`. Un Contexte qui affirme sans mesure, ou des critères qui
+(chiffre + unité, date, chemin, id, p95/p99) dans `## Contexte`, dans `## Solution proposée` **et**
+dans `## Critères d'acceptation`. Un bénéfice sans KPI chiffré n'est pas un bénéfice, c'est une
+intention de plus. Un Contexte qui affirme sans mesure, ou des critères qui
 reformulent l'attendu sans seuil, sont rejetés : citez le fait mesuré avec sa source dans le
 Contexte (ex. « 42 % des dossiers repassent en saisie manuelle, mesuré sur le T3, source :
 SAP ») et chiffrez chaque critère.
@@ -120,7 +122,7 @@ Les erreurs les plus fréquentes et leurs corrections :
 | Section manquante | Le titre a été reformulé ou désaccentué : recopie-le depuis le squelette. |
 | Motif interdit | Un `TODO`, `TBD`, `XXX`, « à compléter » ou un marqueur `<à remplir : ... >` subsiste. |
 | Clé de frontmatter manquante | Complète le bloc `---` en tête : `stage`, `version`, `status`, `author`, `date`. |
-| Trop peu de puces | Ajoute de vraies puces (`-`) dans `## Contraintes` ou `## Critères d'acceptation` — pas de puce vide pour faire le compte. |
+| Trop peu de puces | Ajoute de vraies puces (`-`) dans la section signalée — un persona par puce dans `## Utilisateurs impactés`, un bénéfice et son KPI par puce dans `## Solution proposée` — pas de puce vide pour faire le compte. |
 | Preuve d'execution absente | Une section `proof_of_run` (`## Contexte`, `## Critères d'acceptation`) n'affiche aucune valeur observée (chiffre + unité, date, p95, id, chemin) : ajoute le fait mesuré et sa source, chiffre les critères. |
 | Holdout : citation du contrat | Une ligne du `checks.json` a été recopiée dans le livrable : reformule sans reprendre les règles, l'optimisation se fait contre le livrable. |
 | Livrable trop court (erreur) | Enrichis les sections pauvres : moins de 250 mots, le cadrage n'est pas exploitable par l'étape Design. |
@@ -144,7 +146,7 @@ Une fois la validation au vert :
 
 | Axe (0 à 5) | Ce qui est vérifié |
 | --- | --- |
-| completeness | Les huit sections sont présentes et réellement remplies. |
+| completeness | Les huit sections sont présentes et réellement remplies : personas nommés, bénéfices portant chacun leur KPI. |
 | precision | Critères chiffrés, testables, sans ambiguïté. |
 | traceability | Les affirmations citent leurs sources et le dossier `knowledge/`. |
 | autonomy | Peu d'allers-retours humains dans les journaux de la session. |

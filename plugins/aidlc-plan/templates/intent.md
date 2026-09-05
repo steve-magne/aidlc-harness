@@ -24,14 +24,17 @@ Coût de l'inaction : <à remplir : ce qui se passe si rien n'est fait, chiffré
 
 ## Utilisateurs impactés
 
-- <à remplir : rôle ou persona — volume estimé — douleur ressentie aujourd'hui>
-- <à remplir : deuxième rôle impacté, y compris les rôles internes (support, back-office, conformité)>
+- <à remplir : persona principal — son rôle, le volume de personnes concernées, la fréquence à laquelle il subit le problème, la douleur ressentie aujourd'hui>
+- <à remplir : second persona, y compris les rôles internes touchés indirectement (support, back-office, conformité) — volume et fréquence>
 
 ## Solution proposée
 
 <à remplir : description de la solution visée en trois à six phrases, au niveau de l'intention et non de la conception technique — le « comment » appartient à l'étape Design>
 
-Bénéfice attendu : <à remplir : le gain mesurable visé et l'échéance, par exemple « diviser par deux le temps de traitement d'ici la fin du trimestre »>
+Bénéfices attendus et KPIs de succès :
+
+- <à remplir : bénéfice attendu — le KPI qui le mesure, sa valeur de départ observée et sa cible chiffrée avec échéance, par exemple « réduire le retraitement manuel : KPI = part des dossiers repassés en saisie, 42 % aujourd'hui, cible 15 % au 31/03 »>
+- <à remplir : second bénéfice — son KPI, sa valeur de départ, sa cible et son échéance>
 
 ## Contraintes
 

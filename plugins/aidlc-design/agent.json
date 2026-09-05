@@ -1,0 +1,22 @@
+{
+  "manifest_version": 1,
+  "id": "design",
+  "team": "Architecture",
+  "version": "0.1.0",
+  "description": "Instruit l'intention produit et arrete l'architecture cible : capacites et dependances SI impactees, options ecartees et leur arbitrage, exigences non fonctionnelles chiffrees, risques et mitigations.",
+  "capabilities": [
+    "sdlc:design",
+    "architecture:target",
+    "architecture:tradeoff"
+  ],
+  "invocation": {
+    "claude-code": "aidlc-design:design",
+    "codex": "skills/design/SKILL.md"
+  },
+  "produces": "deliverables/design/spec.md",
+  "consumes": [
+    "deliverables/plan/intent.md"
+  ],
+  "checks": "checks.json",
+  "human_role": "Architecte d'entreprise"
+}

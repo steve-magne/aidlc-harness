@@ -260,6 +260,36 @@ def selftest() -> int:
         decision = gate_stage(root, pipe, "plan")
         check(decision["passed"], f"gate doit passer ({decision['blocking']})")
 
+        # 11b. peremption amont : une entree modifiee apres la revue rouvre la porte aval
+        record_score(root, pipe, "design", {
+            "stage": "design", "scores": {"completeness": 5, "precision": 5,
+                                          "traceability": 5, "autonomy": 5},
+            "verdict": "accepted"})
+        check(load_maturity(root)["stages"]["design"]["runs"][-1]["inputs"],
+              "le run doit figer l'empreinte de ses entrees amont")
+        write_json(aidlc_dir(root) / "reviews" / "design-1.json",
+                   {"stage": "design", "run": 1, "approved": True, "reviewer": "Steve",
+                    "justification": "Conforme a l'intention.", "ts": now_iso()})
+        decision = gate_stage(root, pipe, "design")
+        check(decision["passed"], f"design doit passer avant peremption ({decision['blocking']})")
+        intent.write_text(_doc(GOOD_SECTIONS, filler=4), encoding="utf-8")
+        decision = gate_stage(root, pipe, "design")
+        check(not decision["passed"], "une entree amont modifiee doit rouvrir la porte aval")
+        check(decision.get("stale_inputs") == ["deliverables/plan/intent.md"],
+              f"stale_inputs doit nommer l'entree modifiee ({decision.get('stale_inputs')})")
+        row = next(r for r in status_data(root, pipe)["stages"] if r["stage"] == "design")
+        check("Entree amont modifiee" in row["next_action"],
+              f"status doit remettre design a faire ({row['next_action']})")
+        record_score(root, pipe, "design", {
+            "stage": "design", "scores": {"completeness": 5, "precision": 5,
+                                          "traceability": 5, "autonomy": 5},
+            "verdict": "accepted"})
+        write_json(aidlc_dir(root) / "reviews" / "design-2.json",
+                   {"stage": "design", "run": 2, "approved": True, "reviewer": "Steve",
+                    "justification": "Revu sur la nouvelle intention.", "ts": now_iso()})
+        check(gate_stage(root, pipe, "design")["passed"],
+              "une nouvelle revue sur l'entree a jour doit refermer la porte")
+
         # 12. refus humain -> file d'amelioration
         record_score(root, pipe, "plan", {
             "stage": "plan", "scores": {"completeness": 5, "precision": 5,
@@ -992,15 +1022,23 @@ def selftest() -> int:
         real_checks = json.loads(read_text(real_checks_path))
         check("proof_of_run" in real_checks and "checks_do_not_self_reference" in real_checks,
               "le contrat de l'etape plan doit porter proof_of_run et checks_do_not_self_reference")
-        check(real_checks["proof_of_run"] == ["## Contexte", "## Critères d'acceptation"],
-              "proof_of_run de plan doit cibler Contexte et Criteres d'acceptation")
+        check(real_checks["proof_of_run"] == ["## Contexte", "## Solution proposée",
+                                              "## Critères d'acceptation"],
+              "proof_of_run de plan doit cibler Contexte, Solution proposee et Criteres")
+        check(real_checks["min_items_per_section"].get("## Utilisateurs impactés") == 2
+              and real_checks["min_items_per_section"].get("## Solution proposée") == 2,
+              "le contrat de plan doit exiger des personas et des benefices enumeres")
         write_json(plan_checks, real_checks)
         plan_intent = {
             "## Contexte": ("Demande issue du comite produit 2026-09-01 ; 42 % des dossiers "
                             "repassent en saisie manuelle (mesure SAP du T3)."),
             "## Problème": "Le cadrage des demandes est lent et sans trace.",
-            "## Utilisateurs impactés": "Les equipes produit, les mainteneurs et la conformite.",
-            "## Solution proposée": "Un pipeline agentique a portes deterministes.",
+            "## Utilisateurs impactés": ("- Product Owner : 12 personnes, cadrage hebdomadaire.\n"
+                                         "- Conformite : 3 personnes, controle a chaque release."),
+            "## Solution proposée": ("Un pipeline agentique a portes deterministes.\n\n"
+                                     "- Reduire le retraitement : 42 % aujourd'hui, cible 15 % "
+                                     "au 31/03.\n"
+                                     "- Diviser par deux le delai de cadrage : 12 j, cible 6 j."),
             "## Contraintes": "- Python stdlib seulement.\n- Aucune dependance externe.",
             "## Critères d'acceptation": ("- p95 < 300 ms sur le run 2.\n"
                                           "- Couverture des tests portee a 80 %.\n"

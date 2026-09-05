@@ -345,3 +345,4 @@ claude plugin marketplace remove aidlc
 | « Etape inconnue » ou comportement obsolète | Marketplace périmé en cache | `claude plugin marketplace update aidlc`. |
 | `CLAUDE_PLUGIN_ROOT` n'est pas défini | La commande est lancée hors session | Exécutez-la depuis le bash d'une session Claude Code ouverte dans le projet. |
 | L'étape `design` (ou suivante) est « planned » | Le plugin n'est pas encore publié par le mainteneur | Rien à faire côté projet : le mainteneur scaffolde l'étape dans le dépôt du harnais, puis vous l'installez (section 8). |
+| Une étape franchie repasse à « à faire » sans avoir été touchée, avec « Entrée amont modifiée » | Le livrable amont a été révisé depuis que cette étape a été notée : la note portait sur une version disparue | Relisez le diff de l'amont, dites quelles décisions il remet en cause, corrigez le livrable, puis relancez le reviewer (`/aidlc-core:run <étape>`). |

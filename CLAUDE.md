@@ -61,6 +61,7 @@ plugins/aidlc-core/           noyau : orchestrator, reviewer, librarian, aidlc.p
   pipeline.json                 gouvernance seule (seuils, `watchdog`, `planned_stages`) — aucun registre d'étapes
 plugins/<plugin>/agent.json   manifeste d'un agent : le seul contrat que l'orchestrateur lit
 plugins/aidlc-plan/           agent d'étape (produit un livrable, donc gouverné)
+plugins/aidlc-design/         agent d'étape aval (consomme le livrable de plan)
 plugins/aidlc-security/       agent d'équipe consultatif (exemple de référence, équipe AppSec)
 planchers figés               .aidlc/ratchet.json — planchers de sévérité (guard protégé)
 
