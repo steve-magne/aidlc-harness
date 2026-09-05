@@ -9,6 +9,7 @@ from .util import ensure_dir
 from .util import harness_root
 from .util import now_iso
 from .util import read_text
+from . import registry
 from .util import write_json
 """Ratchet (inspire du dark factory) : les planchers de severite des checks.json ne
 descendent jamais. Un plancher peut monter librement (durcir) ; le descendre exige
@@ -42,12 +43,11 @@ def _floors_of(checks: dict) -> dict:
 
 
 def freeze_current(pipe: dict) -> dict:
-    """Planchers courants de toutes les etapes implementees (source de verite : le harnais)."""
+    """Planchers courants de tous les agents gouvernes du registre (source de verite :
+    le checks.json porte par le plugin de l'equipe)."""
     harness = harness_root()
     snapshot = {}
-    for stage in pipe.get("stages", []):
-        if stage.get("status") != "implemented":
-            continue
+    for stage in registry.stages():
         checks_path = resolve_checks_path(harness, stage)
         if not checks_path or not checks_path.exists():
             continue
@@ -135,9 +135,15 @@ def ratchet_run(root: Path, pipe: dict) -> dict:
     state["stages"] = _merge_lower(state.get("stages", {}), fresh)
 
     violations = []
-    for stage in pipe.get("stages", []):
-        if stage.get("status") != "implemented":
-            continue
+    # Registre ouvert : un plancher fige dont l'agent a disparu du catalogue est une
+    # violation, pas un silence. Sans cela, desinstaller un plugin suffirait a effacer
+    # le mètre — exactement ce que le ratchet existe pour empecher. Geste legal :
+    # `aidlc.py ratchet --reset <id>` dans le depot auteur.
+    present = {stage["id"] for stage in registry.stages()}
+    for orphan in sorted(set(state["stages"]) - present):
+        violations.append({"stage": orphan, "rule": "agent absent du registre",
+                           "before": "plancher fige", "after": "plus aucun contrat"})
+    for stage in registry.stages():
         frozen = state["stages"].get(stage["id"])
         if not frozen:
             continue
@@ -156,9 +162,10 @@ def ratchet_run(root: Path, pipe: dict) -> dict:
         "baseline": was_absent,
         "stages_frozen": sorted(state["stages"]),
         "passed": not violations,
-        "violations": violations,    "hint": ("Un plancher ne descend jamais. Pour l'assouplir legalement : faire "
-             "evoluer le checks.json dans le depot auteur du harnais, puis "
-             "`aidlc.py ratchet --reset <stage>` dans le projet."),
+        "violations": violations,    "hint": ("Un plancher ne descend jamais, et desinstaller un agent ne l'efface "
+             "pas. Pour l'assouplir legalement : faire evoluer le checks.json dans le "
+             "depot de l'equipe qui porte l'agent, puis `aidlc.py ratchet --reset "
+             "<agent>` dans le projet."),
     } if violations else {
         "ratchet": str(path),
         "baseline": was_absent,

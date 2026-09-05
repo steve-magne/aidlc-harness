@@ -19,8 +19,8 @@ sans citation est une opinion, et on n'enregistre pas d'opinions.
 ## Conventions d'exécution
 
 Le plugin `aidlc-core` installé est `${CLAUDE_PLUGIN_ROOT}` : c'est là que vit le script
-(`scripts/aidlc.py`), le pipeline (`pipeline.json`) et le contrat de l'étape
-(`checks/<stage>.json`). Le livrable, ses entrées et `.aidlc/` sont dans le projet consommateur
+(`scripts/aidlc.py`) et la gouvernance (`pipeline.json`). Le contrat de l'étape, lui, vit dans le
+plugin de l'agent qui la porte. Le livrable, ses entrées et `.aidlc/` sont dans le projet consommateur
 (`$CLAUDE_PROJECT_DIR`).
 
 ```bash
@@ -31,9 +31,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" <sous-commande> [...]
 
 ### 1. Cadrer
 
-Lis `${CLAUDE_PLUGIN_ROOT}/pipeline.json` pour l'étape évaluée : `deliverable` (le fichier à
-noter), `inputs` (ce qu'il doit tracer), `checks` (le contrat déterministe, à lire dans
-`${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`), `human_role` (le métier qui signera).
+Lis le manifeste de l'étape évaluée —
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json` : `produces` (le fichier à noter),
+`consumes` (ce qu'il doit tracer), `checks` (le contrat déterministe, relatif au manifeste, donc à
+lire dans le plugin de l'agent), `team` et `human_role` (l'équipe propriétaire et le métier qui
+signera).
 
 ### 2. Vérifier le socle déterministe
 

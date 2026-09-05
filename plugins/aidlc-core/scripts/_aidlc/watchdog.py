@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from pathlib import Path
+from . import registry
 from .checks import validate_stage
 from .maturity import enqueue_improvement
 from .util import aidlc_dir
@@ -91,9 +92,9 @@ def _detections(root: Path, pipe: dict) -> list:
     # 1. Acharnement sur un contrat qui echoue : livrable present + validate en echec
     #    + assez d'ecritures dans la fenetre = l'agent iteration sans progresser, soit
     #    le livrable resiste, soit le checks.json est inadapte. Halte.
-    for stage in pipe.get("stages", []):
-        stage_id = stage.get("id")
-        deliverable = root / stage.get("deliverable", "")
+    for stage in registry.stages():
+        stage_id = stage["id"]
+        deliverable = root / stage["produces"]
         if not deliverable.exists():
             continue
         if validate_stage(root, pipe, stage_id)["ok"]:

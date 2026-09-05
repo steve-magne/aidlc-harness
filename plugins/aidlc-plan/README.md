@@ -11,8 +11,8 @@ Ce plugin est **installé par Claude Code** (marketplace `aidlc`, copie en cache
 `${CLAUDE_PLUGIN_ROOT}`) et s'exécute dans un **projet consommateur** (`$CLAUDE_PROJECT_DIR`).
 Le livrable `deliverables/plan/intent.md` est produit **dans le projet consommateur** ; le
 squelette (`templates/`), le contrat (`checks.json`) et l'agent/skill de ce plugin restent dans le
-plugin. Le pipeline est porté par le plugin `aidlc-core` (avec le miroir `checks/plan.json` de ce
-contrat). Les skills et agents de ce plugin ne lancent pas le script du harnais : la validation
+plugin, où le harnais les lit — le manifeste `agent.json` de ce plugin déclare l'agent au registre
+et désigne son contrat. Les skills et agents de ce plugin ne lancent pas le script du harnais : la validation
 est déclenchée par le hook de `aidlc-core` à chaque écriture et rejouée par l'orchestrateur.
 
 ## Ce que fait ce plugin
@@ -129,5 +129,5 @@ Ce plugin n'embarque aucune logique : tout le déterminisme est dans
 `plugins/aidlc-core/scripts/aidlc.py`), et le pilotage dans les skills/agents de `aidlc-core`.
 `aidlc-plan` apporte uniquement le **métier** de l'étape : la recette du dialogue (`SKILL.md`),
 le profil de l'interlocuteur pour l'humain (`plan-analyst.md`), le squelette du livrable
-(`templates/intent.md`) et le contrat de forme (`checks.json`), dont `aidlc-core` garde un miroir
-(`checks/plan.json`).
+(`templates/intent.md`), le contrat de forme (`checks.json`) et le manifeste `agent.json` qui les
+relie — identité, équipe propriétaire, capacités, invocation, livrable produit.

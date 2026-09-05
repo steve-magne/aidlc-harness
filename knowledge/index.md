@@ -14,3 +14,4 @@ librarian, versement de concepts) est décrite dans [conventions.md](conventions
 
 # Décisions et sources
 * [ADR-0001 — Socle déterministe du harness agentique](sources/adr-0001-socle-agentique.md) - Choix d'un socle vérifiable et déclaratif : toute la logique déterministe tient dans un seul script, la validation est déclarative, le score n'est pas éditable par un agent.
+* [ADR-0002 — Registre ouvert d'agents par manifeste](sources/adr-0002-registre-agents.md) - Remplacement du registre central d'étapes par une découverte des manifestes agent.json : chaque équipe publie son agent sans modifier le noyau, l'ordre se dérive des livrables, l'invocation est séparée par plateforme.

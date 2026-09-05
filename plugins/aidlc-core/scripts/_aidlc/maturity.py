@@ -7,8 +7,7 @@ import sys
 from pathlib import Path
 from .util import aidlc_dir
 from .util import ensure_dir
-from .util import find_stage
-from .util import next_stage_id
+from . import registry
 from .util import now_iso
 from .util import read_text
 from .util import truncate
@@ -135,11 +134,18 @@ def enqueue_improvement(root: Path, item: dict, dedupe_keys: tuple) -> bool:
 # ---------------------------------------------------------------------------- gate
 
 def gate_stage(root: Path, pipe: dict, stage_id: str) -> dict:
-    stage = find_stage(pipe, stage_id)
+    stage = registry.find_agent(stage_id)
     out = {"stage": stage_id, "passed": False, "blocking": [],
-           "next_stage": next_stage_id(pipe, stage_id), "human_review_required": True}
+           "next_stage": registry.next_agent_id(stage_id), "human_review_required": True}
     if stage is None:
-        out["blocking"].append(f"Etape inconnue dans pipeline.json : {stage_id}")
+        out["blocking"].append(f"Agent inconnu du registre : {stage_id}")
+        return out
+    if not stage.get("produces"):
+        # Un agent consultatif n'a pas de livrable, donc pas de metre : il n'y a rien a
+        # noter et rien a franchir. Ce n'est pas un echec, c'est une absence de porte.
+        out["blocking"].append(
+            f"L'agent '{stage_id}' est consultatif (pas de 'produces') : aucune porte "
+            "de qualite ne s'y applique.")
         return out
 
     threshold = float(pipe.get("maturity_threshold", 4.0))
@@ -226,9 +232,12 @@ automatiquement dans .aidlc/improvement-queue.jsonl et alimente la skill improve
 
 
 def review_request(root: Path, pipe: dict, stage_id: str) -> dict:
-    stage = find_stage(pipe, stage_id)
+    stage = registry.find_agent(stage_id)
     if stage is None:
-        raise ValueError(f"Etape inconnue dans pipeline.json : {stage_id}")
+        raise ValueError(f"Agent inconnu du registre : {stage_id}")
+    if not stage.get("produces"):
+        raise ValueError(f"L'agent '{stage_id}' ne produit pas de livrable : "
+                         "il n'y a rien a faire relire.")
     maturity = load_maturity(root)
     runs = stage_maturity(maturity, stage_id)["runs"]
     run = runs[-1]["run"] if runs else 1
@@ -244,7 +253,7 @@ def review_request(root: Path, pipe: dict, stage_id: str) -> dict:
     }
     write_json(template_path, template)
     sys.stderr.write(REVIEW_INSTRUCTIONS.format(
-        stage=stage_id, run=run, deliverable=stage.get("deliverable"),
+        stage=stage_id, run=run, deliverable=stage.get("produces"),
         role=stage.get("human_role", "non precise"),
         target=os.path.relpath(target, root), basename=target.name,
     ))
@@ -252,7 +261,7 @@ def review_request(root: Path, pipe: dict, stage_id: str) -> dict:
         "stage": stage_id, "run": run,
         "template": os.path.relpath(template_path, root),
         "target": os.path.relpath(target, root),
-        "deliverable": stage.get("deliverable"),
+        "deliverable": stage.get("produces"),
         "human_role": stage.get("human_role"),
     }
 
@@ -260,12 +269,20 @@ def review_request(root: Path, pipe: dict, stage_id: str) -> dict:
 # -------------------------------------------------------------------------- status
 
 def status_data(root: Path, pipe: dict) -> dict:
+    """Tableau de bord derive du registre. Les etapes sont les agents qui produisent un
+    livrable, dans l'ordre topologique ; les agents consultatifs sont listes a part.
+
+    Un registre est ouvert : un plugin absent ferait retrecir le tableau en silence.
+    Deux sections l'empechent — `missing_producers` (une entree attendue que personne
+    ne produit) et `planned` (feuille de route declaree, plugin pas encore installe).
+    """
     threshold = float(pipe.get("maturity_threshold", 4.0))
     maturity = load_maturity(root)
+    view = registry.catalog()
     rows = []
-    for stage in pipe.get("stages", []):
+    for stage in [agent for agent in view["agents"] if agent.get("produces")]:
         stage_id = stage["id"]
-        deliverable = root / stage.get("deliverable", "")
+        deliverable = root / stage["produces"]
         entry = maturity["stages"].get(stage_id, {"runs": [], "autonomous": False})
         runs = entry.get("runs", [])
         last = runs[-1] if runs else None
@@ -273,10 +290,13 @@ def status_data(root: Path, pipe: dict) -> dict:
         validation = validate_stage(root, pipe, stage_id) if present else None
         row = {
             "stage": stage_id,
-            "name": stage.get("name", stage_id),
-            "plugin": stage.get("plugin"),
-            "plugin_status": stage.get("status", "planned"),
-            "deliverable": stage.get("deliverable"),
+            "name": stage.get("description") or stage_id,
+            "team": stage.get("team"),
+            "version": stage.get("version"),
+            "capabilities": stage.get("capabilities", []),
+            "invoke": stage.get("invoke"),
+            "invocable": stage.get("invocable"),
+            "deliverable": stage["produces"],
             "deliverable_present": present,
             "validate_ok": bool(validation and validation["ok"]),
             "errors": (validation or {}).get("errors", []),
@@ -286,10 +306,11 @@ def status_data(root: Path, pipe: dict) -> dict:
             "autonomous": bool(entry.get("autonomous")),
             "human_role": stage.get("human_role"),
         }
-        if row["plugin_status"] != "implemented":
-            row["next_action"] = f"Scaffolder l'etape : aidlc.py scaffold {stage_id}"
+        if not row["invocable"]:
+            row["next_action"] = (f"Agent non invocable sur {view['platform']} : "
+                                  "completer 'invocation' dans son agent.json")
         elif not present:
-            row["next_action"] = f"Produire le livrable : skill {stage.get('skill')}"
+            row["next_action"] = f"Produire le livrable : {stage.get('invoke')}"
         elif not row["validate_ok"]:
             row["next_action"] = f"Corriger {len(row['errors'])} erreur(s) de validation"
         elif last is None:
@@ -302,17 +323,31 @@ def status_data(root: Path, pipe: dict) -> dict:
             row["next_action"] = "Etape franchie"
         rows.append(row)
     current = next((r["stage"] for r in rows if r["next_action"] != "Etape franchie"), None)
-    return {"root": str(root), "maturity_threshold": threshold,
-            "current_stage": current, "stages": rows}
+    known = {agent["id"] for agent in view["agents"]}
+    planned = [stage for stage in pipe.get("planned_stages", [])
+               if stage.get("id") not in known]
+    return {
+        "root": str(root),
+        "platform": view["platform"],
+        "maturity_threshold": threshold,
+        "current_stage": current,
+        "stages": rows,
+        "advisors": [agent for agent in view["agents"] if not agent.get("produces")],
+        "missing_producers": view["missing_producers"],
+        "planned": planned,
+        "cycle": view["cycle"],
+        "problems": view["problems"],
+        "warnings": view["warnings"],
+    }
 
 
 def render_status(data: dict) -> str:
-    headers = ["ETAPE", "PLUGIN", "LIVRABLE", "VALIDE", "SCORE", "AUTO", "PROCHAINE ACTION"]
+    headers = ["AGENT", "EQUIPE", "LIVRABLE", "VALIDE", "SCORE", "AUTO", "PROCHAINE ACTION"]
     rows = []
     for row in data["stages"]:
         rows.append([
             row["stage"],
-            row["plugin_status"],
+            row.get("team") or "-",
             "oui" if row["deliverable_present"] else "non",
             "oui" if row["validate_ok"] else ("non" if row["deliverable_present"] else "-"),
             str(row["last_overall"]) if row["last_overall"] is not None else "-",
@@ -324,7 +359,8 @@ def render_status(data: dict) -> str:
     lines = [
         f"AI-DLC — tableau de bord ({data['root']})",
         f"Seuil de maturite : {data['maturity_threshold']} | "
-        f"Etape courante : {data['current_stage'] or 'pipeline complet'}",
+        f"Plateforme : {data.get('platform')} | "
+        f"Etape courante : {data['current_stage'] or 'chaine complete'}",
         "",
         "  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)),
         "  ".join("-" * widths[i] for i in range(len(headers))),
@@ -332,6 +368,23 @@ def render_status(data: dict) -> str:
     for row in rows:
         lines.append("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)))
     lines.append("")
-    lines.append("Roles humains : " + ", ".join(
-        f"{r['stage']}={r['human_role']}" for r in data["stages"] if r.get("human_role")))
+    lines.append("Roles humains : " + (", ".join(
+        f"{r['stage']}={r['human_role']}" for r in data["stages"] if r.get("human_role"))
+        or "aucun declare"))
+    for advisor in data.get("advisors", []):
+        lines.append("Agent consultatif : {} (equipe {}) — {}".format(
+            advisor["id"], advisor.get("team") or "?",
+            ", ".join(advisor.get("capabilities", [])) or "aucune capacite declaree"))
+    for hole in data.get("missing_producers", []):
+        lines.append("Producteur absent : '{}' attend {} — aucun agent installe ne le "
+                     "produit.".format(hole["agent"], hole["input"]))
+    for stage in data.get("planned", []):
+        lines.append("Prevu, plugin non installe : {} ({}) — aidlc.py scaffold {}".format(
+            stage.get("id"), stage.get("name", ""), stage.get("id")))
+    if data.get("cycle"):
+        lines.append("Cycle de dependances entre agents : " + ", ".join(data["cycle"]))
+    for message in data.get("warnings", []):
+        lines.append("Avertissement : " + message)
+    for message in data.get("problems", []):
+        lines.append("Manifeste rejete : " + message)
     return "\n".join(lines)

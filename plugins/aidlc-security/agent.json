@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "id": "security-review",
+  "team": "AppSec",
+  "version": "0.1.0",
+  "description": "Relit une conception ou un changement et signale les risques exploitables : authentification, autorisation, exposition de donnees, secrets en clair, surface d'attaque ajoutee.",
+  "capabilities": ["security:review", "security:threat-model"],
+  "invocation": {
+    "claude-code": "aidlc-security:security-review",
+    "codex": "skills/security-review/SKILL.md"
+  },
+  "human_role": "RSSI"
+}

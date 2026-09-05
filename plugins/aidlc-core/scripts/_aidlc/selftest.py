@@ -25,11 +25,13 @@ from .commands import cmd_watchdog
 from .maturity import compute_autonomy
 from .util import ensure_dir
 from .maturity import gate_stage
+from .hookslog import current_stage_id
 from .hookslog import guard_decision
 from .hookslog import handle_log
 from .improve import improve
 from .util import MAX_FIELD
 from .maturity import load_maturity
+from . import registry
 from .util import load_pipeline
 from .maturity import maturity_path
 from .util import now_iso
@@ -54,21 +56,32 @@ from .watchdog import watchdog_check
 # ------------------------------------------------------------------------ selftest
 
 SELFTEST_PIPELINE = {
-    "version": 1,
+    "version": 2,
     "maturity_threshold": 4.0,
     "consecutive_runs_to_autonomy": 3,
-    "stages": [
-        {"id": "plan", "name": "Plan", "plugin": "aidlc-plan", "skill": "aidlc-plan:plan",
-         "deliverable": "deliverables/plan/intent.md", "inputs": [],
-         "checks": "checks/plan.json",
-         "human_role": "Product Owner", "status": "implemented"},
-        {"id": "design", "name": "Design", "plugin": "aidlc-design", "skill": "aidlc-design:design",
-         "deliverable": "deliverables/design/spec.md",
-         "inputs": ["deliverables/plan/intent.md"],
-         "checks": "checks/design.json",
-         "human_role": "Architecte", "status": "planned"},
+    "planned_stages": [
+        {"id": "design", "name": "Design", "deliverable": "deliverables/design/spec.md",
+         "inputs": ["deliverables/plan/intent.md"], "human_role": "Architecte",
+         "team": "Architecture"},
+        {"id": "build", "name": "Build", "deliverable": "deliverables/build/plan.md",
+         "inputs": ["deliverables/design/spec.md"], "human_role": "Tech Lead",
+         "team": "Ingenierie"},
     ],
 }
+
+def _manifest(agent_id, team, produces=None, consumes=(), **extra):
+    """Manifeste de fixture. Tout est neutre sauf `invocation`, indexe par plateforme."""
+    manifest = {
+        "manifest_version": 1, "id": agent_id, "team": team,
+        "version": "0.1.0", "description": f"Agent de test {agent_id}.",
+        "capabilities": [f"sdlc:{agent_id}"],
+        "invocation": {"claude-code": f"aidlc-{agent_id}:{agent_id}"},
+    }
+    if produces:
+        manifest.update({"produces": produces, "consumes": list(consumes),
+                         "checks": "checks.json", "human_role": "Role de test"})
+    manifest.update(extra)
+    return manifest
 
 SELFTEST_CHECKS = {
     "required_frontmatter": ["stage", "version", "status", "author", "date"],
@@ -121,20 +134,45 @@ def selftest() -> int:
         assert condition, f"ECHEC : {label}"
         checked += 1
 
-    saved_harness = os.environ.get("AIDLC_HARNESS_ROOT")
+    saved_env = {name: os.environ.get(name) for name in
+                 ("AIDLC_HARNESS_ROOT", "AIDLC_AGENT_PATH", "CLAUDE_PROJECT_DIR",
+                  "CLAUDE_CONFIG_DIR", "AIDLC_PLATFORM")}
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         os.environ["AIDLC_HARNESS_ROOT"] = str(root)
+        os.environ["CLAUDE_PROJECT_DIR"] = str(root)
+        # Isole la decouverte des plugins reellement installes sur la machine : le
+        # selftest doit rendre le meme nombre d'assertions partout.
+        os.environ["CLAUDE_CONFIG_DIR"] = str(ensure_dir(root / "fake-config"))
+        os.environ.pop("AIDLC_PLATFORM", None)
         write_json(root / "pipeline.json", SELFTEST_PIPELINE)
         pipe = load_pipeline()
-        write_json(root / "checks/plan.json", SELFTEST_CHECKS)
+
+        # Les contrats vivent desormais dans le plugin de l'agent, a cote de son
+        # manifeste — plus aucun miroir dans le noyau.
+        plan_checks = root / "plugins/aidlc-plan/checks.json"
+        design_checks_path = root / "plugins/aidlc-design/checks.json"
+        write_json(root / "plugins/aidlc-plan/agent.json",
+                   _manifest("plan", "Produit", "deliverables/plan/intent.md"))
+        write_json(plan_checks, SELFTEST_CHECKS)
         design_checks = dict(SELFTEST_CHECKS)
         design_checks["required_sections"] = ["## Contexte"]
         design_checks["min_items_per_section"] = {}
-        write_json(root / "checks/design.json", design_checks)
-        # un dossier plugins/aidlc-design existant simule une etape deja ebauchee :
-        # le scaffold doit refuser de l'ecraser sans --force.
-        ensure_dir(root / "plugins" / "aidlc-design")
+        write_json(root / "plugins/aidlc-design/agent.json",
+                   _manifest("design", "Architecture", "deliverables/design/spec.md",
+                             ["deliverables/plan/intent.md"]))
+        write_json(design_checks_path, design_checks)
+        # Un agent d'une autre equipe, hors du projet : consultatif (pas de produces),
+        # decouvert par AIDLC_AGENT_PATH — le cas d'usage d'entreprise.
+        external = Path(tempfile.mkdtemp())
+        write_json(external / "acme-security" / "agent.json",
+                   _manifest("security-review", "AppSec",
+                             capabilities=["security:review"],
+                             invocation={"claude-code": "acme-security:security-review",
+                                         "codex": "prompts/review.md"}))
+        os.environ["AIDLC_AGENT_PATH"] = os.pathsep.join(
+            [str(root / "plugins"), str(external)])
+        registry.reset_cache()
         intent = root / "deliverables/plan/intent.md"
         ensure_dir(intent.parent)
 
@@ -263,6 +301,42 @@ def selftest() -> int:
         for payload in ["", "pas du json {{{", json.dumps([1, 2, 3]), json.dumps({"a": 1})]:
             check(cmd_log(root, payload) == 0, f"log doit sortir 0 sur : {payload[:20]!r}")
 
+        # 15bis. L'etape d'un evenement ne se devine JAMAIS dans la prose. Les trois
+        #        assertions ci-dessous echouaient avec l'ancienne heuristique, qui
+        #        reconnaissait l'identifiant d'une etape comme mot du prompt.
+        check(current_stage_id(root, pipe) == "design",
+              "pre-requis du bloc : plan est franchie, l'etape courante est design")
+        prose = handle_log(root, json.dumps(
+            {"session_id": "sess-prose", "hook_event_name": "UserPromptSubmit",
+             "prompt": "revois le plan de charge, puis lance les test unitaires"}))
+        check(prose["stage"] == "design",
+              "un prompt qui nomme une etape dans sa prose ne doit pas la designer : "
+              f"attendu l'etape courante, obtenu {prose['stage']}")
+
+        annexe = root / "deliverables/plan/annexe.md"
+        ensure_dir(annexe.parent)
+        annexe.write_text("annexe", encoding="utf-8")
+        near = handle_log(root, json.dumps(
+            {"session_id": "sess-annexe", "hook_event_name": "PostToolUse",
+             "tool_name": "Write", "tool_input": {"file_path": str(annexe)}}))
+        check(near["stage"] == "plan",
+              "une ecriture dans le repertoire d'un livrable revient a son agent")
+
+        handle_log(root, json.dumps(
+            {"session_id": "sess-suite", "hook_event_name": "PostToolUse",
+             "tool_name": "Write", "tool_input": {"file_path": str(intent)}}))
+        suite = handle_log(root, json.dumps(
+            {"session_id": "sess-suite", "hook_event_name": "UserPromptSubmit",
+             "prompt": "continue"}))
+        check(suite["stage"] == "plan",
+              "un evenement sans chemin herite de la derniere etape connue de sa session")
+        autre = handle_log(root, json.dumps(
+            {"session_id": "sess-neuve", "hook_event_name": "UserPromptSubmit",
+             "prompt": "continue"}))
+        check(autre["stage"] == "design",
+              "la continuite ne franchit pas les sessions : repli sur l'etape courante")
+        annexe.unlink()
+
         # 16. guard
         reason = guard_decision(root, json.dumps(
             {"tool_name": "Write", "tool_input": {"file_path": str(maturity_path(root))}}))
@@ -287,10 +361,17 @@ def selftest() -> int:
 
         # 18. status
         data = status_data(root, pipe)
-        check(len(data["stages"]) == 2, "le status doit couvrir les 2 etapes")
-        check(data["stages"][1]["next_action"].startswith("Scaffolder"),
-              "une etape non implementee doit proposer le scaffold")
-        check("ETAPE" in render_status(data), "le rendu texte doit contenir l'en-tete")
+        check(len(data["stages"]) == 2,
+              "le status ne couvre que les agents qui produisent un livrable")
+        check([row["stage"] for row in data["stages"]] == ["plan", "design"],
+              "l'ordre du status suit la chaine producteur -> consommateur")
+        check(data["stages"][0]["team"] == "Produit",
+              "le status doit porter l'equipe proprietaire de chaque agent")
+        check(any(row["id"] == "security-review" for row in data["advisors"]),
+              "un agent consultatif est liste a part, jamais comme une etape")
+        check(any(stage["id"] == "build" for stage in data["planned"]),
+              "une etape prevue sans plugin installe doit rester visible")
+        check("EQUIPE" in render_status(data), "le rendu texte doit nommer les equipes")
 
         # 19. improve
         diag = improve(root, pipe)
@@ -300,27 +381,39 @@ def selftest() -> int:
         check(diag["maturity"]["plan"]["weakest_axes"], "improve doit classer les axes faibles")
 
         # 20. scaffold
+        pipeline_before = read_text(root / "pipeline.json")
         try:
             scaffold(pipe, "design")
             check(False, "le scaffold doit refuser d'ecraser sans --force")
         except ValueError:
-            check(True, "le scaffold refuse d'ecraser un dossier existant sans --force")
+            check(True, "le scaffold refuse un agent deja present sans --force")
         info = scaffold(pipe, "design", force=True)
         check((root / "plugins/aidlc-design/skills/design/SKILL.md").exists(),
               "le scaffold doit creer le SKILL.md")
         check((root / "plugins/aidlc-design/templates/spec.md").exists(),
               "le scaffold doit creer le gabarit du livrable")
-        check(load_pipeline()["stages"][1]["status"] == "implemented",
-              "le scaffold doit passer l'etape en implemented")
+        check(read_text(root / "pipeline.json") == pipeline_before,
+              "le scaffold ne doit RIEN ecrire dans le noyau : une equipe publie son "
+              "agent sans modifier l'orchestrateur")
+        manifest = json.loads(read_text(root / "plugins/aidlc-design/agent.json"))
+        check(manifest["produces"] == "deliverables/design/spec.md"
+              and manifest["consumes"] == ["deliverables/plan/intent.md"],
+              "le manifeste genere doit reprendre la feuille de route planned_stages")
+        check(manifest["team"] == "Architecture" and manifest["capabilities"] == ["sdlc:design"],
+              "le manifeste genere doit porter l'equipe et la capacite de l'etape")
         market = json.loads(read_text(root / ".claude-plugin/marketplace.json"))
         check(any(p["name"] == "aidlc-design" for p in market["plugins"]),
               "le scaffold doit inscrire le plugin au marketplace")
-        check(len(info["created"]) == 7, "le scaffold doit creer 7 fichiers (dont le miroir checks/)")
+        check(len(info["created"]) == 7,
+              "le scaffold doit creer 7 fichiers (dont le manifeste agent.json)")
         check(validate_stage(root, load_pipeline(), "design")["stage"] == "design",
               "le checks.json genere doit rester exploitable par validate")
-        mirror = root / "checks/design.json"
-        check(mirror.exists() and read_text(mirror) == read_text(root / "plugins/aidlc-design/checks.json"),
-              "le miroir checks/design.json doit refleter le checks.json genere")
+        # le scaffold a reecrit le contrat de design : restaurer la fixture du test
+        write_json(design_checks_path, design_checks)
+        write_json(root / "plugins/aidlc-design/agent.json",
+                   _manifest("design", "Architecture", "deliverables/design/spec.md",
+                             ["deliverables/plan/intent.md"]))
+        registry.reset_cache()
 
         # 21. conformance OKF v0.2 des bundles de connaissance du depot (docs/, knowledge/),
         #     ancres sur la racine du depot (au-dessus du paquet). Quand le paquet est
@@ -631,7 +724,7 @@ def selftest() -> int:
         #     doit citer une valeur observee concrete ; reformuler l'attendu echoue.
         proof_checks = dict(SELFTEST_CHECKS)
         proof_checks["proof_of_run"] = ["## Criteres d'acceptation"]
-        write_json(root / "checks/design.json", proof_checks)
+        write_json(design_checks_path, proof_checks)
         intent.write_text(_doc(GOOD_SECTIONS), encoding="utf-8")
         fail_sections = dict(GOOD_SECTIONS)
         fail_sections["## Contexte"] = "Conception sans valeur observee, seulement des intentions."
@@ -659,7 +752,7 @@ def selftest() -> int:
         # 31. holdout : le livrable ne cite pas les lignes de son propre checks.json.
         holdout_checks = dict(SELFTEST_CHECKS)
         holdout_checks["checks_do_not_self_reference"] = True
-        write_json(root / "checks/design.json", holdout_checks)
+        write_json(design_checks_path, holdout_checks)
         leaked = '    "min_words": 60,'
         spec.write_text(_doc(
             {"## Contexte": f"Contrat vise : {leaked} (extrait du checks.json)."},
@@ -679,7 +772,7 @@ def selftest() -> int:
         scope_checks = dict(SELFTEST_CHECKS)
         scope_checks["must_not_violate_scope"] = {"section": "## Hors perimetre"}
         scope_checks["required_sections"] = ["## Contexte", "## Hors perimetre"]
-        write_json(root / "checks/design.json", scope_checks)
+        write_json(design_checks_path, scope_checks)
         plan_scope = dict(GOOD_SECTIONS)
         plan_scope["## Hors perimetre"] = "- Facturation a l'unite.\n- Intégration ERP."
         intent.write_text(_doc(plan_scope), encoding="utf-8")
@@ -738,7 +831,7 @@ def selftest() -> int:
         # 34. ratchet : figeage au premier passage, regression refusee, reset explicite.
         #     Design est d'abord rattrape sur le contrat courant (geste auteur, reset
         #     explicite) pour que le figeage de depart soit celui des planchers simples.
-        write_json(root / "checks/design.json", proof_checks)
+        write_json(design_checks_path, proof_checks)
         saved_out, sys.stdout = sys.stdout, io.StringIO()
         saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
         try:
@@ -754,7 +847,7 @@ def selftest() -> int:
         # regression : min_words descendu -> exit 2
         regressed = dict(proof_checks)
         regressed["min_words"] = 10
-        write_json(root / "checks/design.json", regressed)
+        write_json(design_checks_path, regressed)
         saved_out, sys.stdout = sys.stdout, io.StringIO()
         saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
         try:
@@ -771,7 +864,7 @@ def selftest() -> int:
         # durcissement libre : remonter min_words passe, et releve le plancher fige
         hardened = dict(regressed)
         hardened["min_words"] = 90
-        write_json(root / "checks/design.json", hardened)
+        write_json(design_checks_path, hardened)
         saved_out, sys.stdout = sys.stdout, io.StringIO()
         saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
         try:
@@ -786,7 +879,7 @@ def selftest() -> int:
         check(state["stages"]["design"]["min_words"] == 90,
               "le figeage doit suivre le durcissement (90)")
         # reset explicite d'une etape : repart du checks.json courant (geste auteur)
-        write_json(root / "checks/design.json", dict(regressed))
+        write_json(design_checks_path, dict(regressed))
         reset_out = io.StringIO()
         saved_out, sys.stdout = sys.stdout, reset_out
         saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
@@ -801,7 +894,7 @@ def selftest() -> int:
         state = json.loads(read_text(aidlc_dir(root) / "ratchet.json"))
         check(state["stages"]["design"]["min_words"] == 10 and "reset_at" in state["stages"]["design"],
               "apres reset, le plancher vaut l'etat courant et porte la trace reset_at")
-        write_json(root / "checks/design.json", proof_checks)
+        write_json(design_checks_path, proof_checks)
         saved_out, sys.stdout = sys.stdout, io.StringIO()
         saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
         try:
@@ -887,20 +980,21 @@ def selftest() -> int:
             front={"stage": "design", "version": "1", "status": "draft",
                    "author": "Steve", "date": "2026-09-03"}), encoding="utf-8")
 
-        # 36. Le contrat reel de l'etape plan (miroir plugins/aidlc-core/checks/plan.json)
+        # 36. Le contrat reel de l'etape plan (plugins/aidlc-plan/checks.json)
         #     porte les regles anti-derive adoptees : preuve d'execution (Contexte et
         #     Criteres d'acceptation) et holdout (checks_do_not_self_reference). Un
         #     intent conforme passe ; une section sans valeur observee echoue ; citer
         #     une ligne du contrat echoue. Ce bloc garde l'adoption elle-meme : si les
         #     regles sortent du checks.json de plan, l'assertion de presence casse.
-        real_checks_path = _repo_root() / "plugins/aidlc-core/checks/plan.json"
-        check(real_checks_path.exists(), "le miroir checks/plan.json doit exister")
+        real_checks_path = _repo_root() / "plugins/aidlc-plan/checks.json"
+        check(real_checks_path.exists(),
+              "le contrat de plan doit vivre dans son propre plugin, sans miroir")
         real_checks = json.loads(read_text(real_checks_path))
         check("proof_of_run" in real_checks and "checks_do_not_self_reference" in real_checks,
               "le contrat de l'etape plan doit porter proof_of_run et checks_do_not_self_reference")
         check(real_checks["proof_of_run"] == ["## Contexte", "## Critères d'acceptation"],
               "proof_of_run de plan doit cibler Contexte et Criteres d'acceptation")
-        write_json(root / "checks/plan.json", real_checks)
+        write_json(plan_checks, real_checks)
         plan_intent = {
             "## Contexte": ("Demande issue du comite produit 2026-09-01 ; 42 % des dossiers "
                             "repassent en saisie manuelle (mesure SAP du T3)."),
@@ -947,9 +1041,125 @@ def selftest() -> int:
         # restaure l'intent conforme
         intent.write_text(_doc(plan_intent, filler=8), encoding="utf-8")
 
-    if saved_harness is None:
-        os.environ.pop("AIDLC_HARNESS_ROOT", None)
-    else:
-        os.environ["AIDLC_HARNESS_ROOT"] = saved_harness
+        # 37. Registre d'agents : decouverte par manifeste, capacites, ordre derive,
+        #     rejets de forme et frontieres. C'est le contrat d'integration des equipes.
+        view = registry.catalog()
+        ids = [agent["id"] for agent in view["agents"]]
+        check(sorted(ids) == ["design", "plan", "security-review"],
+              f"les trois agents doivent etre decouverts, obtenu {ids}")
+        check(ids.index("plan") < ids.index("design"),
+              "l'agent qui consomme un livrable doit passer apres celui qui le produit")
+        advisor = next(a for a in view["agents"] if a["id"] == "security-review")
+        check(advisor["kind"] == "capability" and advisor["team"] == "AppSec",
+              "un agent sans produces est consultatif et porte son equipe")
+        check(advisor["invoke"] == "acme-security:security-review" and advisor["invocable"],
+              "l'invocation lue doit etre exactement celle du manifeste")
+        check(view["capabilities"]["security:review"] == ["security-review"],
+              "l'index des capacites doit pointer vers l'agent qui la porte")
+        check([a["id"] for a in registry.catalog(capability="security:review")["agents"]]
+              == ["security-review"], "le filtre par capacite doit restreindre le catalogue")
+        check(registry.agent_for_file(root, str(intent))["id"] == "plan",
+              "agent_for_file doit retrouver l'agent par son livrable exact")
+
+        # une plateforme sans bloc d'invocation : signale, jamais devine
+        os.environ["AIDLC_PLATFORM"] = "codex"
+        registry.reset_cache()
+        codex = registry.catalog()
+        check(codex["platform"] == "codex", "la plateforme courante doit etre respectee")
+        check(next(a for a in codex["agents"] if a["id"] == "security-review")["invoke"]
+              == "prompts/review.md",
+              "sous Codex, l'invocation doit venir du bloc codex du meme manifeste")
+        check(not next(a for a in codex["agents"] if a["id"] == "plan")["invocable"],
+              "un agent sans invocation pour la plateforme n'est pas invocable")
+        os.environ.pop("AIDLC_PLATFORM", None)
+        registry.reset_cache()
+
+        # un agent consultatif n'a ni livrable a valider ni porte a franchir
+        res = validate_stage(root, pipe, "security-review")
+        check(not res["ok"] and any("consultatif" in e or "produces" in e for e in res["errors"]),
+              "validate doit refuser proprement un agent sans livrable")
+        decision = gate_stage(root, pipe, "security-review")
+        check(not decision["passed"] and any("consultatif" in b for b in decision["blocking"]),
+              "gate doit dire qu'aucune porte ne s'applique a un agent consultatif")
+
+        # frontiere d'equipe : le plugin d'un agent installe hors du projet est protege
+        reason = guard_decision(root, json.dumps(
+            {"tool_name": "Write",
+             "tool_input": {"file_path": str(external / "acme-security" / "agents/x.md")}}))
+        check(reason is not None and "AppSec" in reason,
+              "guard doit refuser d'ecrire dans le plugin d'une autre equipe et la nommer")
+
+        # rejets de forme : champ obligatoire manquant, version de manifeste inconnue
+        bad_dir = ensure_dir(root / "plugins" / "aidlc-bad")
+        write_json(bad_dir / "agent.json", {"manifest_version": 1, "id": "bad"})
+        registry.reset_cache()
+        report = registry.discover()
+        check(not any(a["id"] == "bad" for a in report["agents"]),
+              "un manifeste incomplet ne doit jamais entrer au registre")
+        check(any("'team'" in problem for problem in report["problems"]),
+              "le rejet doit nommer le champ obligatoire manquant")
+        write_json(bad_dir / "agent.json", dict(_manifest("bad", "X"), manifest_version=2))
+        registry.reset_cache()
+        report = registry.discover()
+        check(any("manifest_version" in problem for problem in report["problems"])
+              and not any(a["id"] == "bad" for a in report["agents"]),
+              "une version de manifeste non supportee doit etre refusee explicitement")
+
+        # deux equipes qui publient le meme id : avertissement nomme, premiere source gagnante
+        write_json(bad_dir / "agent.json", _manifest("plan", "Equipe concurrente"))
+        registry.reset_cache()
+        report = registry.discover()
+        check(any("Equipe concurrente" in warning and "plan" in warning
+                  for warning in report["warnings"]),
+              "un identifiant en double doit etre signale avec les deux equipes")
+        check(len([a for a in report["agents"] if a["id"] == "plan"]) == 1,
+              "un identifiant en double ne doit pas dedoubler l'agent")
+
+        # cycle de dependances : detecte et nomme, jamais une boucle infinie
+        write_json(bad_dir / "agent.json",
+                   _manifest("boucle-a", "X", "deliverables/a.md", ["deliverables/b.md"]))
+        write_json(ensure_dir(root / "plugins" / "aidlc-bad2") / "agent.json",
+                   _manifest("boucle-b", "X", "deliverables/b.md", ["deliverables/a.md"]))
+        registry.reset_cache()
+        check(sorted(registry.catalog()["cycle"]) == ["boucle-a", "boucle-b"],
+              "un cycle de dependances doit etre detecte et nomme")
+
+        # producteur absent : une entree que personne n'installe reste visible
+        write_json(bad_dir / "agent.json",
+                   _manifest("orphelin", "X", "deliverables/o.md", ["deliverables/jamais.md"]))
+        (root / "plugins" / "aidlc-bad2" / "agent.json").unlink()
+        registry.reset_cache()
+        holes = registry.catalog()["missing_producers"]
+        check(any(h["agent"] == "orphelin" and h["input"] == "deliverables/jamais.md"
+                  for h in holes),
+              "une entree sans producteur installe doit remonter dans missing_producers")
+
+        # ratchet : desinstaller un agent n'efface pas son plancher
+        (bad_dir / "agent.json").unlink()
+        registry.reset_cache()
+        saved_out, sys.stdout = sys.stdout, io.StringIO()
+        saved_err, sys.stderr = sys.stderr, open(os.devnull, "w", encoding="utf-8")
+        try:
+            cmd_ratchet(root, argparse.Namespace(reset=None))
+            (root / "plugins/aidlc-design/agent.json").unlink()
+            registry.reset_cache()
+            code_orphan = cmd_ratchet(root, argparse.Namespace(reset=None))
+        finally:
+            sys.stdout.close()
+            sys.stderr.close()
+            sys.stdout = saved_out
+            sys.stderr = saved_err
+        check(code_orphan == 2,
+              "retirer un agent du registre ne doit pas effacer son plancher fige")
+        state = json.loads(read_text(aidlc_dir(root) / "ratchet.json"))
+        check("design" in state["stages"],
+              "le plancher de l'agent retire doit rester ecrit dans le ratchet")
+
+    for name, value in saved_env.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+    registry.reset_cache()
     sys.stderr.write(f"OK: {checked} assertions\n")
     return 0

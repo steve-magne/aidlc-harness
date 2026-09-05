@@ -10,7 +10,9 @@ argument-hint: "[stage] — id d'étape pour un détail ciblé ; vide = toutes l
 
 Le script unique vit dans le plugin `aidlc-core` (`${CLAUDE_PLUGIN_ROOT}`) ; le tableau de bord se
 lance dans le projet consommateur (`$CLAUDE_PROJECT_DIR`), là où vivent les livrables et `.aidlc/`.
-Le pipeline lu est celui du harnais : `${CLAUDE_PLUGIN_ROOT}/pipeline.json`.
+Les étapes affichées viennent du **registre d'agents** (les manifestes `agent.json` des plugins
+installés, dans l'ordre dérivé de leurs livrables) ; la gouvernance — seuils, feuille de route —
+vient de `${CLAUDE_PLUGIN_ROOT}/pipeline.json`.
 
 ## 1. Lire l'état
 
@@ -37,15 +39,18 @@ Sous le tableau, ajoute au maximum cinq lignes de commentaire en français :  1.
    - livrable présent mais validation en échec -> `/aidlc-core:run <stage>` (boucle de correction)
    - validation ok mais pas de score -> `/aidlc-core:review <stage>`
    - revue humaine requise -> `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>`
-   - étape `planned` -> `/aidlc-core:new-stage <stage>`
+   - étape listée en « prévu, plugin non installé » -> `/aidlc-core:new-stage <stage>`
+   - « producteur absent » -> le plugin qui produit cette entrée n'est pas installé : dis lequel
+   - « manifeste rejeté » -> nomme l'équipe propriétaire, c'est à elle de corriger son `agent.json`
    - scores faibles et répétés -> `/aidlc-core:improve <stage>`
 
 ## 3. Si un argument d'étape est fourni
 
 Restreins le commentaire à cette étape et complète avec :
 
-- le contenu de son entrée dans `${CLAUDE_PLUGIN_ROOT}/pipeline.json` (livrable, entrées,
-  rôle humain, checks) ;
+- le contenu de son manifeste, lu par
+  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json` (équipe, version, capacités,
+  invocation, livrable, entrées, rôle humain, contrat) ;
 - le détail de la dernière validation :
   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" validate <stage> --json` ;
 - l'historique de ses runs dans `.aidlc/maturity.json` (scores par axe, tendance, autonomie).
@@ -55,7 +60,10 @@ Restreins le commentaire à cette étape et complète avec :
 - **`.aidlc/` absent** : aucun run n'a encore eu lieu. Dis-le simplement et propose
   `/aidlc-core:run plan`. Ce n'est pas une erreur.
 - **`${CLAUDE_PLUGIN_ROOT}/pipeline.json` introuvable** : le plugin `aidlc-core` est mal
-  installé. Signale-le et arrête-toi ; ne crée pas de pipeline de secours.
+  installé. Signale-le et arrête-toi ; ne crée pas de fichier de secours.
+- **Registre vide** : aucun plugin d'agent n'est installé ou activé. Dis-le, et rappelle les deux
+  voies — installer le plugin d'une équipe, ou pointer `AIDLC_AGENT_PATH` sur un répertoire qui
+  contient des manifestes.
 - **Le script sort en erreur** : affiche stderr tel quel. C'est un diagnostic, pas un incident à
   masquer.
 

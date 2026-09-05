@@ -9,7 +9,8 @@ generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
 # Consommer le harnais AI-DLC dans votre projet
 
 Ce guide s'adresse à une **équipe de projet** qui veut produire ses livrables de cadrage avec le
-harnais agentique AI-DLC : un pipeline d'étapes (Plan → Design → Build → Test → Deploy → Maintain)
+harnais agentique AI-DLC : un orchestrateur d'agents d'équipe et une chaîne d'étapes
+(Plan → Design → Build → Test → Deploy → Maintain)
 piloté par des agents Claude Code, validé par des contrôles déterministes, noté par un agent
 *reviewer* et gardé par des portes de qualité qui exigent votre signature tant que l'étape n'est
 pas autonome.
@@ -28,7 +29,7 @@ contient pour l'instant deux plugins :
 
 | Plugin | Rôle |
 | --- | --- |
-| `aidlc-core` | Le noyau : pipeline, contrats `checks/<stage>.json`, script déterministe `aidlc.py`, orchestrateur, reviewer, librarian, hooks de journalisation et de garde-fous. |
+| `aidlc-core` | Le noyau : registre d'agents, gouvernance, script déterministe `aidlc.py`, orchestrateur, reviewer, librarian, hooks de journalisation et de garde-fous. Il ne contient la liste d'aucun agent : il les découvre. |
 | `aidlc-plan` | L'étape Plan : agent de dialogue avec le Product Owner, recette de la skill `plan`, squelette du livrable, contrat `checks.json`. |
 
 Deux racines sont à distinguer :
@@ -223,6 +224,7 @@ Dans une session Claude Code, le plugin expose le script dans l'environnement (`
 n'existe que dans la session) :
 
 ```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents            # catalogue des agents installés
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status            # tableau de bord
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate plan         # porte : exit 0 = franchie, exit 2 = bloquée
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request plan   # prépare la revue humaine (gabarit + consignes)
@@ -232,8 +234,32 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" ratchet           # fige les pl
 
 Conventions : les sorties machine sont du **JSON sur stdout**, les messages humains sur **stderr**.
 Le code de sortie de `gate` (0/2) est exploitable par un hook `Stop` ou une CI. Les opérations
-`run` et `review` sont des skills, pas des sous-commandes : passez par `/aidlc-core:run` et
-`/aidlc-core:review`.
+`run`, `review` et `dispatch` sont des skills, pas des sous-commandes : passez par
+`/aidlc-core:run`, `/aidlc-core:review` et `/aidlc-core:dispatch`.
+
+### Mobiliser les agents de vos équipes
+
+`aidlc-core` ne contient la liste d'aucun agent : il **découvre** ceux que vous avez installés, par
+le manifeste `agent.json` que chaque plugin d'agent porte à sa racine. Deux conséquences pratiques.
+
+Pour une demande transverse (un avis sécurité, une revue d'architecture, une question qui traverse
+plusieurs équipes), utilisez `/aidlc-core:dispatch` : l'orchestrateur lit le catalogue, choisit les
+agents dont les capacités correspondent, les invoque et vous rend une synthèse qui attribue
+nommément ce que chacun a dit — y compris leurs désaccords, qu'il ne tranche pas à votre place.
+
+Pour rendre visible un agent développé **hors des plugins installés** (celui de votre équipe, en
+cours de développement), pointez la variable `AIDLC_AGENT_PATH` sur le ou les répertoires qui le
+contiennent (séparés par `:`). Elle a la précédence sur toutes les autres sources, fonctionne en
+CI, et c'est la voie documentée — les plugins installés sont découverts au mieux, jamais
+garantis.
+
+```bash
+AIDLC_AGENT_PATH=/chemin/vers/mes-agents \
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents
+```
+
+Un agent installé mais **désactivé** dans vos réglages Claude Code apparaît au catalogue et échoue
+à l'invocation : c'est un réglage de votre côté, pas un défaut du manifeste.
 
 ## 7. Ce que vous devez versionner dans votre projet
 

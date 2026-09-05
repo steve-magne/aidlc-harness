@@ -13,10 +13,10 @@ Deux racines, à ne pas confondre :
 - **Le projet consommateur** (`$CLAUDE_PROJECT_DIR`) : c'est là que vivent les livrables
   (`deliverables/`), l'état runtime (`.aidlc/`) et la connaissance du projet (`knowledge/`).
   Les commandes se lancent depuis cette racine.
-- **Le harnais** (plugin `aidlc-core`) : le script unique et le pipeline y sont installés.
-  `${CLAUDE_PLUGIN_ROOT}` résout le dossier du plugin ; le pipeline se lit dans
-  `${CLAUDE_PLUGIN_ROOT}/pipeline.json` et les contrats déterministes dans
-  `${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`.
+- **Le harnais** (plugin `aidlc-core`) : le script unique y est installé. `${CLAUDE_PLUGIN_ROOT}`
+  résout le dossier du plugin ; la gouvernance se lit dans `${CLAUDE_PLUGIN_ROOT}/pipeline.json`.
+  Les étapes, elles, se lisent dans le **registre d'agents** (`aidlc.py agents`), et le contrat
+  déterministe de chaque étape dans le `checks.json` du plugin qui la porte.
 
 Dans la suite, le script est noté :
 
@@ -33,27 +33,33 @@ d'enchaîner les étapes dans le bon ordre et de t'arrêter net quand une porte 
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --json
 ```
 
-- Si l'utilisateur a fourni un argument, c'est l'id d'étape à traiter. Vérifie qu'il existe dans
-  `${CLAUDE_PLUGIN_ROOT}/pipeline.json` ; sinon liste les ids valides et arrête-toi.
-- Sans argument, prends la première étape du tableau `stages` de ce fichier dont la porte n'est
-  pas franchie (voir le champ correspondant dans la sortie de `status --json`).
+- Si l'utilisateur a fourni un argument, c'est l'id d'agent à traiter. Vérifie qu'il figure au
+  registre (`aidlc.py agents`) ; sinon liste les ids valides et arrête-toi.
+- Sans argument, prends la première étape non franchie du tableau `stages` de `status --json` :
+  il est déjà trié par dépendances entre livrables.
 - Si toutes les étapes sont franchies, dis-le et arrête-toi. Ne relance rien « pour voir ».
+- Demande sans livrable attendu (un avis, une revue transverse) : ce n'est pas une étape. Bascule
+  sur `/aidlc-core:dispatch`.
 
-## 2. Vérifier que l'étape est implémentée
+## 2. Vérifier que l'étape est jouable
 
-Lis l'entrée de l'étape dans `${CLAUDE_PLUGIN_ROOT}/pipeline.json`.
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json
+```
 
-- `status` vaut `"planned"` -> le plugin n'existe pas encore. **Arrête-toi** et propose à
-  l'utilisateur d'utiliser la skill `aidlc-core:new-stage` pour la concevoir puis la générer.
-  Ne tente pas d'improviser le livrable sans plugin.
-- `status` vaut `"implemented"` -> continue.
+- L'id n'est pas au registre mais figure en `planned` dans `status` -> aucun plugin ne le porte
+  encore. **Arrête-toi** et propose `aidlc-core:new-stage`. Ne tente pas d'improviser le livrable.
+- `"invocable": false` -> l'agent ne déclare pas d'invocation pour cette plateforme : arrête-toi et
+  nomme l'équipe propriétaire (`team`).
+- Sinon, continue : retiens `invoke` (l'invocation exacte), `produces` et `consumes`.
 
 ## 3. Vérifier les entrées amont
 
-Pour chaque chemin listé dans `inputs` :
+Pour chaque chemin listé dans `consumes` :
 
-- Le fichier doit exister. S'il manque, l'étape amont n'est pas faite : dis quelle étape produire
-  d'abord (`/aidlc-core:run <étape amont>`) et arrête-toi.
+- Le fichier doit exister. S'il manque, cherche dans le catalogue l'agent qui le `produces` et
+  dis lequel lancer d'abord (`/aidlc-core:run <agent amont>`), puis arrête-toi. Si personne ne le
+  produit, c'est un trou du registre (`missing_producers`) : dis-le, le plugin manque.
 - Le fichier doit avoir passé sa propre porte. En cas de doute :
   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <étape amont>` (exit 0 = franchie,
   exit 2 = bloquée).
@@ -68,11 +74,11 @@ Transmets cette synthèse à la skill de l'étape.
 
 ## 5. Produire le livrable
 
-Invoque la skill déclarée dans le champ `skill` de l'entrée de l'étape (par exemple
-`aidlc-plan:plan` pour `plan`) via l'outil Skill, en lui passant :
+Invoque **exactement** la valeur du champ `invoke` du catalogue (par exemple `aidlc-plan:plan`),
+via l'outil Skill, en lui passant :
 
-- le chemin du livrable attendu (`deliverable`) ;
-- les chemins des `inputs` ;
+- le chemin du livrable attendu (`produces`) ;
+- les chemins des `consumes` ;
 - la synthèse du librarian.
 
 La skill de l'étape mène le dialogue métier et écrit le livrable. Laisse-la faire : tu n'écris pas

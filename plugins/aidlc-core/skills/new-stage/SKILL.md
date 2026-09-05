@@ -1,6 +1,6 @@
 ---
 name: new-stage
-description: Concevoir une nouvelle étape du SDLC avec le professionnel métier qui en est responsable (architecte, tech lead, QA lead, SRE, support), puis générer et remplir son plugin complet — agent, skill, template, checks déterministes. À utiliser quand une étape de pipeline.json est encore au statut planned, ou quand on veut ajouter une étape qui n'existe pas.
+description: Concevoir une nouvelle étape du SDLC avec le professionnel métier qui en est responsable (architecte, tech lead, QA lead, SRE, support), puis générer et remplir son plugin complet — manifeste agent.json, agent, skill, template, checks déterministes. À utiliser quand une étape figure encore en « prévu, plugin non installé », ou quand on veut ajouter un agent d'équipe qui n'existe pas.
 argument-hint: "[stage] — id de l'étape à concevoir (ex: design, test, security-review)"
 ---
 
@@ -18,9 +18,14 @@ installé est `${CLAUDE_PLUGIN_ROOT}` ; la racine du dépôt auteur est `${CLAUD
 — vérifie qu'elle contient bien `plugins/` et `.claude-plugin/`, sinon arrête-toi : on ne conçoit
 pas de nouvelle étape depuis une copie installée du harnais.
 
-Le pipeline à lire et à modifier est celui du noyau : `${CLAUDE_PLUGIN_ROOT}/pipeline.json`. Le
-script unique se lance par `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"`. Les chemins
-`plugins/aidlc-<stage>/…` cités plus bas sont relatifs à la racine du dépôt auteur.
+Le registre à consulter est celui des manifestes (`aidlc.py agents`) ; la feuille de route des
+étapes prévues est dans `${CLAUDE_PLUGIN_ROOT}/pipeline.json` (clé `planned_stages`) — consultative,
+jamais obligatoire : un agent peut naître sans y figurer. Le script unique se lance par
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"`. Les chemins `plugins/aidlc-<stage>/…` cités plus
+bas sont relatifs à la racine du dépôt auteur.
+
+**Le scaffold ne touche jamais le noyau** : il écrit dans le plugin généré et dans le marketplace du
+dépôt, rien d'autre. C'est ce qui permet à chaque équipe de publier son agent de façon autonome.
 
 ## Règle du dialogue
 
@@ -39,13 +44,13 @@ script unique se lance par `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"`. L
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status
 ```
 
-Lis `${CLAUDE_PLUGIN_ROOT}/pipeline.json` et l'étape ciblée.
+Lis le registre (`aidlc.py agents`) et la feuille de route (`planned_stages`).
 
-- L'étape existe avec `"status": "planned"` -> tu as déjà son `deliverable`, ses `inputs`, son
-  `human_role` et son `plugin`. Ce sont des propositions : fais-les valider au bloc 1.
-- L'étape n'existe pas -> il faudra créer son entrée dans `pipeline.json` avant le scaffold
-  (bloc 8). Demande à quelle position elle s'insère dans la chaîne.
-- L'étape existe avec `"status": "implemented"` -> **arrête-toi**. On ne reconçoit pas une étape
+- L'étape figure dans `planned_stages` -> tu as déjà son `deliverable`, ses `inputs`, son
+  `human_role` et son équipe. Ce sont des propositions : fais-les valider au bloc 1.
+- L'étape n'est nulle part -> rien à préparer : le scaffold part de zéro, et tu recueilles tout au
+  dialogue. Demande quelles entrées elle consomme — c'est ce qui la placera dans la chaîne.
+- L'étape est déjà au registre -> **arrête-toi**. On ne reconçoit pas une étape
   vivante ici ; propose `/aidlc-core:improve <stage>` pour la faire évoluer, ou l'option `--force`
   du scaffold si l'humain veut vraiment tout réécrire (et préviens-le que le contenu sera perdu).
 
@@ -134,25 +139,14 @@ Demande explicitement : « Est-ce que je génère le plugin sur cette base ? »
 
 ## 8. Générer le plugin
 
-Si l'étape n'existe pas dans `pipeline.json`, ajoute d'abord son entrée à la bonne position, sur le
-modèle exact des autres :
-
-```json
-{"id":"<stage>","name":"<Nom>","plugin":"aidlc-<stage>","skill":"aidlc-<stage>:<stage>",
- "deliverable":"deliverables/<stage>/<fichier>","inputs":["..."],
- "checks":"checks/<stage>.json","human_role":"<rôle>","status":"planned"}
-```
-
-Puis :
-
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" scaffold <stage>
 ```
 
-Le script crée `plugins/aidlc-<stage>/` (plugin.json, `agents/<stage>-analyst.md`,
-`skills/<stage>/SKILL.md`, le template, `checks.json`), bascule `status` à `implemented` dans
-`${CLAUDE_PLUGIN_ROOT}/pipeline.json`, crée le miroir `${CLAUDE_PLUGIN_ROOT}/checks/<stage>.json`
-et ajoute l'entrée dans `.claude-plugin/marketplace.json` (racine du dépôt auteur).
+Le script crée `plugins/aidlc-<stage>/` (plugin.json, `agent.json`, `agents/<stage>-analyst.md`,
+`skills/<stage>/SKILL.md`, le template, `checks.json`) et ajoute l'entrée dans
+`.claude-plugin/marketplace.json` (racine du dépôt auteur). **Le noyau n'est pas modifié** : c'est
+le manifeste `agent.json` qui fait entrer l'étape au registre.
 Il refuse d'écraser un dossier existant sans `--force` : si tu tombes sur ce refus, **ne force pas
 de ta propre initiative**, demande.
 
@@ -171,6 +165,11 @@ Le scaffold produit des squelettes. C'est toi qui les rends utiles, avec le cont
    validation à l'orchestrateur (`/aidlc-core:run <stage>`) qui la rejoue avant la revue.
 4. **`plugins/aidlc-<stage>/agents/<stage>-analyst.md`** — le profil de l'interlocuteur : il dialogue
    avec le `human_role`, ne devine pas, interroge le `librarian` pour le contexte existant.
+4bis. **`plugins/aidlc-<stage>/agent.json`** — le manifeste, seul contrat lu par l'orchestrateur.
+   Renseigne l'**équipe propriétaire** (`team`, obligatoire — c'est qui appeler quand l'agent se
+   trompe), la `description` en une phrase (c'est sur elle que l'orchestrateur choisit), les
+   `capabilities` (convention `domaine:action`), et `invocation` par plateforme. Ne recopie jamais
+   dans le manifeste ce qui est déjà dans l'implémentation : il décrit, il n'exécute pas.
 5. **`knowledge/` (bundle OKF)** — verse les sources de vérité citées au bloc 3 (question 11) en
    concepts : frontmatter `type`/`stages`, mise à jour de `knowledge/index.md` et de
    `knowledge/log.md`.
@@ -179,6 +178,7 @@ Le scaffold produit des squelettes. C'est toi qui les rends utiles, avec le cont
 
 ```bash
 python3 -c "import json;[json.load(open(p)) for p in ['${CLAUDE_PLUGIN_ROOT}/pipeline.json','.claude-plugin/marketplace.json']]" && echo "JSON racine OK"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --strict
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status
 ```
 

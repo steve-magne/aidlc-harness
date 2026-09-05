@@ -38,7 +38,7 @@ def workspace_root() -> Path:
 
 
 def harness_root() -> Path:
-    """Racine du harnais installe : la ou vivent pipeline.json et checks/<stage>.json.
+    """Racine du harnais installe : la ou vit pipeline.json (la gouvernance).
 
     Resolution, dans l'ordre :
       1. AIDLC_HARNESS_ROOT (test, ou usage explicite) ;
@@ -62,23 +62,11 @@ def harness_root() -> Path:
 
 
 def load_pipeline() -> dict:
+    """Gouvernance du harnais : seuils de maturite, autonomie, seuils du watchdog et
+    feuille de route consultative (planned_stages). Ce fichier ne porte plus de
+    registre d'etapes : « quels agents existent » se lit dans le registre ouvert
+    (_aidlc.registry), alimente par les manifestes agent.json des plugins."""
     return json.loads((harness_root() / "pipeline.json").read_text(encoding="utf-8"))
-
-
-def find_stage(pipe: dict, stage_id: str):
-    for stage in pipe.get("stages", []):
-        if stage.get("id") == stage_id:
-            return stage
-    return None
-
-
-def next_stage_id(pipe: dict, stage_id: str):
-    ids = [s.get("id") for s in pipe.get("stages", [])]
-    if stage_id in ids:
-        pos = ids.index(stage_id) + 1
-        if pos < len(ids):
-            return ids[pos]
-    return None
 
 
 def aidlc_dir(root: Path) -> Path:

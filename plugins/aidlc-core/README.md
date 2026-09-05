@@ -19,7 +19,7 @@ les livrables.
 ## Deux racines
 
 - Le **harnais** : ce plugin (`${CLAUDE_PLUGIN_ROOT}` une fois installé) porte le pipeline
-  (`pipeline.json`), les contrats (`checks/<stage>.json`, miroirs des `checks.json` des plugins
+  (`pipeline.json` : gouvernance seule ; les contrats sont lus dans les plugins
   d'étape), le script (`scripts/aidlc.py`) et les hooks.
 - Le **projet consommateur** (`$CLAUDE_PROJECT_DIR`) : les livrables (`deliverables/`), l'état
   runtime (`.aidlc/`) et la connaissance (`knowledge/`). Les chemins cités plus bas (`.aidlc/…`,
@@ -43,15 +43,16 @@ auto-localisation) ; les skills et agents de ce plugin appellent le script via
   première de l'axe *autonomie* et du diagnostic d'amélioration.
 - **Auto-improvement** — agrège logs, historique de maturité et refus humains en un diagnostic qui
   alimente la boucle de correction du harness lui-même.
-- **Scaffolding** — génère le plugin complet d'une nouvelle étape à partir de `pipeline.json`.
+- **Registre d'agents** — découvre les manifestes `agent.json` des plugins (`agents`), indexe les
+  capacités, dérive l'ordre des étapes de la chaîne des livrables.
+- **Scaffolding** — génère le plugin complet d'un nouvel agent, sans écrire dans le noyau.
 
 ## Arborescence
 
 ```
 plugins/aidlc-core/
   .claude-plugin/plugin.json      déclaration du plugin (nom, description, version)
-  pipeline.json                   source de vérité : étapes, livrables, entrées, checks, statuts
-  checks/<stage>.json             contrats déterministes (miroirs des plugins d'étape)
+  pipeline.json                   gouvernance : seuils, watchdog, planned_stages (aucun registre d'agents)
   agents/
     orchestrator.md               pilote le pipeline ; ne rédige jamais un livrable
     reviewer.md                   note le livrable sur 4 axes, émet un verdict, cite
@@ -77,6 +78,7 @@ primitive `Task` :
 | Agent | Rôle | Droits |
 | --- | --- | --- |
 | `orchestrator` | décide quelle étape tourne, délègue la rédaction, déclenche le reviewer, applique la porte | **aucun `Write`/`Edit`** : il pilote, il ne rédige pas |
+| `/aidlc-core:dispatch` (skill) | traite une demande transverse : lit le catalogue, mobilise les agents par capacité, synthétise | n'écrit aucun fichier, n'invoque que des `id` du catalogue |
 | `reviewer` | note le livrable (0–5 par axe), justifie chaque note par une citation, écrit `review.json` | écrit seulement dans `.aidlc/tmp/` |
 | `librarian` | lit le bundle OKF `knowledge/` (concepts filtrés par `stages`) et les livrables amont, répond à « quel contexte pour l'étape X » | **lecture seule hors de `knowledge/`** |
 
@@ -120,8 +122,9 @@ uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `im
 | `score <stage> --file review.json` | recalcule la note globale (moyenne des 4 axes) et l'enregistre dans `.aidlc/maturity.json` |
 | `gate <stage>` | décide si l'étape est franchie ; exit 2 si bloquante |
 | `review-request <stage>` | génère le formulaire de revue humaine `.aidlc/reviews/<stage>-<run>.template.json` |
-| `status [--json]` | tableau de bord de l'avancement du pipeline |
-| `scaffold <stage>` | génère le plugin complet d'une étape déclarée mais non implémentée |
+| `status [--json]` | tableau de bord des étapes, des agents consultatifs et des trous du registre |
+| `agents [--capability X] [--platform P] [--json] [--strict]` | catalogue du registre : équipes, capacités, invocation ; `--strict` = porte CI sur les manifestes du dépôt |
+| `scaffold <stage>` | génère le plugin complet d'un agent (dont son `agent.json`) — n'écrit rien dans le noyau |
 | `improve [--stage X]` | agrège logs, scores et refus (humains + gate OKF) en un diagnostic JSON ; propose des correctifs de frontmatter et les concepts orphelins du sommaire `index.md` |
 | `check-okf <dir>` | conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet touchés par l'écriture, non bloquant |
@@ -204,10 +207,11 @@ par un humain).
 ## Relations avec les plugins d'étape
 
 Chaque étape du pipeline possède son plugin `aidlc-<stage>` (cf. `plugins/aidlc-plan/` pour
-l'exemple de référence). `aidlc-core` ne connaît pas les étapes en dur : il lit son
-`pipeline.json` (installé avec lui), la source de vérité — étapes, livrables (relatifs au projet
-consommateur), entrées, contrats `checks/<stage>.json`, rôle humain, statut. Les plugins d'étape
-ne contiennent **aucune logique** : seulement l'agent, la skill, le template et le `checks.json`
-de l'étape (dont le noyau garde un miroir). Les plugins d'étape sont enregistrés dans
+l'exemple de référence). `aidlc-core` ne connaît aucun agent en dur : il **découvre** les
+manifestes `agent.json` des plugins installés (identité, équipe, capacités, invocation, et pour
+une étape son livrable, ses entrées et son contrat). Son `pipeline.json` ne porte que la
+gouvernance. Les plugins d'agent ne contiennent **aucune logique** : seulement le manifeste,
+l'agent, la skill, le template et le `checks.json` — lu là où il est, sans copie dans le noyau.
+Les plugins d'agent sont enregistrés dans
 `.claude-plugin/marketplace.json` du dépôt auteur et installables via
 `claude plugin install aidlc-<stage>@aidlc`.
