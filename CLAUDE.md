@@ -50,6 +50,8 @@ consommateur** (le projet qui installe les plugins et dans lequel sont produits 
 README.md                     présentation et quickstart (consommation + développement)
 CLAUDE.md                     ce fichier
 .claude-plugin/               marketplace local (marketplace.json)
+.githooks/pre-commit          porte locale : le score de maturité du harnais avant chaque
+                              commit (activation : git config core.hooksPath .githooks)
 docs/                         documentation publiée — bundle OKF v0.2 (index.md, log.md)
   ARCHITECTURE.md              architecture, grille de maturité, cycle de vie
   CONSUMER.md                  guide consommateur prêt à publier (installation, premier run, revue humaine)
@@ -108,6 +110,7 @@ python3 $S test                         # suite de tests du moteur (unittest std
 python3 $S test -k registry             # ne garde que les tests dont l'identifiant contient « registry »
 python3 $S coverage                     # non-régression de couverture (exit 2 = la couverture a baissé)
 python3 $S coverage --reset             # rebase le plancher de couverture (geste humain, visible au diff)
+python3 $S selfscore                    # score de maturité du harnais, cinq axes agrégés (exit 2 = sous le seuil)
 python3 $S --selftest                   # alias historique de `test` (hooks, CI, consommateurs)
 ```
 
@@ -158,6 +161,12 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    fois — sa fonction `cmd_*` appelée directement (`test_commands.py`) et son contrat en
    sous-processus (`test_cli.py`, codes de sortie, stdout machine / stderr humain). La couverture
    ne descend jamais : `aidlc.py coverage` rougit la CI si elle baisse.
+9. **Le dépôt se note lui-même, et la note est bloquante.** `aidlc.py selfscore` agrège les cinq
+   axes déterministes du dépôt (hygiène, contrats d'agents, tests, couverture, bundles OKF) en une
+   note sur 5, comparée au seuil et au plancher par axe de `pipeline.json` — un module orphelin de
+   test, une couverture en baisse ou un bundle OKF cassé font sortir 2. C'est la porte du hook
+   `.githooks/pre-commit` et de la CI : une évolution du harnais qui ne la tient pas n'est pas
+   prête, quelle que soit la qualité apparente du diff.
 
 ## Tester
 
@@ -172,6 +181,16 @@ python3 $S test                  # toute la suite
 python3 $S test -k registry -v   # un sous-ensemble, un nom de test par ligne
 python3 $S test --failfast       # s'arrête au premier échec
 python3 $S coverage              # non-régression de couverture (exit 2 = baisse)
+python3 $S selfscore             # score de maturité du harnais (exit 2 = sous le seuil)
+```
+
+`selfscore` est la porte agrégée : elle mesure la suite **une seule fois** (sous `trace`) et en
+tire cinq axes notés sur 5 — `hygiene`, `contracts`, `tests`, `coverage`, `knowledge`. Elle ne
+fige rien : le plancher de couverture reste écrit par `coverage`, geste explicite et visible au
+diff. Activez la porte locale une fois par clone :
+
+```bash
+git config core.hooksPath .githooks
 ```
 
 Ce qui vaut pour un test de ce dépôt :

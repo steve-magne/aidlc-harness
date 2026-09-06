@@ -246,6 +246,18 @@ class TestBascculeVersLesHandlers(AidlcTestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("introuvable", result.stderr.lower())
 
+    def test_selfscore_repond(self):
+        """Meme precaution que pour `coverage` : selfscore mesure la couverture, donc
+        relancerait la suite en sous-processus si son entrypoint existait. Dans
+        l'environnement isole du test, harness_root() vise le repertoire temporaire
+        (sans scripts/aidlc.py) : la mesure echoue avant tout sous-processus, et le
+        verrou de reentrance est arme par prudence."""
+        with mock.patch.dict(os.environ, {tests_module._REENTRANCY: "1"}):
+            result = self.run_cli("selfscore")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("introuvable", result.stderr.lower())
+        self.assertEqual(result.stdout, "")
+
     def test_watchdog_touched_repond(self):
         result = self.run_cli("watchdog-touched", stdin="{}")
         self.assertEqual(result.returncode, 0)
@@ -281,6 +293,31 @@ class TestOptionsExperiment(AidlcTestCase):
         result = self.run_cli("experiment", "effect")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.assertJson(result), [])
+
+
+class TestOptionsSelfscore(AidlcTestCase):
+    """Le score de maturite du harnais est la porte du hook pre-commit et de la CI :
+    son contrat public est un code de sortie, pas un texte. On verifie le routage et
+    la propagation du code sans jamais declencher la mesure reelle."""
+
+    def test_la_sous_commande_est_routee_vers_son_handler(self):
+        with mock.patch("_aidlc.cli.cmd_selfscore", return_value=0) as handler:
+            self.assertEqual(cli.main(["selfscore"]), 0)
+        handler.assert_called_once()
+
+    def test_le_code_bloquant_remonte_tel_quel(self):
+        """2 = sous le seuil. C'est ce code que le hook pre-commit lit pour refuser le
+        commit ; le confondre avec 1 (panne) rendrait la porte muette."""
+        with mock.patch("_aidlc.cli.cmd_selfscore", return_value=2):
+            self.assertEqual(cli.main(["selfscore"]), 2)
+
+    def test_json_seul_est_une_option_du_parseur(self):
+        self.assertTrue(cli.build_parser().parse_args(["selfscore", "--json"]).json)
+
+    def test_une_option_inconnue_est_refusee(self):
+        result = self.run_cli("selfscore", "--vite")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
 
 
 class TestSeparationStdoutStderr(AidlcTestCase):
