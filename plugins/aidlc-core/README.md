@@ -42,7 +42,9 @@ auto-localisation) ; les skills et agents de ce plugin appellent le script via
 - **Journalisation** — trace chaque session dans `.aidlc/logs/<session_id>.jsonl`, la matière
   première de l'axe *autonomie* et du diagnostic d'amélioration.
 - **Auto-improvement** — agrège logs, historique de maturité et refus humains en un diagnostic qui
-  alimente la boucle de correction du harness lui-même.
+  alimente la boucle de correction du harness lui-même, puis **mesure** l'effet de chaque
+  correction appliquée sur les runs suivants (`experiment`) : la boucle sait ce qu'elle a déjà
+  tenté et ce que ça a donné.
 - **Registre d'agents** — découvre les manifestes `agent.json` des plugins (`agents`), indexe les
   capacités, dérive l'ordre des étapes de la chaîne des livrables.
 - **Scaffolding** — génère le plugin complet d'un nouvel agent, sans écrire dans le noyau.
@@ -104,7 +106,9 @@ Chaque skill est un scénario d'agent complet (frontmatter + instructions) :
 - **`improve <stage>`** — lit le diagnostic `aidlc.py improve`, corrèle faiblesse et cause racine,
   puis **propose** un diff sur un `SKILL.md`, un template ou un `checks.json` — et, quand c'est le
   gate OKF qui a bloqué, sur le frontmatter d'un concept `knowledge/` (correctif déjà structuré
-  par le script) — appliqué seulement après accord explicite de l'humain.
+  par le script) — appliqué seulement après accord explicite de l'humain. Un correctif appliqué
+  est ensuite **enregistré comme une expérience** (`experiment record`) et jugé par la mesure des
+  runs suivants, pas par la mémoire de la session.
 
 - **`knowledge [mots]`** — consulte les bundles OKF déclarés dans `knowledge-sources.json` :
   sommaire, recherche par mots-clés, puis lecture d'un concept. La discipline est le produit —
@@ -116,7 +120,8 @@ Chaque skill est un scénario d'agent complet (frontmatter + instructions) :
 Le point d'entrée `scripts/aidlc.py` (chemin stable des hooks et des skills) délègue au paquet
 `_aidlc/` : **toute** la logique non-agentique du harness y vit, bibliothèque standard Python
 uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `improve`,
-`hookslog`, `okf`, `knowledge`, `syntax`, `ratchet`, `watchdog`, `coverage`, `commands`, `cli`,
+`experiment`, `hookslog`, `okf`, `knowledge`, `syntax`, `ratchet`, `watchdog`, `coverage`,
+`commands`, `cli`,
 plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 **stdout** ; messages humains sur **stderr**.
 
@@ -132,7 +137,9 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 | `status [--json]` | tableau de bord des étapes, des agents consultatifs et des trous du registre |
 | `agents [--capability X] [--platform P] [--json] [--strict]` | catalogue du registre : équipes, capacités, invocation ; contrôle chaque `checks.json` à vide (règle inconnue, regex fautive, section insatisfiable, dérive gabarit, rubrique de revue absente) ; `--strict` = porte CI sur les manifestes et contrats du dépôt |
 | `scaffold <stage>` | génère le plugin complet d'un agent (dont son `agent.json`) — n'écrit rien dans le noyau |
-| `improve [--stage X]` | agrège logs, scores et refus (humains + gate OKF) en un diagnostic JSON ; propose des correctifs de frontmatter et les concepts orphelins du sommaire `index.md` |
+| `improve [--stage X]` | agrège logs, scores et refus (humains + gate OKF) en un diagnostic JSON ; propose des correctifs de frontmatter et les concepts orphelins du sommaire `index.md` ; porte les expériences déjà mesurées |
+| `experiment record --stage X --target <axe> --file F --cause "..."` | date un correctif appliqué au harnais et fige la moyenne de l'axe visé (mesure d'avant) |
+| `experiment effect [--stage X]` | confronte chaque correctif aux runs postérieurs : `improved`, `regressed`, `no_effect`, `pending` (exit 0, informatif) |
 | `knowledge index` | sommaire des bundles OKF distants déclarés : une ligne par concept (référence, type, titre, description) |
 | `knowledge search <mots>` | concepts portant tous les mots (frontmatter d'abord, puis corps) — rend des références |
 | `knowledge get <source>/<id>` | le markdown d'un concept ; `--source`, `--refresh`, `--limit`, `--json` |
@@ -162,7 +169,7 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
   conforme ou absent, elle se ferme normalement. Chaque refus alimente la file d'amélioration
   (diagnostic `improve`).
 - `PreToolUse` (matcher `Write|Edit`) → `aidlc.py guard` : refuse qu'un agent écrive dans
-  `.aidlc/maturity.json` ou `.aidlc/reviews/*.json`.
+  `.aidlc/maturity.json`, `.aidlc/reviews/*.json` ou `.aidlc/experiments.jsonl`.
 - `PostToolUse` (matcher `Write|Edit`) → `aidlc.py validate --touched` : l'agent reçoit
   immédiatement, en contexte additionnel, la liste de ce qui manque à son livrable — il corrige au
   fil de l'eau au lieu d'être sanctionné à la fin.

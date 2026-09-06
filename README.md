@@ -123,7 +123,9 @@ Puis, dans la session, pour concevoir un nouvel agent avec son référent métie
    approuvée, l'étape passe `autonomous` : la signature n'est plus exigée à chaque passage. Tout
    refus (humain, porte OKF, halte du watchdog) alimente `.aidlc/improvement-queue.jsonl`, que
    `/aidlc-core:improve` transforme en proposition de correctif **sur le harnais**, jamais sur le
-   livrable — et jamais sans votre accord.
+   livrable — et jamais sans votre accord. Un correctif appliqué est **daté et mesuré**
+   (`experiment`) : la boucle sait ce qu'elle a déjà tenté et ce que les runs suivants en ont dit,
+   au lieu de reproposer indéfiniment ce qui n'a rien changé.
 
 ---
 
@@ -167,6 +169,7 @@ python3 $S score plan --file review.json
 python3 $S gate plan                   # porte de qualité          — exit 2 = bloquant
 python3 $S review-request plan         # gabarit + consignes de revue humaine
 python3 $S improve --stage plan        # diagnostic d'auto-amélioration (JSON)
+python3 $S experiment effect           # ce qu'ont donné les correctifs déjà appliqués
 python3 $S knowledge search marge brute
 python3 $S scaffold design             # génère le plugin d'un agent (n'écrit pas dans le noyau)
 ```
@@ -198,7 +201,7 @@ La confiance ne repose pas sur les prompts. Quatre mécanismes structurels :
   périmètre décidé en amont (`must_not_violate_scope`), et qu'il **ne cite pas son propre
   `checks.json`** (holdout : `checks_do_not_self_reference`).
 - **Liste protégée** — un hook `PreToolUse` refuse l'écriture d'un agent dans `.aidlc/` (scores,
-  revues, ratchet, journaux), dans la copie installée du harnais, et dans le plugin d'une **autre
+  revues, ratchet, expériences, journaux), dans la copie installée du harnais, et dans le plugin d'une **autre
   équipe** : un agent n'édite ni les règles qui le jugent, ni sa propre note, ni le code d'une
   direction voisine.
 - **Ratchet** — `ratchet` fige les planchers de sévérité des contrats et refuse toute régression ;
@@ -321,6 +324,7 @@ deliverables/<stage>/…             les livrables            (projet consommate
 .aidlc/maturity.json               l'historique des scores  (projet consommateur, protégé)
 .aidlc/reviews/<stage>-<n>.json    les revues humaines signées (protégé)
 .aidlc/{ratchet,coverage}.json     les planchers figés — ne descendent jamais (protégés)
+.aidlc/experiments.jsonl           les correctifs appliqués et leur effet mesuré (protégé)
 ```
 
 ---

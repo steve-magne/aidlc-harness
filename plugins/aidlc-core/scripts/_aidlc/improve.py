@@ -14,6 +14,7 @@ from .util import now_iso
 from .util import read_text
 from . import registry
 from .checks import validate_stage
+from .experiment import effects
 """Diagnostic d'amelioration : journaux de sessions, refus (humains + gate OKF), correlation et correctifs proposes."""
 
 # ------------------------------------------------------------------------- improve
@@ -150,6 +151,9 @@ def improve(root: Path, pipe: dict, stage_filter=None) -> dict:
         "validation": validation,
         "recurring_errors": sorted(error_counts.items(), key=lambda kv: -kv[1])[:10],
         "maturity": maturity_out,
+        # Ce qui a deja ete tente, et l'effet mesure : c'est ce qui empeche de
+        # reproposer un correctif que les runs ont deja juge sans effet.
+        "experiments": effects(root, stage_filter),
         "human_rejections": rejections,
         "watchdog": {
             # haltes enregistrees par le watchdog (kind: watchdog) : la forme du blocage,

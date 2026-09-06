@@ -42,6 +42,7 @@ Neuf schémas pour comprendre le fonctionnement sans lire une ligne de code. Cha
 │   .aidlc/maturity.json              les scores            (protégé)    │
 │   .aidlc/reviews/<stage>-<n>.json   vos signatures        (protégé)    │
 │   .aidlc/ratchet.json               les planchers figés   (protégé)    │
+│    .aidlc/experiments.jsonl          les correctifs mesurés (protégé)  │
 │                                                                        │
 │   knowledge/                        le savoir du projet                │
 │   knowledge-sources.json            les bundles OKF distants déclarés  │
@@ -209,6 +210,7 @@ l'axe **autonomy**, du watchdog et du diagnostic d'amélioration.
                     ╳  .aidlc/maturity.json          il n'édite pas sa propre note
                     ╳  .aidlc/reviews/*.json         il ne signe pas à votre place
    agent            ╳  .aidlc/ratchet.json           il ne desserre pas les planchers
+     │              ╳  .aidlc/experiments.jsonl      il n'antidate pas une mesure
      │              ╳  .aidlc/logs/                  il ne réécrit pas l'histoire
      ├── Write ──►  ╳  le harnais installé           il n'édite pas les règles
      │                 (pipeline, hooks, script,        qui le jugent
@@ -249,10 +251,26 @@ une gêne à contourner : un agent évolue dans le dépôt de son équipe.
                                           ▼
                                    accord humain explicite  ──► appliqué
                                    (sinon : rien n'est touché)
+                                          │
+                                          ▼
+                                   experiment record
+                                   date le correctif et fige la moyenne
+                                   de l'axe visé — la mesure d'« avant »
+                                          │
+                                          ▼
+                                   experiment effect   sur les runs suivants
+                                   improved · regressed · no_effect · pending
+                                          │
+                                          └──► rendu au prochain diagnostic : on ne
+                                               repropose pas ce qui n'a rien donné
 ```
 
 La correction porte sur **le harnais**, jamais sur le livrable : on ne rattrape pas une note, on
 répare ce qui a produit la mauvaise note. Et jamais sur la copie installée — toujours sur la source.
+
+Ce qui **referme** la boucle, c'est la dernière étape : un correctif appliqué est daté puis
+confronté aux runs suivants. Le registre `.aidlc/experiments.jsonl` est protégé en écriture comme
+les scores — antidater une expérience reviendrait à se noter soi-même.
 
 ---
 
@@ -263,8 +281,8 @@ répare ce qui a produit la mauvaise note. Et jamais sur la copie installée —
 ```
    hooks   ─┐
    skills  ─┼──►  scripts/aidlc.py   ──►  _aidlc/   util · checks · maturity · registry
-   CLI     ─┘     le point d'entrée         │       scaffold · improve · hookslog · okf
-                  unique et stable          │       knowledge · syntax · ratchet
+   CLI     ─┘     le point d'entrée         │       scaffold · improve · experiment · okf
+                  unique et stable          │       hookslog · knowledge · syntax · ratchet
                                             │       watchdog · coverage · commands · cli
                                             └──►    tests/   un test_<module>.py par module
 

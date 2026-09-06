@@ -66,6 +66,7 @@ plugins/aidlc-design/         agent d'étape aval (consomme le livrable de plan)
 plugins/aidlc-security/       agent d'équipe consultatif (exemple de référence, équipe AppSec)
 planchers figés               .aidlc/ratchet.json — planchers de sévérité (guard protégé)
                               .aidlc/coverage.json — plancher de couverture (ne descend jamais)
+mémoire de la boucle          .aidlc/experiments.jsonl — correctifs appliqués et effet mesuré
 
 deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR)
 knowledge-sources.json        bundles OKF distants déclarés — projet consommateur
@@ -89,6 +90,9 @@ python3 $S score plan --file review.json  # enregistre une revue du reviewer
 python3 $S gate plan                    # décide si l'étape est franchie (exit 2 = bloquant)
 python3 $S review-request plan          # prépare le formulaire de revue humaine
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
+python3 $S experiment record --stage plan --target precision \
+    --file plugins/aidlc-plan/checks.json --cause "..."   # date un correctif appliqué au harnais
+python3 $S experiment effect            # effet mesuré de chaque correctif sur les runs suivants
 python3 $S knowledge index              # sommaire des bundles OKF distants déclarés
 python3 $S knowledge search marge brute # recherche par mots-clés (frontmatter puis corps)
 python3 $S knowledge get <source>/<id>  # markdown d'un seul concept
@@ -119,8 +123,8 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    le harnais est consommé ailleurs.
 2. **Toute logique déterministe vit sous `plugins/aidlc-core/scripts/`** : le point d'entrée
    `aidlc.py` délègue au paquet stdlib `_aidlc/`, un module par concern (`util`, `checks`,
-   `maturity`, `registry`, `scaffold`, `improve`, `hookslog`, `okf`, `knowledge`, `syntax`,
-   `ratchet`, `watchdog`, `coverage`, `commands`, `cli`, plus le paquet `tests/`). Jamais de
+   `maturity`, `registry`, `scaffold`, `improve`, `experiment`, `hookslog`, `okf`, `knowledge`,
+   `syntax`, `ratchet`, `watchdog`, `coverage`, `commands`, `cli`, plus le paquet `tests/`). Jamais de
    second point d'entrée, jamais de logique dans un `Makefile` ni en shell inline dans un hook. Si
    une nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans
    le `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.
@@ -131,8 +135,8 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    une dépendance externe, et c'est elle qui est interdite, pas le fait de tester sérieusement.
 4. **L'état runtime et le référentiel de règles ne sont jamais édités à la main par un agent.**
    `.aidlc/maturity.json`, `.aidlc/reviews/*.json`, `.aidlc/ratchet.json`,
-   `.aidlc/improvement-queue.jsonl` et `.aidlc/logs/` ne sont écrits que par les scripts
-   (`score`, `ratchet`, hooks) et l'humain (revues). Un hook `PreToolUse` refuse activement ces
+   `.aidlc/improvement-queue.jsonl`, `.aidlc/experiments.jsonl` et `.aidlc/logs/` ne sont écrits
+   que par les scripts (`score`, `ratchet`, `experiment record`, hooks) et l'humain (revues). Un hook `PreToolUse` refuse activement ces
    écritures, ainsi que toute écriture dans la **copie installée du harnais** hors du projet
    (pipeline.json, hooks/, script, agents, skills, templates — la liste protégée) **et dans le
    plugin d'un agent appartenant à une autre équipe, installé hors du projet** : un agent n'édite

@@ -252,6 +252,37 @@ class TestBascculeVersLesHandlers(AidlcTestCase):
         self.assertEqual(result.stdout, "")
 
 
+class TestOptionsExperiment(AidlcTestCase):
+    """La memoire de la boucle passe par le CLI : le registre n'est ecrit que par
+    `experiment record`, et `effect` ne bloque jamais la CI."""
+
+    RECORD = ("experiment", "record", "--stage", "plan", "--target", "precision",
+              "--file", "plugins/aidlc-plan/checks.json", "--cause", "SKILL trop vague")
+
+    def test_action_inconnue_est_refusee_par_le_parseur(self):
+        result = self.run_cli("experiment", "oublier")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid choice", result.stderr.lower())
+
+    def test_record_repond_et_ecrit_le_registre(self):
+        result = self.run_cli(*self.RECORD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.assertJson(result)["target"], "precision")
+        self.assertIn('"stage": "plan"', self.read(".aidlc/experiments.jsonl"))
+
+    def test_record_avec_un_axe_inconnu_sort_en_erreur(self):
+        argv = list(self.RECORD)
+        argv[argv.index("precision")] = "elegance"
+        result = self.run_cli(*argv)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+
+    def test_effect_repond_zero_meme_sans_experience(self):
+        result = self.run_cli("experiment", "effect")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.assertJson(result), [])
+
+
 class TestSeparationStdoutStderr(AidlcTestCase):
     """La sortie machine (JSON) et le commentaire humain ne se melangent jamais dans le
     meme flux : stdout parse toujours comme JSON pour une commande a sortie machine."""
