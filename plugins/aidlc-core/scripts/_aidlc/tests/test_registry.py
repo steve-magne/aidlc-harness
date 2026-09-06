@@ -588,3 +588,27 @@ class TestCacheMemoire(AidlcTestCase):
         self.write_json("plugins/aidlc-x/agent.json", manifest("x", "T"))
         registry.reset_cache()
         self.assertEqual(len(registry.discover()["agents"]), before + 1)
+
+
+class TestValidateManifestRubrique(AidlcTestCase):
+    """Le champ `review` designe la rubrique de revue de l'equipe : un chemin de
+    fichier relatif au plugin. Toute autre forme est refusee a la lecture du manifeste,
+    pas au moment ou le reviewer en aurait besoin."""
+
+    def test_une_rubrique_qui_n_est_pas_un_chemin_est_refusee(self):
+        agent = dict(manifest("lint", "X", "deliverables/lint/doc.md"), review=42)
+        problems = registry.validate_manifest(agent, "agent.json")
+        self.assertTrue(any("'review'" in p for p in problems), problems)
+
+    def test_une_rubrique_en_chemin_relatif_est_acceptee(self):
+        agent = dict(manifest("lint", "X", "deliverables/lint/doc.md"),
+                     review="review.md")
+        self.assertFalse(any("'review'" in p
+                             for p in registry.validate_manifest(agent, "agent.json")))
+
+    def test_l_absence_de_rubrique_est_licite(self):
+        """Un agent sans rubrique est note a la grille universelle — c'est un choix,
+        pas une erreur."""
+        agent = manifest("lint", "X", "deliverables/lint/doc.md")
+        self.assertFalse(any("'review'" in p
+                             for p in registry.validate_manifest(agent, "agent.json")))

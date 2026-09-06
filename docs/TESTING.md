@@ -145,8 +145,8 @@ Aucune porte n'installe quoi que ce soit côté Python : la seule dépendance du
 
 | | Avant | Après |
 | --- | --- | --- |
-| Forme | une fonction `selftest()` de 1254 lignes | 16 modules, 7 498 lignes |
-| Cas | 173 assertions dans un bloc unique | **770 tests** nommés, en 177 classes |
+| Forme | une fonction `selftest()` de 1254 lignes | 16 modules, 7 851 lignes |
+| Cas | 173 assertions dans un bloc unique | **812 tests** nommés, en 183 classes |
 | Isolation | un `TemporaryDirectory` partagé par tout | un projet temporaire neuf par test |
 | Échec | le premier échec masque les 32 scénarios suivants | chaque test tombe seul et se nomme |
 | Sélection | tout ou rien | `-k <motif>` |
@@ -158,18 +158,18 @@ Répartition par module :
 | Module | Tests | Couverture |
 | --- | ---: | ---: |
 | `commands` | 106 | 100 % |
-| `cli` | 87 | 93,6 % |
-| `registry` | 79 | 100 % |
+| `cli` | 90 | 93,6 % |
+| `registry` | 82 | 100 % |
+| `checks` | 73 | 100 % |
+| `maturity` | 72 | 100 % |
 | `okf` | 70 | 100 % |
-| `maturity` | 64 | 100 % |
 | `hookslog` | 54 | 100 % |
 | `watchdog` | 52 | 100 % |
-| `checks` | 50 | 100 % |
 | `knowledge` | 40 | 100 % |
 | `ratchet` | 35 | 100 % |
 | `coverage` | 32 | 100 % |
+| `scaffold` | 27 | 100 % |
 | `improve` | 27 | 100 % |
-| `scaffold` | 22 | 100 % |
 | `util` | 20 | 100 % |
 | `syntax` | 19 | 100 % |
 | `plugins` (artefacts) | 13 | — |

@@ -120,6 +120,29 @@ date: <AAAA-MM-JJ>
 - <Input ou source de vérité citée.>
 """
 
+REVIEW_MD = """# Rubrique de revue — étape {name}
+
+Ce fichier appartient à l'équipe **{team}**. Il ne remplace pas la grille universelle du reviewer
+(`aidlc-core`) : il dit ce que chaque axe veut dire **pour ce livrable**, et quelles fautes de ce
+métier sont rédhibitoires. Le barème (0-5), le calcul de la note globale, le plancher par axe et
+l'enregistrement du score restent au noyau — une équipe ne note pas sa propre copie.
+
+## `completeness` — ce que « complet » veut dire ici
+- <Section de ce livrable qui doit porter de la substance, et ce qui compte comme creux.>
+
+## `precision` — ce que « testable » veut dire ici
+- <Ce qui doit être chiffré dans ce métier, avec son unité et sa référence.>
+
+## `traceability` — ce que « tracé » veut dire ici
+- <Ce que ce livrable doit citer : {inputs}, et les sources de vérité du métier.>
+
+## `autonomy`
+Grille universelle. <Nuance propre à l'étape, s'il y en a une.>
+
+## Fautes rédhibitoires (verdict `rejected`, quelle que soit la moyenne)
+- <Faute de ce métier qu'aucune moyenne ne rachète.>
+"""
+
 SCAFFOLD_SECTIONS = [
     "## Contexte", "## Objectif", "## Contenu", "## Contraintes",
     "## Critères d'acceptation", "## Hors périmètre", "## Sources et références",
@@ -195,7 +218,8 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
     inputs_list = "\n".join(f"- `{i}`" for i in inputs) if inputs else "- Aucun input amont."
     role = stage.get("human_role", "role metier a preciser")
     fmt = dict(stage=stage_id, name=name, deliverable=deliverable, role=role,
-               inputs=inputs_txt, inputs_list=inputs_list, template=template_name)
+               inputs=inputs_txt, inputs_list=inputs_list, template=template_name,
+               team=team)
 
     created = []
     for rel, content in [
@@ -203,6 +227,10 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
         (f"agents/{stage_id}-analyst.md", AGENT_MD.format(**fmt)),
         (f"skills/{stage_id}/SKILL.md", SKILL_MD.format(**fmt)),
         (f"templates/{template_name}", TEMPLATE_MD.format(**fmt)),
+        # La rubrique de revue nait avec l'agent : sans elle, le reviewer noterait
+        # l'etape a la grille universelle sans que personne ait dit ce que « precis »
+        # veut dire pour ce metier.
+        ("review.md", REVIEW_MD.format(**fmt)),
     ]:
         path = plugin_dir / rel
         ensure_dir(path.parent)
@@ -238,6 +266,7 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
         "produces": deliverable,
         "consumes": inputs,
         "checks": "checks.json",
+        "review": "review.md",
         "human_role": role,
     }
     manifest_path = plugin_dir / "agent.json"
@@ -260,4 +289,5 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
             "manifest": os.path.relpath(manifest_path, base),
             "next": f"Éditer {os.path.relpath(manifest_path, base)} (équipe "
                     f"propriétaire, capacités) et {os.path.relpath(checks_path, base)} "
+                    f"et {os.path.relpath(plugin_dir / 'review.md', base)} "
                     f"pour coller au métier de l'étape."}

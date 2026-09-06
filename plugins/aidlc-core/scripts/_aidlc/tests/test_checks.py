@@ -12,6 +12,7 @@ from .harness import document
 from .harness import manifest
 from .harness import repo_root
 from .. import checks
+from .. import registry
 from ..util import read_text
 
 """Validation declarative des livrables (checks.py) : sections, frontmatter, mots
@@ -609,3 +610,169 @@ class TestStageForFile(AidlcTestCase):
     def test_renvoie_none_si_aucun_agent_ne_produit_ce_fichier(self):
         self.assertIsNone(
             checks.stage_for_file(self.root, self.pipeline, str(self.root / "ailleurs.md")))
+
+
+# ------------------------------------------------- controle du contrat, sans livrable
+
+class TestContractProblems(AidlcTestCase):
+    """`contract_problems` lit le contrat d'un agent **a vide**, avant qu'un livrable
+    existe. Le registre etant ouvert, le checks.json d'une equipe voisine n'etait
+    jusqu'ici lu qu'au moment de valider : une regle inconnue, une regex fautive ou une
+    section mal orthographiee y restaient invisibles jusqu'a rendre le contrat
+    insatisfiable en pleine session — l'agent corrige, revalide, et n'y arrive jamais.
+    """
+
+    def _lint(self, contract, manifest_extra=None, plugin="aidlc-lint"):
+        """Publie un agent gouverne `lint` avec le contrat donne et rend ses problemes."""
+        agent = manifest("lint", "X", "deliverables/lint/doc.md",
+                         ["deliverables/plan/intent.md"])
+        agent.update(manifest_extra or {})
+        self.write_agent(plugin, agent, contract)
+        return checks.contract_problems(registry.find_agent("lint"))
+
+    def test_un_contrat_coherent_ne_remonte_aucun_probleme(self):
+        self.assertEqual(checks.contract_problems(registry.find_agent("plan")), [])
+
+    def test_un_agent_consultatif_n_a_pas_de_contrat_a_verifier(self):
+        """Sans `produces`, pas de mètre : rien à contrôler, et surtout pas d'alerte."""
+        self.write_agent("aidlc-conseil", manifest("conseil", "Conseil"))
+        self.assertEqual(checks.contract_problems(registry.find_agent("conseil")), [])
+
+    def test_une_regle_inconnue_est_signalee_car_jamais_appliquee(self):
+        found = self._lint({"required_sections": ["## Contexte"], "regle_inventee": True})
+        self.assertTrue(any("regle inconnue" in p for p in found), found)
+
+    def test_une_clef_prefixee_d_un_underscore_est_un_commentaire_tolere(self):
+        found = self._lint({"required_sections": ["## Contexte"], "_comment": "note"})
+        self.assertFalse(any("regle inconnue" in p for p in found), found)
+
+    def test_une_regex_fautive_est_signalee_a_vide(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "forbidden_patterns": ["(?i)\\b[non-ferme"]})
+        self.assertTrue(any("regex invalide" in p for p in found), found)
+
+    def test_une_regex_fautive_dans_required_patterns_aussi(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "required_patterns": ["(non-ferme"]})
+        self.assertTrue(any("regex invalide" in p for p in found), found)
+
+    def test_une_section_exigee_hors_de_required_sections_est_insatisfiable(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "min_items_per_section": {"## Absente": 2}})
+        self.assertTrue(any("insatisfiable" in p and "## Absente" in p for p in found),
+                        found)
+
+    def test_une_section_de_preuve_hors_de_required_sections_est_insatisfiable(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "proof_of_run": ["## Fantome"]})
+        self.assertTrue(any("insatisfiable" in p and "## Fantome" in p for p in found),
+                        found)
+
+    def test_une_section_de_perimetre_hors_de_required_sections_est_insatisfiable(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "must_not_violate_scope": {"section": "## Hors sujet"}})
+        self.assertTrue(any("insatisfiable" in p and "## Hors sujet" in p for p in found),
+                        found)
+
+    def test_une_regle_qui_vise_une_entree_non_consommee_ne_verifie_rien(self):
+        found = self._lint({
+            "required_sections": ["## Contexte"],
+            "required_input_section": {"deliverables/jamais.md": "## Contexte"}})
+        self.assertTrue(any("'consumes'" in p for p in found), found)
+
+    def test_must_reference_inputs_sans_entree_consommee_est_signale(self):
+        agent = manifest("solo", "X", "deliverables/solo/doc.md")
+        self.write_agent("aidlc-solo", agent,
+                         {"required_sections": ["## Contexte"],
+                          "must_reference_inputs": True})
+        found = checks.contract_problems(registry.find_agent("solo"))
+        self.assertTrue(any("ne verifie rien" in p for p in found), found)
+
+    def test_min_words_superieur_a_max_words_est_refuse(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "min_words": 900, "max_words": 100})
+        self.assertTrue(any("depasse max_words" in p for p in found), found)
+
+    def test_min_words_et_max_words_non_entiers_sont_refuses(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "min_words": "beaucoup", "max_words": 100})
+        self.assertTrue(any("doivent etre des entiers" in p for p in found), found)
+
+    def test_min_words_inferieur_a_max_words_ne_remonte_rien(self):
+        found = self._lint({"required_sections": ["## Contexte"],
+                            "min_words": 100, "max_words": 900})
+        self.assertEqual(found, [])
+
+    def test_une_etape_gouvernee_sans_contrat_est_signalee(self):
+        found = self._lint({"required_sections": ["## Contexte"]},
+                           manifest_extra={"checks": None})
+        self.assertTrue(any("sans contrat" in p for p in found), found)
+
+    def test_un_contrat_declare_mais_introuvable_est_signale(self):
+        found = self._lint({"required_sections": ["## Contexte"]},
+                           manifest_extra={"checks": "absent.json"})
+        self.assertTrue(any("contrat introuvable" in p for p in found), found)
+
+    def test_un_contrat_illisible_est_signale(self):
+        self.write_agent("aidlc-lint",
+                         manifest("lint", "X", "deliverables/lint/doc.md"), {})
+        self.write("plugins/aidlc-lint/checks.json", "{ceci n'est pas du json")
+        registry.reset_cache()
+        found = checks.contract_problems(registry.find_agent("lint"))
+        self.assertTrue(any("illisible" in p for p in found), found)
+
+    def test_un_contrat_qui_n_est_pas_un_objet_est_refuse(self):
+        self.write_agent("aidlc-lint",
+                         manifest("lint", "X", "deliverables/lint/doc.md"), {})
+        self.write("plugins/aidlc-lint/checks.json", "[1, 2, 3]")
+        registry.reset_cache()
+        found = checks.contract_problems(registry.find_agent("lint"))
+        self.assertTrue(any("objet JSON" in p for p in found), found)
+
+
+class TestContractTemplateEtRubrique(AidlcTestCase):
+    """Le gabarit du plugin est le point de depart du livrable — les skills d'etape le
+    copient. Un squelette qui ne porte pas les sections exigees condamne l'agent a
+    partir d'un document qui ne peut pas valider. Meme logique pour la rubrique de
+    revue : declaree mais absente, le reviewer noterait a la grille universelle sans
+    que personne le sache."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_agent("aidlc-lint",
+                         manifest("lint", "X", "deliverables/lint/doc.md"),
+                         {"required_sections": ["## Contexte"]})
+        self.template = self.root / "plugins/aidlc-lint/templates/doc.md"
+
+    def _problems(self):
+        registry.reset_cache()
+        return checks.contract_problems(registry.find_agent("lint"))
+
+    def test_un_gabarit_sans_les_sections_exigees_est_signale(self):
+        self.write("plugins/aidlc-lint/templates/doc.md", "# Doc\n\n## Autre chose\n")
+        found = self._problems()
+        self.assertTrue(any("gabarit" in p and "## Contexte" in p for p in found), found)
+
+    def test_un_gabarit_aligne_sur_le_contrat_ne_remonte_rien(self):
+        self.write("plugins/aidlc-lint/templates/doc.md", "# Doc\n\n## Contexte\n")
+        self.assertEqual(self._problems(), [])
+
+    def test_l_absence_de_gabarit_n_est_pas_un_probleme(self):
+        """Tous les plugins n'ont pas de squelette : on ne reproche pas une absence."""
+        self.assertEqual(self._problems(), [])
+
+    def test_une_rubrique_de_revue_declaree_mais_absente_est_signalee(self):
+        self.write_agent("aidlc-lint",
+                         dict(manifest("lint", "X", "deliverables/lint/doc.md"),
+                              review="review.md"),
+                         {"required_sections": ["## Contexte"]})
+        found = self._problems()
+        self.assertTrue(any("rubrique de revue introuvable" in p for p in found), found)
+
+    def test_une_rubrique_presente_ne_remonte_rien(self):
+        self.write_agent("aidlc-lint",
+                         dict(manifest("lint", "X", "deliverables/lint/doc.md"),
+                              review="review.md"),
+                         {"required_sections": ["## Contexte"]})
+        self.write("plugins/aidlc-lint/review.md", "# Rubrique\n")
+        self.assertFalse(any("rubrique" in p for p in self._problems()))

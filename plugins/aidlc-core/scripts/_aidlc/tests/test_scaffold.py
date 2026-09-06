@@ -13,6 +13,7 @@ from ..scaffold import SCAFFOLD_SECTIONS
 from ..scaffold import authoring_root
 from ..scaffold import planned_stage
 from ..scaffold import scaffold
+from ..checks import contract_problems
 
 """Generation du plugin d'une etape planifiee : arborescence complete, inscription au
 marketplace, et l'invariant central du depot -- le noyau n'est jamais modifie."""
@@ -63,8 +64,8 @@ class TestScaffoldArborescence(AidlcTestCase):
         self.info = scaffold(self.pipeline, "design")
         self.plugin_dir = self.root / "plugins" / "aidlc-design"
 
-    def test_cree_sept_fichiers_dont_le_manifeste(self):
-        self.assertEqual(len(self.info["created"]), 7)
+    def test_cree_huit_fichiers_dont_le_manifeste_et_la_rubrique(self):
+        self.assertEqual(len(self.info["created"]), 8)
         self.assertEqual(self.info["manifest"], "plugins/aidlc-design/agent.json")
 
     def test_plugin_json_est_du_json_valide_sans_accolades_residuelles(self):
@@ -223,3 +224,28 @@ class TestScaffoldMarketplace(AidlcTestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "")
         self.assertIn("illisible", result.stderr)
+
+
+class TestScaffoldRubriqueEtContrat(AidlcTestCase):
+    """Le plugin genere doit etre coherent des la premiere seconde : gabarit et
+    checks.json sont ecrits ensemble, ils ne doivent jamais diverger, et la rubrique de
+    revue de l'equipe est posee avec le reste."""
+
+    seed_agents = False
+
+    def setUp(self):
+        super().setUp()
+        self.info = scaffold(self.pipeline, "design")
+
+    def test_la_rubrique_de_revue_de_l_equipe_est_creee(self):
+        self.assertTrue((self.root / "plugins/aidlc-design/review.md").exists())
+
+    def test_le_manifeste_genere_designe_la_rubrique_de_revue(self):
+        self.assertEqual(self.read_json("plugins/aidlc-design/agent.json")["review"],
+                         "review.md")
+
+    def test_un_plugin_fraichement_scaffolde_passe_le_controle_de_contrat(self):
+        """Le test qui compte : gabarit et contrat generes ensemble ne divergent pas.
+        Sans lui, `scaffold` pourrait produire un plugin que `agents --strict` refuse."""
+        registry.reset_cache()
+        self.assertEqual(contract_problems(registry.find_agent("design")), [])

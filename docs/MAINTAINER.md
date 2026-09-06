@@ -125,6 +125,11 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 3. **`skills/<stage>/SKILL.md`** — la recette : questions à poser au métier, structure attendue,
    obligation de citer les entrées, et remise de la validation à l'orchestrateur (le plugin
    d'étape n'appelle pas `aidlc.py` lui-même).
+3bis. **`review.md`** — la rubrique de revue de votre équipe : ce que `completeness`, `precision`,
+   `traceability` et `autonomy` veulent dire **pour ce métier**, et les fautes rédhibitoires qui
+   imposent un rejet quelle que soit la moyenne. Elle précise et durcit la grille universelle du
+   reviewer, jamais l'inverse : vous ne pouvez ni changer le barème, ni relever un plafond, ni
+   contourner le plancher par axe (voir [ARCHITECTURE](ARCHITECTURE.md) §5.6 et l'ADR-0005).
 4. **`agents/<stage>-analyst.md`** — le profil de l'interlocuteur (ne devine pas, interroge le
    `librarian`, refuse la solution technique si le rôle l'exige).
 5. **`knowledge/` (bundle OKF)** — versez les sources de vérité citées pendant l'entretien
@@ -150,6 +155,11 @@ python3 plugins/aidlc-core/scripts/aidlc.py coverage
 # 2bis. Conformance OKF des bundles de connaissance (exit 1 si non conforme)
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
+
+# 2ter. Manifestes ET contrats du dépôt (exit 1) : agent.json valides, et chaque
+#    checks.json cohérent à vide — règle inconnue, regex fautive, section exigée hors
+#    de required_sections, dérive entre le gabarit du plugin et le contrat
+python3 plugins/aidlc-core/scripts/aidlc.py agents --strict
 
 # 3. Le plugin de l'étape est valide pour Claude Code (la CI .github/workflows/ci.yml
 #    rejoue la validation sur chaque plugin du dépôt à chaque PR)
@@ -264,6 +274,7 @@ Depuis la racine du dépôt :
 
 ```bash
 python3 plugins/aidlc-core/scripts/aidlc.py status                 # tableau de bord
+python3 plugins/aidlc-core/scripts/aidlc.py agents --strict        # manifestes + contrats du dépôt (exit 1 si incohérent)
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
 python3 plugins/aidlc-core/scripts/aidlc.py check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
 python3 plugins/aidlc-core/scripts/aidlc.py check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)

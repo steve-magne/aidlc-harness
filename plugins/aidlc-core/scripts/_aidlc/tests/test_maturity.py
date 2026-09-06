@@ -25,6 +25,8 @@ from ..util import write_json
 
 SCORES_HAUTS = {"completeness": 5, "precision": 5, "traceability": 5, "autonomy": 5}
 SCORES_BAS = {"completeness": 2, "precision": 2, "traceability": 2, "autonomy": 2}
+#: Sous le seuil de moyenne (4.0) mais tous les axes au plancher (3.0).
+SCORES_MOYENS = {"completeness": 3, "precision": 3, "traceability": 3, "autonomy": 3}
 
 
 def _review(root, stage_id, run, approved, reviewer="Steve", justification="Conforme."):
@@ -157,8 +159,12 @@ class TestRecordScore(AidlcTestCase):
         self.assertIn("completeness", str(ctx.exception))
 
     def test_verdict_explicite_du_reviewer_est_respecte_meme_sous_le_seuil(self):
+        """Le reviewer garde la main sous le seuil de moyenne — tant qu'aucun axe n'est
+        effondre. SCORES_MOYENS est sous le seuil global (4.0) mais chaque axe reste au
+        plancher (3.0) : c'est exactement le cas ou le jugement du reviewer prime."""
         record = record_score(self.root, self.pipeline, "plan",
-                              {"scores": SCORES_BAS, "verdict": "accepted"})
+                              {"scores": SCORES_MOYENS, "verdict": "accepted"})
+        self.assertLess(record["overall"], self.pipeline["maturity_threshold"])
         self.assertEqual(record["verdict"], "accepted")
 
     def test_verdict_invalide_est_recalcule_depuis_le_seuil(self):
@@ -506,3 +512,70 @@ class TestRenderStatus(AidlcTestCase):
         data = status_data(self.root, self.pipeline)
         self.assertTrue(data["problems"])
         self.assertIn("Manifeste rejete :", render_status(data))
+
+
+class TestPlancherParAxe(AidlcTestCase):
+    """Une moyenne flatteuse ne rachete pas un axe effondre. Un livrable complet,
+    precis et rapide mais sans aucune tracabilite reste un livrable qu'on ne peut pas
+    auditer — et il servira d'entree a toute l'aval. La regle vivait dans le prompt du
+    reviewer et nulle part dans le moteur : un reviewer complaisant, ou un modele qui
+    derive, la contournait sans que rien ne le voie. C'est `record_score` qui la tient.
+    """
+
+    #: Moyenne 4.0 (au seuil), mais l'autonomie s'effondre a 1.
+    SCORES_DESEQUILIBRES = {"completeness": 5, "precision": 5,
+                            "traceability": 5, "autonomy": 1}
+
+    def _score(self, scores, verdict="accepted"):
+        return record_score(self.root, self.pipeline, "plan",
+                            {"stage": "plan", "scores": scores, "verdict": verdict})
+
+    def test_la_moyenne_reste_au_dessus_du_seuil(self):
+        """Sans cela le cas ne prouverait rien : c'est bien le plancher par axe, et non
+        la moyenne, qui doit faire basculer le verdict."""
+        record = self._score(self.SCORES_DESEQUILIBRES)
+        self.assertEqual(record["overall"], 4.0)
+        self.assertGreaterEqual(record["overall"], self.pipeline["maturity_threshold"])
+
+    def test_un_axe_sous_le_plancher_force_le_rejet(self):
+        record = self._score(self.SCORES_DESEQUILIBRES, verdict="accepted")
+        self.assertEqual(record["verdict"], "rejected")
+
+    def test_l_axe_fautif_est_nomme(self):
+        self.assertEqual(self._score(self.SCORES_DESEQUILIBRES)["weak_axes"], ["autonomy"])
+
+    def test_la_porte_bloque_en_nommant_le_plancher(self):
+        """`gate` ne doit pas se contenter de dire « rejete » : l'orchestrateur a besoin
+        de savoir que c'est un plancher, sinon il relance a l'aveugle."""
+        self._score(self.SCORES_DESEQUILIBRES)
+        decision = gate_stage(self.root, self.pipeline, "plan")
+        self.assertFalse(decision["passed"])
+        self.assertTrue(any("plancher" in b for b in decision["blocking"]),
+                        decision["blocking"])
+
+    def test_la_porte_expose_l_axe_effondre(self):
+        """Pour que l'orchestrateur sache quoi reprendre, pas seulement qu'il a echoue."""
+        self._score(self.SCORES_DESEQUILIBRES)
+        self.assertEqual(gate_stage(self.root, self.pipeline, "plan").get("weak_axes"),
+                         ["autonomy"])
+
+    def test_un_axe_exactement_au_plancher_passe(self):
+        """Le plancher est inclusif : 3.0 n'est pas « sous 3.0 »."""
+        record = self._score(SCORES_MOYENS)
+        self.assertEqual(record["weak_axes"], [])
+        self.assertEqual(record["verdict"], "accepted")
+
+    def test_aucun_axe_faible_n_expose_la_clef_dans_la_porte(self):
+        """`weak_axes` n'apparait dans la decision que s'il y a matiere : on ne pollue
+        pas la sortie machine avec une liste vide."""
+        self._score(SCORES_HAUTS)
+        self.assertNotIn("weak_axes", gate_stage(self.root, self.pipeline, "plan"))
+
+    def test_le_plancher_est_lu_dans_la_gouvernance(self):
+        """Le seuil est une decision de gouvernance, pas une constante enfouie."""
+        pipe = dict(self.pipeline, min_axis_score=1.0)
+        record = record_score(self.root, pipe, "plan",
+                              {"stage": "plan", "scores": self.SCORES_DESEQUILIBRES,
+                               "verdict": "accepted"})
+        self.assertEqual(record["weak_axes"], [])
+        self.assertEqual(record["verdict"], "accepted")

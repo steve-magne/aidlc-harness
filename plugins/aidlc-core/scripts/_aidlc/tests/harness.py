@@ -74,6 +74,13 @@ GOOD_SECTIONS = {
                                 "- Critere trois mesurable.",
 }
 
+#: Contrat de l'agent `plan` : le meme, moins `must_reference_inputs`. Plan est la
+#: premiere etape, elle ne consomme rien — exiger la citation d'une entree amont y est
+#: une regle qui ne verifie jamais rien, et le controle de contrat a vide
+#: (`checks.contract_problems`) le signale a juste titre. La citation d'amont se teste
+#: sur `design`, qui consomme le livrable de plan.
+PLAN_CHECKS = {k: v for k, v in CHECKS.items() if k != "must_reference_inputs"}
+
 DEFAULT_FRONTMATTER = {"stage": "plan", "version": "1", "status": "draft",
                        "author": "Steve", "date": "2026-09-03"}
 
@@ -162,7 +169,7 @@ class AidlcTestCase(unittest.TestCase):
         consomme et produit spec.md. Chaque contrat vit dans le plugin de son agent."""
         self.write_agent("aidlc-plan",
                          manifest("plan", "Produit", "deliverables/plan/intent.md"),
-                         CHECKS)
+                         PLAN_CHECKS)
         design_checks = dict(CHECKS)
         design_checks["required_sections"] = ["## Contexte"]
         design_checks["min_items_per_section"] = {}

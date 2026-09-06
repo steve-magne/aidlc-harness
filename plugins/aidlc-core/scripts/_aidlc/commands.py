@@ -36,6 +36,7 @@ from .util import sanitize_session_id
 from .maturity import record_score
 from .maturity import render_status
 from .maturity import review_request
+from .checks import contract_problems
 from .checks import run_checks
 from .scaffold import scaffold
 from .checks import stage_for_file
@@ -221,6 +222,11 @@ def cmd_agents(root: Path, args) -> int:
     """
     view = registry.catalog(capability=getattr(args, "capability", None),
                             platform=getattr(args, "platform", None))
+    # Le contrat d'un agent est controle a vide, avant tout livrable : le registre est
+    # ouvert, et le checks.json d'une equipe voisine n'etait jusqu'ici lu qu'au moment
+    # de valider. Meme severite asymetrique que les manifestes.
+    view["contract_problems"] = [problem for agent in view["agents"]
+                                 for problem in contract_problems(agent)]
     if args.json:
         emit(view)
     else:
@@ -247,11 +253,14 @@ def cmd_agents(root: Path, args) -> int:
             sys.stderr.write(f"  [avertissement] {message}\n")
         for message in view["problems"]:
             sys.stderr.write(f"  [manifeste] {message}\n")
+        for message in view["contract_problems"]:
+            sys.stderr.write(f"  [contrat] {message}\n")
     if view["cycle"]:
         return 1
     if getattr(args, "strict", False):
-        # --strict : seuls les manifestes du depot courant font echouer la porte.
-        local = [message for message in view["problems"]
+        # --strict : seuls les manifestes et contrats du depot courant font echouer la
+        # porte — la CI d'un consommateur ne rougit pas pour une direction voisine.
+        local = [message for message in view["problems"] + view["contract_problems"]
                  if str(root.resolve()) in message]
         return 1 if local else 0
     return 0

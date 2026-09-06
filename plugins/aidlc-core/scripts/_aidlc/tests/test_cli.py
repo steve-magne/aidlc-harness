@@ -7,6 +7,7 @@ from unittest import mock
 
 from .harness import AidlcTestCase
 from .harness import document
+from .harness import manifest
 from .. import cli
 from .. import tests as tests_module
 
@@ -599,3 +600,37 @@ class TestCommandesDesHooksJson(AidlcTestCase):
     def test_watchdog_touched(self):
         self.assertEqual(
             self.run_cli("watchdog-touched", stdin="{}").returncode, 0)
+
+
+class TestAgentsControleDeContrat(AidlcTestCase):
+    """`agents --strict` est la porte CI du registre. Depuis que le contrat est
+    controle a vide, elle refuse aussi un checks.json incoherent — avec la meme
+    severite asymetrique que pour les manifestes : ce qui vient du depot courant fait
+    rougir la CI, ce qui vient d'une direction voisine reste un avertissement."""
+
+    INCOHERENT = {"required_sections": ["## Contexte"],
+                  "min_items_per_section": {"## Absente": 2}}
+
+    def test_le_catalogue_expose_les_problemes_de_contrat(self):
+        result = self.run_cli("agents", "--json")
+        self.assertIn("contract_problems", self.assertJson(result))
+
+    def test_un_contrat_incoherent_du_depot_fait_echouer_strict(self):
+        self.write_agent("aidlc-lint",
+                         manifest("lint", "X", "deliverables/lint/doc.md"),
+                         self.INCOHERENT)
+        result = self.run_cli("agents", "--strict")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("insatisfiable", result.stderr)
+
+    def test_un_contrat_incoherent_d_une_autre_equipe_reste_un_avertissement(self):
+        """La CI d'un consommateur ne rougit jamais pour le contrat d'une direction
+        voisine : il est signale, il ne bloque pas."""
+        externe = self.root.parent / "plugins-externes"
+        self.write_agent("acme-lint",
+                         manifest("lint", "AppSec", "deliverables/lint/doc.md"),
+                         self.INCOHERENT, base=externe)
+        self.agent_path(self.root / "plugins", externe)
+        result = self.run_cli("agents", "--strict")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("insatisfiable", result.stderr)

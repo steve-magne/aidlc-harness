@@ -2,6 +2,7 @@
   "version": 2,
   "_comment": "Gouvernance du harnais. Ce fichier ne porte plus de registre d'etapes : « quels agents existent » se lit dans les manifestes agent.json des plugins (aidlc.py agents). planned_stages est une feuille de route consultative — elle est affichee par status et pre-remplit scaffold, elle n'execute rien.",
   "maturity_threshold": 4.0,
+  "min_axis_score": 3.0,
   "consecutive_runs_to_autonomy": 3,
   "watchdog": {
     "validation_failures_threshold": 5,
