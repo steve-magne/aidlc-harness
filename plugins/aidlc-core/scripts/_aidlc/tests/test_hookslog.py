@@ -350,6 +350,20 @@ class TestGuardDecision(AidlcTestCase):
     def test_guard_sort_zero_sur_une_entree_cassee(self):
         self.assertEqual(cmd_guard(self.root, "pas du json"), 0)
 
+    def test_refuse_l_ecriture_de_la_gouvernance_du_projet(self):
+        """aidlc.json porte le seuil et la liste des agents : un agent qui pourrait
+        l'ecrire abaisserait le metre qui le juge, ou se retirerait du pipeline pour
+        echapper a sa porte. Il vit hors de .aidlc/, donc il lui faut sa propre garde."""
+        reason = self._reason("Write", self.root / "aidlc.json")
+        self.assertIsNotNone(reason)
+        self.assertIn("gouvernance du projet", reason)
+
+    def test_refuse_aussi_l_edition_de_la_gouvernance_du_projet(self):
+        self.assertIsNotNone(self._reason("Edit", self.root / "aidlc.json"))
+
+    def test_un_autre_json_de_la_racine_reste_ecrivable(self):
+        self.assertIsNone(self._reason("Write", self.root / "knowledge-sources.json"))
+
     def test_refuse_l_ecriture_directe_du_ratchet(self):
         reason = self._reason("Write", aidlc_dir(self.root) / "ratchet.json")
         self.assertIsNotNone(reason)

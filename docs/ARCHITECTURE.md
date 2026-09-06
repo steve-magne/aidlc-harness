@@ -149,10 +149,40 @@ sert d'exemple de référence à toute équipe voulant publier le sien.
  ops-report.md --> (nouveau tour de plan)
 ```
 
-Le champ `consumes` du manifeste de chaque agent énumère les fichiers amont obligatoires.
-La règle `must_reference_inputs` des `checks.json` vérifie que le livrable cite réellement ces
-fichiers : un livrable qui ne s'appuie sur rien est rejeté par le contrôle déterministe, avant
-même d'atteindre le reviewer.
+Le champ `consumes` du manifeste de chaque agent énumère les fichiers amont obligatoires. Cette
+chaîne est tenue à **deux niveaux, qui ne disent pas la même chose** :
+
+| Niveau | Question | Où | Sanction |
+| --- | --- | --- | --- |
+| Forme du livrable | le livrable **cite**-t-il ses entrées ? | `must_reference_inputs`, `required_input_section` (`checks.json`) | erreur de validation |
+| État du pipeline | l'entrée **existe**-t-elle, et son producteur a-t-il franchi sa porte ? | `maturity.upstream_blockers`, appelé par `gate` | bloquant, exit 2 |
+
+La distinction n'est pas cosmétique : `must_reference_inputs` ne compare qu'une **chaîne de
+caractères** dans le texte du livrable. Tant que la porte ne regardait pas le disque, un livrable
+aval pouvait valider à douze règles vertes, être noté 4/5 et franchir sa porte en mentionnant le
+chemin d'une entrée qui n'avait jamais été écrite — la promesse de bout en bout ne tenait alors
+que par la bonne volonté de l'orchestrateur, et n'importe quel appel direct ou en CI la
+contournait.
+
+`gate` refuse donc, **avant tout autre motif** :
+
+```
+[bloquant] Entree amont absente : deliverables/plan/intent.md — produire d'abord le livrable de l'agent 'plan'.
+[bloquant] Entree amont absente : deliverables/x/y.md — aucun agent installe ne la produit, son plugin manque.
+[bloquant] Porte amont fermee : l'agent 'plan' n'a pas franchi la sienne (Revue humaine requise…).
+```
+
+La remontée est **d'un cran à la fois** : la porte de l'aval demande celle de son amont direct,
+qui demande la sienne, et un ensemble `seen` coupe une dépendance circulaire (que le registre
+signale par ailleurs). Le tableau de bord, lui, n'appelle jamais `gate` : les agents lui arrivent
+déjà triés par la chaîne producteur → consommateur, il lui suffit de retenir au fil de l'eau
+quelles lignes sont franchies.
+
+Côté validation, une entrée absente ne devient pas une erreur — la forme du livrable, elle, peut
+être irréprochable — mais elle produit un **avertissement nommé** : les règles qui lisent l'amont
+(`must_reference_inputs`, `required_input_section`, `must_not_violate_scope`, cette dernière
+s'échappant silencieusement quand le fichier manque) n'ont alors rien vérifié, et un vert muet
+serait un mensonge.
 
 ### Où vivent les dépôts
 
@@ -218,6 +248,37 @@ appartiennent à l'entreprise et non à une équipe : les seuils, ceux du watchd
 - `maturity_threshold` (4.0) : note globale minimale pour qu'un livrable soit accepté.
 - `consecutive_runs_to_autonomy` (3) : nombre d'exécutions consécutives au-dessus du seuil avant
   qu'une étape puisse passer en mode autonome.
+
+#### `aidlc.json` — la gouvernance du projet, qui recouvre celle du harnais
+
+`pipeline.json` porte les **défauts de l'entreprise**. Une initiative a la sienne, et elle ne peut
+pas l'écrire là : le fichier vit dans la copie que Claude Code installe, que le garde-fou
+`PreToolUse` protège de toute écriture. Sans autre mécanisme, un projet subissait donc à la fois
+le seuil du harnais et le workflow que la machine avait installé — deux projets ouverts sur le
+même poste héritaient forcément du même pipeline.
+
+`aidlc.json`, à la racine du **projet**, recouvre `pipeline.json` clé par clé
+(`util.load_pipeline`). Cinq clés reconnues, toute autre est ignorée et signalée par `status` :
+
+| Clé | Ce qu'elle décide |
+| --- | --- |
+| `maturity_threshold`, `min_axis_score`, `consecutive_runs_to_autonomy` | l'exigence de l'initiative |
+| `watchdog` | ses seuils de stagnation |
+| `planned_stages` | **sa** feuille de route : ce qu'il lui reste à installer |
+| `agents` | **son workflow** : la liste blanche des identifiants qui composent le pipeline |
+
+`agents` est la clé structurante. La découverte reste ouverte — on installe ce qu'on veut sur sa
+machine — mais le filtre s'applique dans `registry.discover`, donc partout : catalogue, ordre,
+tableau de bord, portes. Un identifiant déclaré qu'aucun manifeste ne porte remonte en
+**avertissement** plutôt que de rétrécir le pipeline en silence : c'est le plugin d'une équipe qui
+n'est pas encore installé. Omettre la clé revient à prendre tous les agents découverts.
+
+`aidlc.py init` pose ce fichier, ainsi que `deliverables/`, le bundle `knowledge/` et un concept
+`sources/projet-existant.md` — l'inventaire déterministe des README, manifestes de dépendances et
+documents de `docs/` déjà présents dans le dépôt d'accueil. Le harnais suppose un projet qui
+existe ; sans cet amorçage, la première étape s'ouvrait sur un entretien à froid et le `librarian`
+n'avait aucun bundle à servir. La passe ne lit ni ne résume aucun contenu : elle rend des chemins,
+le sens reste à l'humain et aux agents. Elle ne remplace jamais un fichier existant.
 
 Aucun composant ne doit contenir une liste d'agents en dur — ni ce fichier, ni le moteur, ni un
 prompt. Tout ce qui a besoin de savoir quels agents existent interroge le registre
@@ -294,7 +355,8 @@ direction voisine, elle l'affiche.
 Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'entrée `aidlc.py`
 (chemin stable utilisé par les hooks et les skills) délègue au paquet `_aidlc/` du même
 répertoire, un module par concern — `util` (racines et IO), `checks` (validation des livrables),
-`maturity` (scores, porte, revue), `scaffold`, `improve`, `hookslog`, `okf` (conformance et
+`maturity` (scores, porte amont, porte, revue, signature), `scaffold`, `init` (amorçage d'un
+projet consommateur), `improve`, `hookslog`, `okf` (conformance et
 correctifs des bundles), `knowledge` (bundles OKF distants : cache, sommaire, recherche),
 `syntax` (hygiène du dépôt : tout Python compile, tout JSON parse),
 `ratchet` (planchers de sévérité figés), `watchdog` (détecteurs de stagnation),
@@ -313,7 +375,9 @@ les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 | `validate --touched --file P` | même contrôle, déclenché par un hook après une écriture, non bloquant |
 | `score <stage> --file review.json` | recalcule la note globale et l'enregistre dans `.aidlc/maturity.json` |
 | `gate <stage>` | décide si l'étape est franchie ; sort en code 2 si elle ne l'est pas |
+| `init` | amorce un projet consommateur : `aidlc.json`, `deliverables/`, bundle `knowledge/`, inventaire des sources existantes ; ne remplace jamais un fichier |
 | `review-request <stage>` | prépare le formulaire de revue humaine et affiche la consigne |
+| `sign <stage> --approve\|--reject --by … --why …` | écrit la revue humaine et rejoue la porte ; **refuse de tourner sans terminal interactif** |
 | `status` | tableau de bord de l'avancement du pipeline |
 | `scaffold <stage>` | génère le plugin complet d'une étape déclarée mais non implémentée |
 | `improve` | agrège journaux, scores, refus et haltes du watchdog en un diagnostic JSON |
@@ -393,7 +457,11 @@ Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des ses
 - `PreToolUse` sur `Write|Edit` appelle `guard`. Il refuse catégoriquement qu'un agent écrive
   dans `.aidlc/maturity.json`, dans `.aidlc/reviews/*.json`, dans `.aidlc/ratchet.json`, dans
   `.aidlc/improvement-queue.jsonl` ou dans `.aidlc/logs/` — l'état runtime n'est écrit que par
-  les scripts. Il refuse aussi, en mode consommateur, toute écriture dans la **copie installée**
+  les scripts. Il refuse également l'écriture de **`aidlc.json`**, la gouvernance du projet :
+  ce fichier porte le seuil de maturité, le plancher par axe et la liste des agents qui composent
+  le pipeline — un agent qui pourrait l'éditer abaisserait le mètre qui le juge, ou se retirerait
+  du pipeline pour échapper à sa porte. Il vit hors de `.aidlc/` (il se versionne avec le projet),
+  d'où sa garde propre. Il refuse aussi, en mode consommateur, toute écriture dans la **copie installée**
   du harnais (hors du projet) : `pipeline.json`, `checks/`, `hooks/`, `scripts/`, agents,
   skills, templates — c'est la **liste protégée**. Un modèle ne doit pas pouvoir éditer sa
   propre note ni les règles qui le jugent : l'intégrité de la mesure conditionne tout le reste.
@@ -529,9 +597,14 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 
 ### Les conditions du passage
 
-`aidlc.py gate <stage>` ne renvoie `passed: true` que si les quatre conditions suivantes sont
+`aidlc.py gate <stage>` ne renvoie `passed: true` que si les cinq conditions suivantes sont
 réunies :
 
+0. **L'amont est en place** : chaque chemin du `consumes` existe sur disque, et l'agent qui le
+   produit a franchi sa propre porte (§2, « Chaîne livrable vers entrée »). Cette condition est
+   évaluée en premier et ses bloquants sont listés en tête : une étape bâtie sur du vide n'a pas
+   de qualité à mesurer, et le dire avant la note évite d'envoyer l'utilisateur relancer un
+   reviewer pour rien.
 1. `validate <stage>` passe : le livrable respecte toutes les règles de son `checks.json`.
 2. Le dernier run enregistré porte le verdict `accepted` **et** une note globale supérieure ou
    égale à `maturity_threshold`.
@@ -542,6 +615,31 @@ réunies :
 
 Sinon, la sortie liste les éléments bloquants et le code de retour vaut 2, ce qui permet à un hook
 `Stop` de retenir la session tant que l'étape n'est pas franchie.
+
+### La signature humaine, et ses deux verrous
+
+`review-request <stage>` pose un gabarit `.aidlc/reviews/<stage>-<run>.template.json` et affiche
+la consigne de relecture. Signer consistait alors à copier ce gabarit, éditer un JSON à la main —
+horodatage ISO 8601 compris — puis demander à l'agent de relancer la porte : trois gestes manuels
+et un format de date, demandés à un Product Owner ou à un référent métier.
+
+`aidlc.py sign <stage> --approve|--reject --by "Nom" --why "…"` fait le même travail en une
+commande, et **rejoue la porte dans la foulée** (exit 0 si elle s'ouvre, 2 avec les bloquants
+sinon). Elle tient trois exigences que le fichier ne savait pas tenir : un relecteur nommé, une
+justification non vide **dans les deux sens** (une approbation sans motif est un tampon, pas une
+revue), et le refus d'écraser une signature déjà apposée — `--force` est un geste explicite.
+
+Deux verrous, et non un seul, garantissent que la signature est humaine :
+
+1. le hook `PreToolUse` refuse les écritures d'agents dans `.aidlc/reviews/` — mais il ne couvre
+   que les outils `Write` et `Edit` ;
+2. `sign` **exige un stdin interactif**. Un agent qui lancerait la commande par un outil `Bash`
+   n'en a pas : il reçoit un refus motivé, pas une signature. C'est ce test qui distingue
+   « l'humain a signé » de « l'agent a écrit qu'il avait signé », et la suite le vérifie en
+   sous-processus — exactement le contexte d'un agent.
+
+La voie manuelle reste ouverte pour les contextes sans terminal (CI, session headless) : le
+gabarit de `review-request` s'y remplit à la main, comme avant.
 
 ---
 
@@ -808,7 +906,8 @@ Quatre mécanismes, hérités des principes du « dark factory » (ai-software-f
 confiance indépendante des prompts :
 
 1. **La liste protégée** — un agent ne peut pas écrire dans l'état runtime (score, revues,
-   ratchet, file, registre des expériences, journaux), ni dans la copie installée du harnais (pipeline, contrats, hooks,
+   ratchet, file, registre des expériences, journaux), ni dans `aidlc.json` (le seuil et le
+   workflow du projet), ni dans la copie installée du harnais (pipeline, contrats, hooks,
    script, agents, skills, templates), ni dans le livrable d'un autre agent. Le hook `PreToolUse`/`guard` refuse ces écritures ; la
    conception du harnais vit dans le dépôt auteur, où les deux racines se confondent.
 2. **Le ratchet** — `aidlc.py ratchet` fige les planchers de sévérité de chaque `checks.json`

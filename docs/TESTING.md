@@ -54,7 +54,7 @@ casser le harnais.
 | --- | --- | --- |
 | **Unitaire, par concern** | `test_<module>.py` en face de chaque `_aidlc/<module>.py` | Une règle de validation qui change de sens, un seuil qui glisse, un chemin d'erreur qui cesse d'être géré |
 | **Couche commandes** | `test_commands.py` | Une sous-commande qui renvoie le mauvais code, qui écrit sur le mauvais flux, ou qui cesse de gérer une option |
-| **Contrat CLI, en sous-processus** | `test_cli.py` | Le contrat public réel : ce que les hooks et les skills invoquent. Codes de sortie (`exit 2` = bloquant), JSON sur **stdout** et humain sur **stderr**, exceptions d'IO/JSON converties en message français |
+| **Contrat CLI, en sous-processus** | `test_cli.py` | Le contrat public réel : ce que les hooks et les skills invoquent. Codes de sortie (`exit 2` = bloquant), JSON sur **stdout** et humain sur **stderr**, exceptions d'IO/JSON converties en message français. C'est aussi le seul niveau où le **refus de `sign` hors terminal** se vérifie pour de bon : un sous-processus est exactement le contexte d'un agent qui lancerait la commande par un outil Bash |
 | **Artefacts de plugin** | `test_plugins.py` | Un renommage qui casse les hooks en silence : chemin cité dans `hooks.json` ou dans un `SKILL.md` qui n'existe plus, sous-commande disparue du parseur, `agent.json` refusé par le registre, marketplace désynchronisé de `plugins/` |
 
 Le dernier niveau est le moins habituel et le plus rentable. Dans un harnais, la plupart des
@@ -198,8 +198,8 @@ Aucune porte n'installe quoi que ce soit côté Python : la seule dépendance du
 
 | | Avant | Après |
 | --- | --- | --- |
-| Forme | une fonction `selftest()` de 1254 lignes | 18 modules, 9 244 lignes |
-| Cas | 173 assertions dans un bloc unique | **987 tests** nommés, en 206 classes |
+| Forme | une fonction `selftest()` de 1254 lignes | 20 modules, 10 306 lignes |
+| Cas | 173 assertions dans un bloc unique | **1 136 tests** nommés, en 233 classes |
 | Isolation | un `TemporaryDirectory` partagé par tout | un projet temporaire neuf par test |
 | Échec | le premier échec masque les 32 scénarios suivants | chaque test tombe seul et se nomme |
 | Sélection | tout ou rien | `-k <motif>` |
@@ -211,26 +211,27 @@ Répartition par module :
 
 | Module | Tests | Couverture |
 | --- | ---: | ---: |
-| `commands` | 133 | 100 % |
-| `cli` | 112 | 94,6 % |
-| `maturity` | 100 | 100 % |
-| `registry` | 82 | 100 % |
-| `checks` | 73 | 100 % |
-| `hookslog` | 72 | 100 % |
+| `commands` | 145 | 100 % |
+| `maturity` | 141 | 100 % |
+| `cli` | 128 | 95,1 % |
+| `registry` | 92 | 100 % |
+| `checks` | 79 | 100 % |
+| `hookslog` | 75 | 100 % |
 | `okf` | 70 | 100 % |
 | `watchdog` | 52 | 100 % |
 | `knowledge` | 50 | 100 % |
 | `selfscore` | 45 | 100 % |
+| `init` | 44 | 100 % |
 | `ratchet` | 35 | 100 % |
 | `coverage` | 32 | 100 % |
+| `util` | 30 | 100 % |
 | `scaffold` | 27 | 100 % |
 | `improve` | 27 | 100 % |
+| `plugins` (artefacts) | 23 | — |
 | `experiment` | 22 | 100 % |
-| `util` | 20 | 100 % |
 | `syntax` | 19 | 100 % |
-| `plugins` (artefacts) | 16 | — |
 
-Les **10 seules lignes non couvertes** du moteur sont dans `cli.py`, et ce sont exactement celles
+Les **seules lignes non couvertes** du moteur sont dans `cli.py`, et ce sont exactement celles
 que `test_cli.py` exerce en sous-processus : l'aide sans sous-commande, `log` et `guard` qui lisent
 stdin, et les deux `except` qui convertissent `FileNotFoundError` et `json.JSONDecodeError` en
 message français. Elles sont testées ; c'est `trace` qui ne les voit pas, faute de suivre les

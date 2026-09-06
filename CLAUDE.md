@@ -25,15 +25,18 @@ d'auto-amélioration.
 Le harnais distingue **le harnais** (les plugins, leur pipeline et leurs contrats) du **projet
 consommateur** (le projet qui installe les plugins et dans lequel sont produits les livrables) :
 
-- **Harnais** — `plugins/aidlc-core/` contient `pipeline.json` (gouvernance seule : seuils,
+- **Harnais** — `plugins/aidlc-core/` contient `pipeline.json` (gouvernance **par défaut** : seuils,
   autonomie, watchdog, et `planned_stages` — feuille de route consultative), le moteur `scripts/` (point d'entrée `aidlc.py`,
   paquet stdlib `_aidlc/`) et les hooks. Une fois les plugins
   installés par Claude Code, cette racine est la copie en cache désignée par `CLAUDE_PLUGIN_ROOT`.
   **Le noyau ne contient aucun registre d'étapes ni miroir de contrat** : chaque contrat vit dans
   le plugin de l'équipe qui le porte.
-- **Projet consommateur** — `CLAUDE_PROJECT_DIR` : `deliverables/`, `.aidlc/` et `knowledge/` y
-  vivent. Quand ce dépôt est utilisé comme projet d'essai (session Claude Code ouverte ici), les
-  deux racines se confondent dans le dépôt.
+- **Projet consommateur** — `CLAUDE_PROJECT_DIR` : `aidlc.json`, `deliverables/`, `.aidlc/` et
+  `knowledge/` y vivent. `aidlc.json` **recouvre `pipeline.json` clé par clé** (seuils,
+  `planned_stages`, et `agents` — la liste blanche du workflow de l'initiative) : c'est la seule
+  gouvernance qu'une équipe projet peut écrire, la copie installée du harnais étant protégée.
+  Quand ce dépôt est utilisé comme projet d'essai (session Claude Code ouverte ici), les deux
+  racines se confondent dans le dépôt.
 
 `aidlc.py` résout les deux racines seul (variables d'environnement `CLAUDE_PROJECT_DIR` et
 `CLAUDE_PLUGIN_ROOT`, sinon auto-localisation du pipeline à côté du script).
@@ -60,7 +63,7 @@ knowledge/                    base de connaissance du dépôt (projet d'essai) �
                               (index.md, log.md, glossary.md, conventions.md, sources/)
 
 plugins/aidlc-core/           noyau : orchestrator, reviewer, librarian, aidlc.py, hooks, skills
-  pipeline.json                 gouvernance seule (seuils, `watchdog`, `planned_stages`) — aucun registre d'étapes
+  pipeline.json                 gouvernance par défaut (seuils, `watchdog`, `planned_stages`) — aucun registre d'étapes
   scripts/_aidlc/tests/         la suite : harness.py (socle partagé) + un test_<module>.py par concern
 plugins/<plugin>/agent.json   manifeste d'un agent : le seul contrat que l'orchestrateur lit
 plugins/aidlc-plan/           agent d'étape (produit un livrable, donc gouverné)
@@ -70,6 +73,8 @@ planchers figés               .aidlc/ratchet.json — planchers de sévérité 
                               .aidlc/coverage.json — plancher de couverture (ne descend jamais)
 mémoire de la boucle          .aidlc/experiments.jsonl — correctifs appliqués et effet mesuré
 
+aidlc.json                    gouvernance du PROJET : seuils, `agents` (workflow), feuille de
+                              route — posé par `aidlc.py init`, recouvre pipeline.json
 deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR)
 knowledge-sources.json        bundles OKF distants déclarés — projet consommateur
 .aidlc/                       état runtime (logs, maturity.json, reviews, tmp/knowledge = cache
@@ -86,11 +91,13 @@ S=plugins/aidlc-core/scripts/aidlc.py
 
 python3 $S agents                       # catalogue du registre (équipes, capacités, invocation)
 python3 $S agents --capability security:review --json
-python3 $S status                       # tableau de bord des étapes
+python3 $S init                         # amorce un projet consommateur (aidlc.json, knowledge/, inventaire)
+python3 $S status                       # tableau de bord des étapes, et qui est attendu
 python3 $S validate plan                # vérifie le livrable de l'étape plan
 python3 $S score plan --file review.json  # enregistre une revue du reviewer
 python3 $S gate plan                    # décide si l'étape est franchie (exit 2 = bloquant)
 python3 $S review-request plan          # prépare le formulaire de revue humaine
+python3 $S sign plan --approve --by "Nom" --why "..."  # signe la revue et rejoue la porte (exige un terminal humain)
 python3 $S recall plan                  # reproches des tentatives précédentes (reprise)
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
 python3 $S experiment record --stage plan --target precision \
@@ -128,8 +135,9 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    le harnais est consommé ailleurs.
 2. **Toute logique déterministe vit sous `plugins/aidlc-core/scripts/`** : le point d'entrée
    `aidlc.py` délègue au paquet stdlib `_aidlc/`, un module par concern (`util`, `checks`,
-   `maturity`, `registry`, `scaffold`, `improve`, `experiment`, `hookslog`, `okf`, `knowledge`,
-   `syntax`, `ratchet`, `watchdog`, `coverage`, `commands`, `cli`, plus le paquet `tests/`). Jamais de
+   `maturity`, `registry`, `scaffold`, `init`, `improve`, `experiment`, `hookslog`, `okf`,
+   `knowledge`, `syntax`, `ratchet`, `watchdog`, `coverage`, `selfscore`, `commands`, `cli`, plus
+   le paquet `tests/`). Jamais de
    second point d'entrée, jamais de logique dans un `Makefile` ni en shell inline dans un hook. Si
    une nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans
    le `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.
@@ -140,8 +148,10 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    une dépendance externe, et c'est elle qui est interdite, pas le fait de tester sérieusement.
 4. **L'état runtime et le référentiel de règles ne sont jamais édités à la main par un agent.**
    `.aidlc/maturity.json`, `.aidlc/reviews/*.json`, `.aidlc/ratchet.json`,
-   `.aidlc/improvement-queue.jsonl`, `.aidlc/experiments.jsonl` et `.aidlc/logs/` ne sont écrits
-   que par les scripts (`score`, `ratchet`, `experiment record`, hooks) et l'humain (revues). Un hook `PreToolUse` refuse activement ces
+   `.aidlc/improvement-queue.jsonl`, `.aidlc/experiments.jsonl`, `.aidlc/logs/` et **`aidlc.json`**
+   (la gouvernance du projet : seuil, plancher par axe, liste des agents) ne sont écrits
+   que par les scripts (`score`, `ratchet`, `experiment record`, `init`, `sign`, hooks) et
+   l'humain (revues, gouvernance). Un hook `PreToolUse` refuse activement ces
    écritures, ainsi que toute écriture dans la **copie installée du harnais** hors du projet
    (pipeline.json, hooks/, script, agents, skills, templates — la liste protégée) **et dans le
    plugin d'un agent appartenant à une autre équipe, installé hors du projet**, et **le livrable
@@ -167,6 +177,19 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    test, une couverture en baisse ou un bundle OKF cassé font sortir 2. C'est la porte du hook
    `.githooks/pre-commit` et de la CI : une évolution du harnais qui ne la tient pas n'est pas
    prête, quelle que soit la qualité apparente du diff.
+
+10. **Le chaînage est déterministe, jamais une consigne.** Une étape ne franchit pas sa porte si
+   une entrée de son `consumes` n'existe pas, ou si l'agent qui la produit n'a pas franchi la
+   sienne — `gate` sort 2 avec les bloquants amont **en tête**. Cette règle vit dans
+   `maturity.upstream_blockers`, pas dans un prompt : elle vaut pour un appel direct, un hook et
+   une CI. `validate` reste au niveau de la forme du livrable, mais **avertit** quand une entrée
+   amont manque, car les règles qui la lisent (`must_reference_inputs`, `required_input_section`,
+   `must_not_violate_scope`) ne vérifient alors plus rien. Un vert muet est un mensonge.
+11. **La signature humaine est un geste de terminal.** `aidlc.py sign` refuse de tourner sans
+   stdin interactif : le hook `PreToolUse` ne couvre que l'outil Write, et rien n'empêcherait
+   sinon un agent d'appeler la commande par Bash. C'est ce test-là qui distingue « l'humain a
+   signé » de « l'agent a écrit qu'il avait signé » ; ne l'affaiblissez pas pour la commodité
+   d'un test — la suite le vérifie en sous-processus, qui est exactement le contexte d'un agent.
 
 ## Tester
 

@@ -54,7 +54,8 @@ auto-localisation) ; les skills et agents de ce plugin appellent le script via
 ```
 plugins/aidlc-core/
   .claude-plugin/plugin.json      déclaration du plugin (nom, description, version)
-  pipeline.json                   gouvernance : seuils, watchdog, planned_stages (aucun registre d'agents)
+  pipeline.json                   gouvernance par defaut : seuils, watchdog, planned_stages
+                                  (aucun registre d'agents ; recouverte par l'aidlc.json du projet)
   agents/
     orchestrator.md               pilote le pipeline ; ne rédige jamais un livrable
     reviewer.md                   note le livrable sur 4 axes, émet un verdict, cite
@@ -132,9 +133,11 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 | `validate <stage>` | applique le `checks.json` de l'étape au livrable (exit 0 = conforme, 1 = non) |
 | `validate --touched` | même contrôle en mode hook `PostToolUse`, non bloquant, retour de contexte immédiat |
 | `score <stage> --file review.json` | recalcule la note globale (moyenne des 4 axes) et l'enregistre dans `.aidlc/maturity.json` |
-| `gate <stage>` | décide si l'étape est franchie ; exit 2 si bloquante |
+| `gate <stage>` | décide si l'étape est franchie ; exit 2 si bloquante. **Vérifie l'amont d'abord** : chaque entrée `consumes` doit exister et son producteur avoir franchi sa porte |
 | `review-request <stage>` | génère le formulaire de revue humaine `.aidlc/reviews/<stage>-<run>.template.json` |
-| `status [--json]` | tableau de bord des étapes, des agents consultatifs et des trous du registre |
+| `sign <stage> --approve\|--reject --by "Nom" --why "..."` | écrit la revue humaine et rejoue la porte ; **refuse de tourner sans terminal interactif** — un agent ne signe pas |
+| `init` | amorce un projet consommateur : `aidlc.json`, `deliverables/`, bundle `knowledge/`, inventaire des sources déjà présentes ; ne remplace jamais un fichier |
+| `status [--json]` | tableau de bord des étapes (dont la colonne « en attente de » et les blocages amont), des agents consultatifs et des trous du registre |
 | `agents [--capability X] [--platform P] [--json] [--strict]` | catalogue du registre : équipes, capacités, invocation ; contrôle chaque `checks.json` à vide (règle inconnue, regex fautive, section insatisfiable, dérive gabarit, rubrique de revue absente) ; `--strict` = porte CI sur les manifestes et contrats du dépôt |
 | `scaffold <stage>` | génère le plugin complet d'un agent (dont son `agent.json`) — n'écrit rien dans le noyau |
 | `improve [--stage X]` | agrège logs, scores et refus (humains + gate OKF) en un diagnostic JSON ; propose des correctifs de frontmatter et les concepts orphelins du sommaire `index.md` ; porte les expériences déjà mesurées |
@@ -241,7 +244,8 @@ Chaque étape du pipeline possède son plugin `aidlc-<stage>` (cf. `plugins/aidl
 l'exemple de référence). `aidlc-core` ne connaît aucun agent en dur : il **découvre** les
 manifestes `agent.json` des plugins installés (identité, équipe, capacités, invocation, et pour
 une étape son livrable, ses entrées et son contrat). Son `pipeline.json` ne porte que la
-gouvernance. Les plugins d'agent ne contiennent **aucune logique** : seulement le manifeste,
+gouvernance **par défaut** : le projet consommateur la recouvre clé par clé dans son `aidlc.json`,
+posé par `aidlc.py init`, dont la clé `agents` déclare le workflow de l'initiative. Les plugins d'agent ne contiennent **aucune logique** : seulement le manifeste,
 l'agent, la skill, le template et le `checks.json` — lu là où il est, sans copie dans le noyau.
 Les plugins d'agent sont enregistrés dans
 `.claude-plugin/marketplace.json` du dépôt auteur et installables via

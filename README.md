@@ -18,7 +18,9 @@ concrets, et la réponse du harnais :
 | --- | --- |
 | La qualité dépend de la chance du prompt | Un contrat déclaratif (`checks.json`) par livrable, appliqué **à chaque écriture** par un hook |
 | « C'est bon ? » n'a pas de réponse objective | Une note 0–5 sur 4 axes, un seuil, une porte qui renvoie un code de sortie exploitable en CI |
-| L'IA avance seule là où l'humain devait décider | Revue humaine **obligatoire** tant que l'étape n'est pas autonome, et un agent ne peut pas signer à votre place |
+| Une étape démarre sur un livrable amont absent, ou pas encore validé | La porte exige que chaque entrée `consumes` **existe** et que son producteur ait franchi la sienne — dans le moteur, donc en CI aussi |
+| L'IA avance seule là où l'humain devait décider | Revue humaine **obligatoire** tant que l'étape n'est pas autonome ; `sign` exige un terminal, un agent ne peut pas signer à votre place |
+| Chaque projet a son exigence et son périmètre d'agents | `aidlc.json` à la racine du projet : seuils, feuille de route, et la liste blanche des agents qui composent **son** workflow |
 | Chaque équipe veut son agent, personne ne veut d'un noyau à modifier | Chaque équipe publie son plugin avec un manifeste `agent.json` ; l'orchestrateur **découvre** les agents, il n'en tient aucune liste |
 
 À qui ça s'adresse : une **équipe projet** qui veut produire ses livrables avec des agents sous
@@ -44,10 +46,19 @@ claude plugin install aidlc-design@aidlc
 claude
 ```
 
-Puis, dans la session :
+Puis, dans la session — l'amorçage d'abord, une fois pour toutes :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" init
+```
+
+Il pose `aidlc.json` (votre seuil, votre workflow), `deliverables/`, le bundle `knowledge/` et un
+**inventaire des sources déjà présentes** dans votre dépôt — README, manifestes, ADR : le harnais
+part de ce que le projet dit de lui-même, pas d'un entretien à froid. Il ne remplace jamais un
+fichier existant.
 
 ```
-/aidlc-core:status     # où en est le pipeline, qu'est-ce qui bloque
+/aidlc-core:status     # où en est le pipeline, qui est attendu, qu'est-ce qui bloque
 /aidlc-core:run plan   # produire le livrable de cadrage, de bout en bout
 ```
 
@@ -85,6 +96,11 @@ Puis, dans la session, pour concevoir un nouvel agent avec son référent métie
 > **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)**.
 
 ```
+        ┌──────────────────────┐
+        │   porte amont (gate) │  l'entrée `consumes` existe ?
+        │   exit 2 si absente  │  son producteur a franchi sa porte ?
+        └──────────┬───────────┘
+                   │ ok
   contexte métier (humain)  +  savoir OKF (librarian)
                     │
                     ▼
@@ -115,10 +131,12 @@ Puis, dans la session, pour concevoir un nouvel agent avec son référent métie
    bundles de connaissance.
 3. **Review.** L'agent *reviewer* note de 0 à 5 sur `completeness`, `precision`, `traceability`,
    `autonomy`, justifie chaque note **par une citation**, rend un verdict et appelle `score`.
-4. **Gate.** `gate <stage>` ouvre l'étape si — et seulement si — la validation passe, le verdict est
-   `accepted`, la moyenne atteint **4.0**, **aucun axe ne tombe sous 3.0** (une bonne moyenne ne
-   rachète pas un axe effondré), les entrées amont n'ont pas changé depuis la revue, et la revue
-   humaine est signée. Sinon : exit 2, avec la liste des blocages.
+4. **Gate.** `gate <stage>` ouvre l'étape si — et seulement si — **chaque entrée amont existe et
+   son producteur a franchi sa propre porte**, la validation passe, le verdict est `accepted`, la
+   moyenne atteint **4.0**, **aucun axe ne tombe sous 3.0** (une bonne moyenne ne rachète pas un
+   axe effondré), les entrées amont n'ont pas changé depuis la revue, et la revue humaine est
+   signée (`aidlc.py sign <stage> --approve --by … --why …`, depuis un terminal). Sinon : exit 2,
+   avec la liste des blocages, l'amont en tête.
 5. **Autonomie & amélioration.** Après **3 runs consécutifs** au-dessus du seuil avec revue humaine
    approuvée, l'étape passe `autonomous` : la signature n'est plus exigée à chaque passage. Tout
    refus (humain, porte OKF, halte du watchdog) alimente `.aidlc/improvement-queue.jsonl`, que
@@ -146,7 +164,7 @@ Puis, dans la session, pour concevoir un nouvel agent avec son référent métie
 | Skill | Quand |
 | --- | --- |
 | `/aidlc-core:run [stage]` | faire tourner une étape de bout en bout |
-| `/aidlc-core:status [stage]` | où on en est, ce qui bloque |
+| `/aidlc-core:status [stage]` | où on en est, **qui est attendu**, ce qui bloque |
 | `/aidlc-core:review [stage]` | faire noter un livrable qu'on vient d'écrire |
 | `/aidlc-core:dispatch <demande>` | demande transverse : mobilise les agents d'équipe par capacité et synthétise, en attribuant nommément |
 | `/aidlc-core:knowledge [mots]` | chercher une définition, une norme, une décision antérieure |
@@ -162,12 +180,14 @@ Toute la logique déterministe passe par **un seul point d'entrée**. Depuis ce 
 `S="${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"`.
 
 ```bash
-python3 $S status                      # tableau de bord des étapes
+python3 $S init                        # amorce un projet consommateur (idempotent)
+python3 $S status                      # tableau de bord des étapes, et qui est attendu
 python3 $S agents --capability security:review --json
 python3 $S validate plan               # le livrable respecte-t-il son contrat
 python3 $S score plan --file review.json
 python3 $S gate plan                   # porte de qualité          — exit 2 = bloquant
 python3 $S review-request plan         # gabarit + consignes de revue humaine
+python3 $S sign plan --approve --by "Nom" --why "..."   # signe et rejoue la porte (terminal humain)
 python3 $S recall plan                 # ce qui a été reproché aux runs précédents
 python3 $S improve --stage plan        # diagnostic d'auto-amélioration (JSON)
 python3 $S experiment effect           # ce qu'ont donné les correctifs déjà appliqués
@@ -180,7 +200,7 @@ Les portes exploitables en CI (le code de sortie *est* le verdict) :
 | Commande | Ce qu'elle refuse | Exit |
 | --- | --- | --- |
 | `selfscore` | une évolution du **harnais** qui fait baisser sa note de maturité | 2 |
-| `gate <stage>` | une étape non mûre | 2 |
+| `gate <stage>` | une étape non mûre, **ou bâtie sur un amont absent ou non franchi** | 2 |
 | `ratchet` | une régression de sévérité d'un `checks.json` | 2 |
 | `watchdog` | une boucle de stagnation détectée dans les journaux | 2 |
 | `coverage` | une baisse de la couverture de tests | 2 |
@@ -213,10 +233,15 @@ La confiance ne repose pas sur les prompts. Quatre mécanismes structurels :
   citée dans la section prévue (`required_input_section`), que le livrable respecte le hors
   périmètre décidé en amont (`must_not_violate_scope`), et qu'il **ne cite pas son propre
   `checks.json`** (holdout : `checks_do_not_self_reference`).
+- **Porte amont** — `gate` refuse une étape dont une entrée `consumes` n'existe pas, ou dont
+  l'agent producteur n'a pas franchi sa propre porte. La chaîne producteur → consommateur cesse
+  d'être une consigne adressée à l'orchestrateur : c'est un code de sortie, opposable en CI.
 - **Liste protégée** — un hook `PreToolUse` refuse l'écriture d'un agent dans `.aidlc/` (scores,
-  revues, ratchet, expériences, journaux), dans la copie installée du harnais, et dans le plugin d'une **autre
-  équipe** : un agent n'édite ni les règles qui le jugent, ni sa propre note, ni le code d'une
-  direction voisine.
+  revues, ratchet, expériences, journaux), dans `aidlc.json` (le seuil et le workflow du projet :
+  un agent n'abaisse pas le mètre qui le juge, ni ne se retire du pipeline), dans la copie
+  installée du harnais, et dans le plugin d'une **autre équipe** : un agent n'édite ni les règles qui le jugent, ni sa propre note, ni le code d'une
+  direction voisine. `sign` complète le dispositif là où le hook ne va pas : elle **exige un
+  terminal**, donc un agent qui la lancerait par un outil Bash reçoit un refus, pas une signature.
 - **Ratchet** — `ratchet` fige les planchers de sévérité des contrats et refuse toute régression ;
   desserrer un contrat est un **geste humain explicite** (`ratchet --reset <stage>`), visible au diff.
 - **Watchdog** — détecte dans les journaux l'acharnement sur un livrable en échec, les boucles
@@ -236,6 +261,12 @@ consomme et son contrat.
   se dérive de la chaîne producteur → consommateur, jamais d'une position dans un fichier.
 - **Sans `produces`** → agent **consultatif** : invocable pour un avis, jamais noté. Modèle à
   copier : [`plugins/aidlc-security/agent.json`](plugins/aidlc-security/agent.json).
+
+**Le projet, lui, choisit lesquels il retient.** La découverte est ouverte — on installe ce qu'on
+veut sur sa machine —, mais la clé `agents` de l'`aidlc.json` du projet est une **liste blanche** :
+un plugin installé pour une autre initiative et absent de cette liste n'existe pas pour ce projet.
+Un identifiant listé dont aucun plugin n'est installé remonte en avertissement sous le tableau de
+bord, au lieu de rétrécir le pipeline en silence.
 
 **Publier un agent ne modifie jamais le noyau.** Un agent développé hors de ce dépôt se déclare par
 `AIDLC_AGENT_PATH` (répertoires séparés par `:`), qui prime sur toute autre source de découverte :
@@ -321,7 +352,10 @@ C'est **la** subtilité du dépôt :
   `plugins/` ; une fois installés, dans la copie que Claude Code met en cache
   (`${CLAUDE_PLUGIN_ROOT}`). **Personne n'y écrit à l'exécution.**
 - **Le projet consommateur** — `$CLAUDE_PROJECT_DIR` : c'est là qu'atterrissent les livrables
-  (`deliverables/`), l'état runtime (`.aidlc/`) et la connaissance (`knowledge/`).
+  (`deliverables/`), l'état runtime (`.aidlc/`), la connaissance (`knowledge/`) — et `aidlc.json`,
+  **la gouvernance de l'initiative**, qui recouvre celle du harnais clé par clé. C'est le seul
+  endroit où une équipe projet règle son seuil et déclare le workflow qu'elle retient : le
+  `pipeline.json` du harnais vit dans une copie installée que le garde-fou protège.
 
 `aidlc.py` résout les deux racines tout seul. Quand ce dépôt sert de projet d'essai (session ouverte
 ici), les deux racines se confondent — d'où la présence de `deliverables/` et `.aidlc/` à la racine.
@@ -333,6 +367,8 @@ ici), les deux racines se confondent — d'où la présence de `deliverables/` e
 ```
 README.md                          ce fichier
 CLAUDE.md                          les conventions que suit tout agent travaillant ici
+aidlc.json                         la gouvernance du PROJET consommateur : seuils, workflow
+                                   (`agents`), feuille de route — posé par `aidlc.py init`
 .claude-plugin/marketplace.json    le marketplace local (installation des plugins)
 docs/                              bundle OKF : ARCHITECTURE, CONSUMER, MAINTAINER, TESTING
 knowledge/                         bundle OKF du dépôt : glossaire, conventions, ADR

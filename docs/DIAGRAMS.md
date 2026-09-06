@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Le harnais AI-DLC en schémas
-description: Vue d'ensemble du fonctionnement en diagrammes ASCII — les deux racines, le cycle d'une étape, les conditions de la porte, la découverte des agents, les hooks, les garde-fous, la boucle d'amélioration et le moteur.
+description: Vue d'ensemble du fonctionnement en diagrammes ASCII — les deux racines, le cycle d'une étape, les huit conditions de la porte, la découverte des agents, les hooks, les garde-fous, la boucle d'amélioration et le moteur.
 tags: [architecture, schemas, harness, vue-ensemble]
 generated: { by: human:steve-magne, at: 2026-09-06T00:00:00Z }
 ---
@@ -96,27 +96,35 @@ la séparation des droits est structurelle, pas une consigne de prompt.
 
 ---
 
-## 3. Les six conditions de la porte
+## 3. Les huit conditions de la porte
 
 **La question :** pourquoi mon étape ne passe-t-elle pas ?
 
 ```
-   validation déterministe passe   ─┐
-   verdict du reviewer = accepted   │
-   moyenne ≥ 4.0                    ├──  TOUTES vraies  ──►  exit 0   franchie
+   entrées amont présentes         ─┐   ces deux-ci sont évaluées EN PREMIER
+   portes amont franchies           │   et listées en tête des blocages
+   validation déterministe passe    │
+   verdict du reviewer = accepted   ├──  TOUTES vraies  ──►  exit 0   franchie
+   moyenne ≥ 4.0                    │
    aucun axe sous 3.0               │
    entrées amont inchangées         │
-   revue humaine signée             ─┘   une seule fausse ──►  exit 2   + la liste
+   revue humaine signée            ─┘   une seule fausse ──►  exit 2   + la liste
                                                                         des blocages
 ```
 
-Trois pièges fréquents, dans l'ordre où on les rencontre :
+Quatre pièges fréquents, dans l'ordre où on les rencontre :
 
+- **`entrées amont présentes` / `portes amont franchies`** — l'étape n'est pas jouable : son
+  entrée n'existe pas, ou l'agent qui la produit n'a pas franchi sa propre porte. C'est la chaîne
+  producteur → consommateur, tenue par le moteur et non par un prompt : elle vaut donc aussi en
+  CI. Ne corrigez pas ici, relancez l'amont.
 - **`aucun axe sous 3.0`** — une moyenne suffisante ne rachète pas un axe effondré. Un livrable
   noté `{5, 5, 5, 1}` fait 4,0 de moyenne et **ne passe pas**.
-- **`entrées amont inchangées`** — le livrable amont a bougé depuis la revue : la note ne porte
-  plus sur ce qui est là. Il faut refaire noter.
-- **`revue humaine signée`** — exigée tant que l'étape n'est pas autonome. Après **3 runs
+- **`entrées amont inchangées`** — l'amont **existe et est franchi**, mais il a bougé depuis la
+  revue : la note ne porte plus sur ce qui est là. Il faut refaire noter. (À ne pas confondre avec
+  la condition de présence ci-dessus : l'une regarde l'existence, l'autre le contenu jugé.)
+- **`revue humaine signée`** — exigée tant que l'étape n'est pas autonome, et apposée par
+  `aidlc.py sign <stage> --approve --by … --why …` **depuis un terminal humain**. Après **3 runs
   consécutifs** au-dessus du seuil et approuvés, l'étape passe `autonomous` et la signature n'est
   plus demandée à chaque passage.
 

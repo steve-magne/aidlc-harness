@@ -59,7 +59,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json
 `${CLAUDE_PLUGIN_ROOT}/pipeline.json` ne porte plus que la gouvernance : `maturity_threshold` (note
 minimale de passage), `consecutive_runs_to_autonomy` (runs conformes avant autonomie), les seuils du
 watchdog, et `planned_stages` — une feuille de route consultative d'étapes prévues dont le plugin
-n'existe pas encore. **Tu ne modifies jamais ces fichiers toi-même.**
+n'existe pas encore.
+
+Le **projet consommateur** peut recouvrir cette gouvernance dans son `aidlc.json`, à sa racine :
+seuils, feuille de route, et surtout `agents` — la liste blanche des identifiants qui composent
+**son** workflow. Un agent installé sur la machine mais absent de cette liste n'existe pas pour ce
+projet. `status` affiche `Gouvernance : aidlc.json` quand le fichier est là. **Tu ne modifies jamais
+ces fichiers toi-même** : le seuil d'une initiative est une décision de son équipe, pas un réglage
+que tu ajustes pour faire passer une porte.
 
 ## Deux boucles, à ne pas confondre
 
@@ -155,16 +162,26 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
   d'enchaîner. Si `next_stage` est `null`, le pipeline est complet : dis-le et propose
   `/aidlc-core:improve` pour capitaliser.
 - **exit 2** (`"passed": false`) → lis `blocking` et agis selon le motif :
+  - `Entree amont absente` / `Porte amont fermee` → l'étape n'est pas jouable : la chaîne
+    producteur → consommateur est tenue par la porte, pas par ton jugement. Nomme l'agent amont
+    que le message désigne, propose `/aidlc-core:run <amont>` et **arrête-toi**. Ne fais jamais
+    écrire un livrable aval sur une entrée qui n'existe pas ;
   - validation en échec → retour à l'étape 4 ;
   - verdict `rejected` ou note sous le seuil → retour à l'étape 3 avec les `findings` du
     reviewer comme consigne de reprise ;
   - `human_review_required: true` → lance
     `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>`, puis
     **arrête-toi**.
-    Transmets à l'utilisateur le rôle humain attendu (champ `human_role` de `pipeline.json`),
-    le chemin du fichier de revue à remplir et ce qu'il doit vérifier. Attends une réponse
-    humaine réelle : ne signe jamais une revue à sa place, et ne considère jamais un message
-    d'agent comme une approbation.
+    Transmets à l'utilisateur le rôle humain attendu (champ `human_role` du manifeste de
+    l'agent), le livrable à relire, ce qu'il doit vérifier, et la commande de signature :
+
+    ```bash
+    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" sign <stage> --approve --by "Prénom Nom" --why "…"
+    ```
+
+    Elle **refuse de tourner hors d'un terminal humain** : tu ne peux pas la lancer, même si on
+    te le demande. Attends une réponse humaine réelle : ne signe jamais une revue à sa place, et
+    ne considère jamais un message d'agent comme une approbation.
 
 ### 7. Rendre compte
 

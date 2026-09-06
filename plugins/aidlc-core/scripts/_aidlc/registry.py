@@ -6,6 +6,8 @@ import re
 
 from pathlib import Path
 from .util import harness_root
+from .util import PROJECT_CONFIG
+from .util import project_config
 from .util import read_text
 from .util import workspace_root
 """Registre ouvert des agents : decouverte des manifestes agent.json, validation de
@@ -188,9 +190,17 @@ def discover(refresh: bool = False) -> dict:
     plugins installes par Claude Code. Dedoublonnage par id, premiere source gagnante,
     doublon signale avec les deux equipes proprietaires — deux directions qui publient
     le meme id est une panne d'entreprise reelle, pas un detail.
+
+    Le projet consommateur peut restreindre ce registre a SON workflow en listant des
+    ids dans la cle `agents` de son `aidlc.json` : la decouverte reste ouverte (on
+    installe ce qu'on veut sur sa machine), mais l'initiative declare qui la compose.
+    Un id declare qu'aucun manifeste ne porte ressort en avertissement — c'est le
+    plugin d'une equipe qui n'est pas installe, et le taire ferait retrecir le pipeline
+    en silence.
     """
+    allowed = tuple(project_config().get("agents") or ())
     key = (os.environ.get("AIDLC_AGENT_PATH"), str(workspace_root()), str(harness_root()),
-           os.environ.get("CLAUDE_CONFIG_DIR"))
+           os.environ.get("CLAUDE_CONFIG_DIR"), allowed)
     if not refresh and key in _CACHE:
         return _CACHE[key]
 
@@ -238,7 +248,18 @@ def discover(refresh: bool = False) -> dict:
             seen[agent["id"]] = agent
             agents.append(agent)
 
-    result = {"agents": agents, "problems": problems, "warnings": warnings}
+    if allowed:
+        for agent_id in allowed:
+            if agent_id not in seen:
+                warnings.append(
+                    "Agent '{}' declare dans {} mais introuvable : le plugin de "
+                    "l'equipe qui le porte n'est pas installe.".format(
+                        agent_id, PROJECT_CONFIG))
+        keep = set(allowed)
+        agents = [agent for agent in agents if agent["id"] in keep]
+
+    result = {"agents": agents, "problems": problems, "warnings": warnings,
+              "declared": list(allowed)}
     _CACHE[key] = result
     return result
 
@@ -319,6 +340,7 @@ def catalog(capability: str = None, platform: str = None, refresh: bool = False)
         "capabilities": {name: sorted(ids) for name, ids in sorted(capabilities.items())},
         "missing_producers": missing_producers(found["agents"]),
         "cycle": cycle,
+        "declared": found.get("declared") or [],
         "problems": found["problems"],
         "warnings": found["warnings"],
     }
@@ -349,6 +371,19 @@ def next_agent_id(agent_id: str):
         position = ids.index(agent_id) + 1
         if position < len(ids):
             return ids[position]
+    return None
+
+
+def producer_of(deliverable: str):
+    """L'id de l'agent qui produit ce chemin de livrable, None si aucun ne le fait.
+
+    C'est l'arete de la chaine producteur -> consommateur, lue dans le sens inverse :
+    « qui dois-je lancer pour obtenir cette entree ? ». Sans elle, un blocage amont ne
+    saurait nommer que le fichier manquant, jamais l'agent — ni l'equipe — a relancer.
+    """
+    for agent in stages():
+        if agent.get("produces") == deliverable:
+            return agent["id"]
     return None
 
 

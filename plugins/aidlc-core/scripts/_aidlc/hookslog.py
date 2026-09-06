@@ -6,6 +6,7 @@ import uuid
 
 from pathlib import Path
 from . import registry
+from .util import PROJECT_CONFIG
 from .util import aidlc_dir
 from .util import ensure_dir
 from .util import harness_root
@@ -222,6 +223,9 @@ def guard_decision(root: Path, raw: str):
     reason = _aidlc_protection_reason(root, resolved)
     if reason:
         return reason
+    reason = _config_protection_reason(root, resolved)
+    if reason:
+        return reason
     reason = _deliverable_protection_reason(root, resolved, data)
     if reason:
         return reason
@@ -293,6 +297,25 @@ def _deliverable_protection_reason(root: Path, resolved: Path, data: dict):
                 "produit.".format(produces, agent["id"], agent.get("team") or "inconnue",
                                   actor))
     return None
+
+
+def _config_protection_reason(root: Path, resolved: Path):
+    """Protege la gouvernance du projet (aidlc.json) : c'est le metre, pas un livrable.
+
+    Ce fichier porte le seuil de maturite, le plancher par axe et la liste des agents qui
+    composent le pipeline. Un agent qui pourrait l'ecrire abaisserait le seuil qui le juge,
+    ou se retirerait de la liste pour echapper a sa porte — exactement ce que la liste
+    protegee interdit deja pour `.aidlc/` et pour la copie installee du harnais. Il est
+    hors de `.aidlc/` (il se versionne avec le projet), donc il lui faut sa propre garde.
+
+    `aidlc.py init` l'ecrit en Python, pas par un outil d'edition : ce refus ne le gene pas.
+    """
+    if resolved != (root / PROJECT_CONFIG).resolve():
+        return None
+    return ("Ecriture refusee : {} porte la gouvernance du projet — seuil de maturite, "
+            "plancher par axe, et la liste des agents qui composent le pipeline. Un agent "
+            "n'edite pas les regles qui le jugent. C'est une decision d'equipe : elle se "
+            "prend a la main, dans un terminal.".format(PROJECT_CONFIG))
 
 
 def _aidlc_protection_reason(root: Path, resolved: Path):

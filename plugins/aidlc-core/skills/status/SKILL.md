@@ -31,14 +31,27 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --json
 
 ## 2. Ajouter la lecture, pas les données
 
-Sous le tableau, ajoute au maximum cinq lignes de commentaire en français :  1. **Où en est le pipeline** : dernière étape franchie, étape courante.
+Le tableau porte une colonne **`EN ATTENTE DE`** : le rôle humain qui doit agir sur cette ligne.
+Elle est vide (`-`) pour une étape franchie et pour une étape bloquée par son amont — dans ce
+second cas l'action est sur la ligne du dessus, et nommer deux personnes à la fois est la meilleure
+façon que personne ne bouge.
+
+Sous le tableau, ajoute au maximum cinq lignes de commentaire en français :
+
+1. **Où en est le pipeline** : dernière étape franchie, étape courante, et **qui est attendu**
+   (colonne `EN ATTENTE DE`).
 2. **Ce qui bloque**, si quelque chose bloque : erreur de validation, score sous le seuil, revue
    humaine en attente. Cite le motif exact renvoyé par le script, pas une paraphrase.
 3. **La prochaine action concrète**, sous forme de commande ou de skill à lancer :
+   - « En attente de l'amont : <agent> » -> l'étape n'est pas jouable, son entrée n'existe pas ou
+     l'amont n'a pas franchi sa porte. Renvoie sur `/aidlc-core:run <agent amont>` et **nomme le
+     rôle humain de l'amont** : c'est lui qu'on attend, pas l'équipe de l'étape bloquée
    - livrable absent -> `/aidlc-core:run <stage>`
    - livrable présent mais validation en échec -> `/aidlc-core:run <stage>` (boucle de correction)
    - validation ok mais pas de score -> `/aidlc-core:review <stage>`
-   - revue humaine requise -> `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>`
+   - revue humaine requise -> `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>`,
+     puis donne à l'humain la commande de signature (`aidlc.py sign <stage> --approve --by … --why …`),
+     qu'il lance **depuis son terminal** — elle refuse de tourner ailleurs
    - étape listée en « prévu, plugin non installé » -> `/aidlc-core:new-stage <stage>`
    - « producteur absent » -> le plugin qui produit cette entrée n'est pas installé : dis lequel
    - « manifeste rejeté » -> nomme l'équipe propriétaire, c'est à elle de corriger son `agent.json`
@@ -58,7 +71,12 @@ Restreins le commentaire à cette étape et complète avec :
 ## 4. Cas particuliers
 
 - **`.aidlc/` absent** : aucun run n'a encore eu lieu. Dis-le simplement et propose
-  `/aidlc-core:run plan`. Ce n'est pas une erreur.
+  `/aidlc-core:run plan`. Ce n'est pas une erreur. Si `aidlc.json` manque aussi, le projet n'a
+  jamais été amorcé : propose `aidlc.py init`, qui pose la gouvernance du projet, le bundle
+  `knowledge/` et l'inventaire des sources déjà présentes dans le dépôt.
+- **« Gouvernance du projet : … »** sous le tableau : une clé de l'`aidlc.json` du projet est mal
+  orthographiée et donc ignorée. Relaie le message tel quel — c'est un fichier humain, il se
+  corrige à la main.
 - **`${CLAUDE_PLUGIN_ROOT}/pipeline.json` introuvable** : le plugin `aidlc-core` est mal
   installé. Signale-le et arrête-toi ; ne crée pas de fichier de secours.
 - **Registre vide** : aucun plugin d'agent n'est installé ou activé. Dis-le, et rappelle les deux

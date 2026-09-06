@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 
 from pathlib import Path
@@ -9,7 +10,10 @@ from .harness import AidlcTestCase
 from ..util import MAX_FIELD
 from ..util import digest
 from ..util import harness_root
+from ..util import PROJECT_CONFIG
 from ..util import load_pipeline
+from ..util import project_config
+from ..util import project_config_path
 from ..util import now_iso
 from ..util import sanitize_session_id
 from ..util import truncate
@@ -124,3 +128,56 @@ class TestHorodatage(AidlcTestCase):
         stamp = now_iso()
         self.assertTrue(stamp.endswith("+00:00"), stamp)
         self.assertNotIn(".", stamp)
+
+
+class TestProjectConfig(AidlcTestCase):
+    """La gouvernance du projet consommateur (aidlc.json), recouvrement du harnais.
+
+    Sans elle, une initiative ne pouvait ni fixer son exigence ni declarer son workflow :
+    les seuils vivaient dans la copie installee du harnais, que le garde-fou protege
+    justement de toute ecriture. Un projet subissait donc le pipeline de la machine.
+    """
+
+    def test_sans_fichier_la_gouvernance_du_projet_est_vide(self):
+        self.assertEqual(project_config(), {})
+
+    def test_le_chemin_pointe_la_racine_du_projet(self):
+        self.assertEqual(project_config_path(), self.root / PROJECT_CONFIG)
+
+    def test_une_cle_reconnue_est_rendue(self):
+        self.write_json(PROJECT_CONFIG, {"maturity_threshold": 3.5})
+        self.assertEqual(project_config(), {"maturity_threshold": 3.5})
+
+    def test_une_cle_inconnue_est_ecartee_et_ne_pollue_pas_la_gouvernance(self):
+        self.write_json(PROJECT_CONFIG, {"maturity_treshold": 3.5, "agents": ["plan"]})
+        self.assertEqual(project_config(), {"agents": ["plan"]})
+
+    def test_un_json_invalide_remonte_au_lieu_d_etre_avale(self):
+        self.write(PROJECT_CONFIG, "{ pas du json")
+        with self.assertRaises(json.JSONDecodeError):
+            project_config()
+
+    def test_un_json_qui_n_est_pas_un_objet_remonte(self):
+        self.write(PROJECT_CONFIG, "[1, 2]")
+        with self.assertRaises(json.JSONDecodeError):
+            project_config()
+
+
+class TestPipelineRecouvert(AidlcTestCase):
+    """load_pipeline rend la gouvernance **effective** : harnais recouvert par projet."""
+
+    def test_sans_fichier_projet_la_gouvernance_est_celle_du_harnais(self):
+        self.assertEqual(load_pipeline()["maturity_threshold"], 4.0)
+
+    def test_le_projet_recouvre_le_seuil_du_harnais(self):
+        self.write_json(PROJECT_CONFIG, {"maturity_threshold": 4.8})
+        self.assertEqual(load_pipeline()["maturity_threshold"], 4.8)
+
+    def test_une_cle_absente_du_projet_reste_celle_du_harnais(self):
+        self.write_json(PROJECT_CONFIG, {"maturity_threshold": 4.8})
+        self.assertEqual(load_pipeline()["consecutive_runs_to_autonomy"], 3)
+
+    def test_le_projet_declare_sa_propre_feuille_de_route(self):
+        self.write_json(PROJECT_CONFIG,
+                        {"planned_stages": [{"id": "deploy", "name": "Deploy"}]})
+        self.assertEqual([s["id"] for s in load_pipeline()["planned_stages"]], ["deploy"])

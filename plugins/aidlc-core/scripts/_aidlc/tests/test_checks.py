@@ -531,12 +531,18 @@ class TestMustNotViolateScopeCasLimites(AidlcTestCase):
         return {"id": "design", "checks": "checks.json", "root": str(checks_dir),
                 "consumes": consumes}
 
-    def test_entree_amont_absente_est_ignoree(self):
+    def test_entree_amont_absente_ne_bloque_pas_mais_ne_passe_plus_en_silence(self):
+        """La forme du livrable reste valide — c'est la porte qui refuse une etape
+        batie sur du vide. Mais la regle n'a alors rien verifie, et un vert muet
+        laissait croire le contraire."""
         livrable = self.write("livrable.md", "## Contexte\nRien de particulier.\n")
         res = checks.run_checks(self.root, self._stage(["deliverables/plan/absent.md"]),
                                 livrable)
         self.assertTrue(res["ok"])
         self.assertEqual(res["errors"], [])
+        self.assertTrue(any("Entree amont absente" in w for w in res["warnings"]),
+                        res["warnings"])
+        self.assertTrue(any("must_not_violate_scope" in w for w in res["warnings"]))
 
     def test_entree_sans_item_hors_perimetre_est_ignoree(self):
         self.write("deliverables/plan/intent.md",
@@ -776,3 +782,61 @@ class TestContractTemplateEtRubrique(AidlcTestCase):
                          {"required_sections": ["## Contexte"]})
         self.write("plugins/aidlc-lint/review.md", "# Rubrique\n")
         self.assertFalse(any("rubrique" in p for p in self._problems()))
+
+
+class TestAmontAbsentAvertit(AidlcTestCase):
+    """Une entree amont absente rend muettes les regles qui la lisent.
+
+    `must_reference_inputs` ne compare qu'une chaine de caracteres, et
+    `required_input_section` / `must_not_violate_scope` s'echappent silencieusement quand
+    le fichier n'existe pas. Un livrable aval pouvait donc valider a 12 regles vertes en
+    citant le chemin d'un amont qui n'avait jamais ete ecrit. Le blocage est du ressort
+    de la porte ; le devoir de la validation est de ne pas mentir sur ce qu'elle a
+    verifie.
+    """
+
+    def _spec(self):
+        return self.write("deliverables/design/spec.md",
+                          document({"## Contexte": "Issu de deliverables/plan/intent.md."},
+                                   front={"stage": "design", "version": "1",
+                                          "status": "draft", "author": "Steve",
+                                          "date": "2026-09-03"}))
+
+    def test_un_livrable_aval_valide_mais_avertit_quand_son_amont_manque(self):
+        self._spec()
+        res = checks.validate_stage(self.root, self.pipeline, "design")
+        self.assertTrue(res["ok"], res["errors"])
+        self.assertTrue(any("Entree amont absente" in w for w in res["warnings"]))
+
+    def test_l_avertissement_nomme_l_agent_a_lancer_d_abord(self):
+        self._spec()
+        res = checks.validate_stage(self.root, self.pipeline, "design")
+        self.assertTrue(any("l'agent 'plan'" in w for w in res["warnings"]),
+                        res["warnings"])
+
+    def test_l_avertissement_nomme_les_regles_devenues_muettes(self):
+        self._spec()
+        res = checks.validate_stage(self.root, self.pipeline, "design")
+        self.assertTrue(any("must_reference_inputs" in w for w in res["warnings"]))
+
+    def test_aucun_avertissement_quand_l_amont_existe(self):
+        self.plan_intent()
+        self._spec()
+        res = checks.validate_stage(self.root, self.pipeline, "design")
+        self.assertFalse(any("Entree amont absente" in w for w in res["warnings"]),
+                         res["warnings"])
+
+    def test_une_entree_sans_producteur_installe_le_dit(self):
+        self.write_agent("aidlc-orphelin",
+                         manifest("orphelin", "Produit", "deliverables/orphelin/out.md",
+                                  ["deliverables/inexistant/amont.md"]),
+                         {"required_sections": ["## Contexte"]})
+        self.write("deliverables/orphelin/out.md", "## Contexte\nDu contenu.\n")
+        res = checks.validate_stage(self.root, self.pipeline, "orphelin")
+        self.assertTrue(any("aucun agent installe ne la produit" in w
+                            for w in res["warnings"]), res["warnings"])
+
+    def test_une_etape_sans_entree_amont_n_avertit_de_rien(self):
+        self.plan_intent()
+        res = checks.validate_stage(self.root, self.pipeline, "plan")
+        self.assertEqual(res["warnings"], [])

@@ -111,9 +111,19 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
 - **exit 0** : étape franchie, annonce `next_stage`.
 - **exit 2** : énumère le tableau `blocking`. Si `human_review_required` est `true`, lance
   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>` et relaie les
-  consignes à
-  l'humain désigné par `human_role`. Si le verdict est `rejected`, propose `/aidlc-core:run <stage>`
+  consignes à l'humain désigné par `human_role` — **en lui donnant la commande de signature**, qui
+  lui évite de manipuler un JSON à la main :
+
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" sign <stage> --approve --by "Prénom Nom" --why "…"
+  ```
+
+  Elle refuse de tourner hors d'un terminal : **tu ne peux pas la lancer à sa place**, et c'est
+  voulu. Donne-la, puis arrête-toi. Si le verdict est `rejected`, propose `/aidlc-core:run <stage>`
   avec les `findings` en consignes de réécriture.
+- Un bloquant `Entree amont absente` ou `Porte amont fermee` ne se corrige pas ici : l'étape n'a pas
+  d'amont valide, la note qu'elle vient de recevoir porte sur un livrable bâti sur du vide. Renvoie
+  sur l'étape amont.
 
 ## Conditions d'arrêt
 
