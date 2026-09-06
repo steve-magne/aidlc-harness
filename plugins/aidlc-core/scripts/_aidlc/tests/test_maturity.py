@@ -16,6 +16,7 @@ from ..maturity import record_score
 from ..maturity import render_status
 from ..maturity import review_request
 from ..maturity import stage_maturity
+from ..maturity import stale_deliverable
 from ..maturity import status_data
 from ..util import aidlc_dir
 from ..util import now_iso
@@ -117,6 +118,42 @@ class TestComputeAutonomy(AidlcTestCase):
         self.assertTrue(
             compute_autonomy(self.root, self.pipeline, "plan", load_maturity(self.root)))
 
+    def test_un_run_produit_en_mode_autonome_n_attend_pas_de_signature(self):
+        """Sinon l'autonomie s'annulait au premier run qui en beneficiait : la fenetre
+        glissante y trouvait un run sans revue humaine — alors que c'est precisement le
+        mode autonome qui n'en avait pas demande — et l'etape repassait sous
+        surveillance apres exactement un run."""
+        self.plan_intent()
+        for run in (1, 2, 3):
+            record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+            _review(self.root, "plan", run, approved=True)
+        # La derniere signature arrive apres la note : c'est `gate` qui constate la serie.
+        self.assertTrue(gate_stage(self.root, self.pipeline, "plan")["autonomous"])
+        record = record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        self.assertFalse(record["supervised"])
+        self.assertTrue(load_maturity(self.root)["stages"]["plan"]["autonomous"])
+
+    def test_un_run_supervise_sans_revue_retire_l_autonomie(self):
+        """Le pendant du precedent : tant que l'etape est sous surveillance, un run non
+        signe casse la serie. Un run anterieur au champ `supervised` est lu ainsi."""
+        self.plan_intent()
+        for run in (1, 2, 3):
+            record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+            _review(self.root, "plan", run, approved=True)
+        maturity = load_maturity(self.root)
+        maturity["stages"]["plan"]["runs"][-1].pop("supervised")
+        maturity["stages"]["plan"]["runs"][-1]["human_review"] = None
+        (aidlc_dir(self.root) / "reviews" / "plan-3.json").unlink()
+        self.assertFalse(compute_autonomy(self.root, self.pipeline, "plan", maturity))
+
+    def test_un_run_autonome_sous_le_seuil_casse_quand_meme_la_serie(self):
+        """L'exemption ne porte que sur la signature humaine, jamais sur la note."""
+        runs = [{"run": n, "verdict": "accepted", "overall": 5.0, "supervised": False}
+                for n in (1, 2)]
+        runs.append({"run": 3, "verdict": "rejected", "overall": 2.0, "supervised": False})
+        maturity = {"stages": {"plan": {"runs": runs, "autonomous": True}}}
+        self.assertFalse(compute_autonomy(self.root, self.pipeline, "plan", maturity))
+
     def test_la_revue_en_memoire_du_run_suffit_sans_relire_le_disque(self):
         self.plan_intent()
         maturity = {"stages": {"plan": {"runs": [], "autonomous": False}}}
@@ -157,6 +194,20 @@ class TestRecordScore(AidlcTestCase):
         with self.assertRaises(ValueError) as ctx:
             record_score(self.root, self.pipeline, "plan", {"scores": hors_bornes})
         self.assertIn("completeness", str(ctx.exception))
+
+    def test_note_fractionnaire_leve_value_error(self):
+        """La grille est ordinale : 0 absent, 1 brouillon ... 5 exemplaire. Un 2,5 ne
+        designe aucun niveau, et juste sous le plancher il ouvre une negociation."""
+        with self.assertRaises(ValueError) as ctx:
+            record_score(self.root, self.pipeline, "plan",
+                         {"scores": dict(SCORES_HAUTS, precision=2.5)})
+        self.assertIn("precision", str(ctx.exception))
+
+    def test_une_note_entiere_ecrite_en_flottant_reste_acceptee(self):
+        """Le JSON d'un reviewer peut porter 4.0 : c'est le niveau 4, pas une demi-note."""
+        record = record_score(self.root, self.pipeline, "plan",
+                              {"scores": dict(SCORES_HAUTS, precision=4.0)})
+        self.assertEqual(record["scores"]["precision"], 4.0)
 
     def test_verdict_explicite_du_reviewer_est_respecte_meme_sous_le_seuil(self):
         """Le reviewer garde la main sous le seuil de moyenne — tant qu'aucun axe n'est
@@ -522,9 +573,15 @@ class TestPlancherParAxe(AidlcTestCase):
     derive, la contournait sans que rien ne le voie. C'est `record_score` qui la tient.
     """
 
-    #: Moyenne 4.0 (au seuil), mais l'autonomie s'effondre a 1.
+    #: Moyenne 4.0 (au seuil), mais la tracabilite s'effondre a 1.
     SCORES_DESEQUILIBRES = {"completeness": 5, "precision": 5,
-                            "traceability": 5, "autonomy": 1}
+                            "traceability": 1, "autonomy": 5}
+
+    #: Meme moyenne, meme effondrement — mais sur l'axe de procede. Le plancher ne le
+    #: retient pas : `autonomy` mesure un cout deja paye, qu'aucune reprise du livrable
+    #: ne peut rattraper.
+    SCORES_COUTEUX = {"completeness": 5, "precision": 5,
+                      "traceability": 5, "autonomy": 1}
 
     def _score(self, scores, verdict="accepted"):
         return record_score(self.root, self.pipeline, "plan",
@@ -542,7 +599,24 @@ class TestPlancherParAxe(AidlcTestCase):
         self.assertEqual(record["verdict"], "rejected")
 
     def test_l_axe_fautif_est_nomme(self):
-        self.assertEqual(self._score(self.SCORES_DESEQUILIBRES)["weak_axes"], ["autonomy"])
+        self.assertEqual(self._score(self.SCORES_DESEQUILIBRES)["weak_axes"],
+                         ["traceability"])
+
+    def test_l_autonomie_effondree_ne_ferme_pas_la_porte(self):
+        """Le plancher juge le livrable, pas son cout de production. Rejeter un livrable
+        irreprochable parce qu'il a demande des reprises fermerait une porte sans action
+        de sortie : le run ne peut pas defaire les tours deja passes, et le seul remede
+        serait de moins se corriger. L'autonomie pese toujours un quart de la moyenne, et
+        c'est la serie de runs (compute_autonomy) qui en tire les consequences."""
+        record = self._score(self.SCORES_COUTEUX, verdict="accepted")
+        self.assertEqual(record["weak_axes"], [])
+        self.assertEqual(record["verdict"], "accepted")
+
+    def test_l_autonomie_effondree_pese_quand_meme_sur_la_moyenne(self):
+        """Elle n'est pas neutralisee : sans trois axes parfaits pour la compenser, la
+        moyenne passe sous le seuil et le verdict tombe de lui-meme."""
+        record = self._score(dict(self.SCORES_COUTEUX, completeness=4), verdict="accepted")
+        self.assertLess(record["overall"], self.pipeline["maturity_threshold"])
 
     def test_la_porte_bloque_en_nommant_le_plancher(self):
         """`gate` ne doit pas se contenter de dire « rejete » : l'orchestrateur a besoin
@@ -557,7 +631,7 @@ class TestPlancherParAxe(AidlcTestCase):
         """Pour que l'orchestrateur sache quoi reprendre, pas seulement qu'il a echoue."""
         self._score(self.SCORES_DESEQUILIBRES)
         self.assertEqual(gate_stage(self.root, self.pipeline, "plan").get("weak_axes"),
-                         ["autonomy"])
+                         ["traceability"])
 
     def test_un_axe_exactement_au_plancher_passe(self):
         """Le plancher est inclusif : 3.0 n'est pas « sous 3.0 »."""
@@ -579,3 +653,68 @@ class TestPlancherParAxe(AidlcTestCase):
                                "verdict": "accepted"})
         self.assertEqual(record["weak_axes"], [])
         self.assertEqual(record["verdict"], "accepted")
+
+
+class TestPeremptionDuLivrableNote(AidlcTestCase):
+    """Une note porte sur un contenu, pas sur un nom de fichier.
+
+    `stale_inputs` fermait deja la fenetre amont : une entree revisee apres la revue de
+    l'aval rouvre la porte. La meme fenetre restait ouverte sur le livrable lui-meme —
+    il pouvait etre reecrit apres avoir ete note et signe, et franchir la porte sur la
+    note d'une version disparue. `validate` n'y voit rien : il ne juge que la forme.
+    """
+
+    def _score_and_sign(self, run):
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        _review(self.root, "plan", run, approved=True)
+
+    def test_le_run_fige_l_empreinte_du_livrable_note(self):
+        self.plan_intent()
+        record = record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        self.assertTrue(record["deliverable"])
+
+    def test_un_livrable_reecrit_apres_la_note_rouvre_la_porte(self):
+        intent = self.plan_intent()
+        self._score_and_sign(1)
+        self.assertTrue(gate_stage(self.root, self.pipeline, "plan")["passed"])
+
+        intent.write_text(document(GOOD_SECTIONS, filler=4), encoding="utf-8")
+        decision = gate_stage(self.root, self.pipeline, "plan")
+        self.assertFalse(decision["passed"])
+        self.assertTrue(decision["stale_deliverable"])
+
+    def test_la_porte_nomme_la_cause_plutot_qu_un_refus_nu(self):
+        intent = self.plan_intent()
+        self._score_and_sign(1)
+        intent.write_text(document(GOOD_SECTIONS, filler=4), encoding="utf-8")
+        self.assertTrue(any("Livrable modifie" in b for b in
+                            gate_stage(self.root, self.pipeline, "plan")["blocking"]))
+
+    def test_le_tableau_de_bord_remet_l_etape_a_faire(self):
+        intent = self.plan_intent()
+        self._score_and_sign(1)
+        intent.write_text(document(GOOD_SECTIONS, filler=4), encoding="utf-8")
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "plan")
+        self.assertTrue(row["stale_deliverable"])
+        self.assertIn("Livrable modifie", row["next_action"])
+
+    def test_une_nouvelle_revue_sur_la_version_courante_referme_la_porte(self):
+        intent = self.plan_intent()
+        self._score_and_sign(1)
+        intent.write_text(document(GOOD_SECTIONS, filler=4), encoding="utf-8")
+        self._score_and_sign(2)
+        self.assertTrue(gate_stage(self.root, self.pipeline, "plan")["passed"])
+
+    def test_un_run_note_avant_l_empreinte_ne_perime_rien(self):
+        """Compatibilite ascendante, comme pour l'empreinte des entrees amont."""
+        self.plan_intent()
+        self._score_and_sign(1)
+        maturity = load_maturity(self.root)
+        maturity["stages"]["plan"]["runs"][-1].pop("deliverable")
+        write_json(maturity_path(self.root), maturity)
+        self.assertTrue(gate_stage(self.root, self.pipeline, "plan")["passed"])
+
+    def test_un_agent_sans_livrable_ne_perime_jamais(self):
+        """Un manifeste consultatif n'a pas de `produces` : il n'y a rien a comparer."""
+        self.assertFalse(stale_deliverable(self.root, {}, {"deliverable": "abc"}))

@@ -177,7 +177,7 @@ Tant qu'il y a peu d'équipes, les plugins cohabitent dans `aidlc-harness` — a
 signal de sortie est le rythme de release : `AIDLC_AGENT_PATH` et le marketplace font de
 l'éclatement un changement de configuration, pas un remaniement.
 
-### Péremption d'une entrée amont
+### Péremption d'une note
 
 Le lien producteur → consommateur ne vaut pas qu'au démarrage de l'étape aval. Quand un run est
 noté (`score`), l'empreinte de chaque fichier listé dans `consumes` est **figée avec lui** dans
@@ -189,6 +189,13 @@ C'est ce qui empêche le mode de panne le plus silencieux d'un cycle multi-équi
 Owner révise `intent.md` — un KPI corrigé, un persona retiré — après que l'architecte a livré et
 fait noter `spec.md`, et la spec reste verte alors qu'elle instruit une intention disparue. Une
 étape peut donc redevenir « à faire » sans avoir été touchée.
+
+**La même fenêtre est fermée sur le livrable lui-même.** Le run fige aussi l'empreinte du fichier
+qu'il note (`runs[].deliverable`) : un livrable réécrit après sa revue rouvre la porte
+(`stale_deliverable`), au même titre qu'une entrée amont révisée. Sans cela, la note — et la
+signature humaine, elle aussi attachée au run — survivaient à la version qu'elles jugeaient :
+`validate` ne voit que la forme, et un fichier entièrement réécrit repasse ses `checks` sans
+difficulté. Une note porte sur un contenu, pas sur un nom de fichier.
 
 Deux limites assumées : la comparaison porte sur l'octet et non sur le sens (une typo corrigée en
 amont périme l'aval — compromis marqué dans `util.digest`), et un run noté avant l'existence des
@@ -508,8 +515,9 @@ réunies :
 2. Le dernier run enregistré porte le verdict `accepted` **et** une note globale supérieure ou
    égale à `maturity_threshold`.
 3. La revue humaine est présente et approuvée — sauf si l'étape est passée en mode autonome.
-4. Aucune entrée amont n'a été modifiée depuis que le dernier run a été noté (voir
-   « Péremption d'une entrée amont », §2) : `stale_inputs` doit être vide.
+4. Ni les entrées amont ni le livrable lui-même n'ont été modifiés depuis que le dernier run a
+   été noté (voir « Péremption d'une note », §2) : `stale_inputs` doit être vide et
+   `stale_deliverable` faux.
 
 Sinon, la sortie liste les éléments bloquants et le code de retour vaut 2, ce qui permet à un hook
 `Stop` de retenir la session tant que l'étape n'est pas franchie.
@@ -528,6 +536,11 @@ Le reviewer note quatre axes sur une échelle commune :
 | 3 | acceptable avec réserves |
 | 4 | conforme |
 | 5 | exemplaire |
+
+Ces six niveaux sont les seules notes possibles : `aidlc.py score` **refuse une note
+fractionnaire**. L'échelle est ordinale — chaque cran a un sens écrit — et une demi-note n'en
+désigne aucun ; elle sert surtout à négocier le franchissement du plancher par le haut (2,9 contre
+3,0). La règle vivait dans la skill de revue, donc dans un prompt : elle est dans le moteur.
 
 La note globale est la moyenne arithmétique des quatre axes, arrondie au dixième. Le script la
 recalcule toujours : la valeur `overall` proposée par le reviewer est ignorée, ce qui évite
@@ -610,13 +623,13 @@ humaine.
 
 #### Le plancher par axe est tenu par le moteur
 
-`min_axis_score` (`pipeline.json`, **3** par défaut) : si un seul axe passe sous ce plancher,
-`aidlc.py score` force le verdict enregistré à `rejected`, quelle que soit la moyenne et quel que
-soit le verdict rendu par le reviewer. Le run porte alors `weak_axes`, et `gate` bloque en nommant
-l'axe fautif.
+`min_axis_score` (`pipeline.json`, **3** par défaut) : si un des **axes du livrable** passe sous ce
+plancher, `aidlc.py score` force le verdict enregistré à `rejected`, quelle que soit la moyenne et
+quel que soit le verdict rendu par le reviewer. Le run porte alors `weak_axes`, et `gate` bloque en
+nommant l'axe fautif.
 
 La règle existait déjà — dans le **prompt** du reviewer, et nulle part ailleurs. Un livrable noté
-`{completeness: 5, precision: 5, traceability: 5, autonomy: 1}` obtient une moyenne de 4,0 : avec
+`{completeness: 5, precision: 5, traceability: 1, autonomy: 5}` obtient une moyenne de 4,0 : avec
 un verdict `accepted`, il franchissait la porte. Une consigne de prompt n'est pas un garde-fou —
 elle dépend du modèle qui la lit, et c'est exactement ce que le harnais refuse ailleurs (liste
 protégée, ratchet, holdout). Elle est désormais dans le moteur.
@@ -624,6 +637,22 @@ protégée, ratchet, holdout). Elle est désormais dans le moteur.
 Une moyenne flatteuse ne rachète pas un axe effondré : un livrable complet, précis et produit sans
 relance mais **sans aucune traçabilité** reste un livrable qu'on ne peut pas auditer — et il
 servira d'entrée à toute l'aval.
+
+#### Le plancher juge le livrable, pas son coût de production
+
+Les axes plafonnés sont `completeness`, `precision` et `traceability` — les trois qui décrivent le
+fichier noté. **`autonomy` n'a pas de plancher**, et c'est délibéré : elle mesure ce que la
+production a déjà coûté. Un run ne peut pas défaire les tours qu'il a consommés ; rejeter un
+livrable irréprochable pour ce motif fermerait une porte **sans action de sortie**, et le seul
+« remède » offert à l'agent serait de moins se corriger — l'inverse du comportement recherché.
+Elle continue de peser un quart de la moyenne : trois axes parfaits et une autonomie à 1 donnent
+4,0 et passent, mais la moindre imperfection ailleurs fait tomber la moyenne sous le seuil. Et
+c'est la **série** de runs (§6), pas un run isolé, qui tire les conséquences d'une autonomie
+médiocre : l'étape n'accède pas au mode autonome.
+
+Limite assumée de l'axe : `improve --stage` agrège **tous** les journaux de l'étape, sans fenêtre
+par run — plus l'étape a d'historique, plus le diagnostic est chargé. `autonomy` est donc l'axe le
+plus bruité de la grille, ce qui est une raison de plus de ne pas en faire un couperet.
 
 ### 5.6 La rubrique de l'équipe
 
@@ -662,8 +691,12 @@ conditions suivantes sont réunies :
 
 1. Les `consecutive_runs_to_autonomy` derniers runs — trois par défaut — affichent tous une note
    globale supérieure ou égale au seuil de maturité.
-2. Une revue humaine approuvée existe pour ces runs : l'humain a validé non seulement le livrable,
-   mais la constance du procédé.
+2. Une revue humaine approuvée existe pour ceux de ces runs qui ont été produits **sous
+   surveillance** : l'humain a validé non seulement le livrable, mais la constance du procédé. Un
+   run produit alors que l'étape était déjà autonome porte `supervised: false` et n'attend pas de
+   signature — sans cette exemption, la fenêtre glissante trouvait un run non signé dès le premier
+   run bénéficiant du mode autonome, et l'étape y repassait sous surveillance après exactement un
+   run. Un run antérieur à ce champ est lu comme supervisé.
 
 | Mode | Revue humaine | Ce qui reste actif |
 | ---- | ------------- | ------------------ |

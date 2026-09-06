@@ -17,6 +17,13 @@ from .checks import validate_stage
 from .util import write_json
 
 AXES = ["completeness", "precision", "traceability", "autonomy"]
+
+#: Les axes qui portent sur le **livrable**. Le plancher par axe ne s'applique qu'a
+#: eux : ils decrivent une propriete du fichier note, donc reecrire le fichier est une
+#: action de sortie. `autonomy` mesure le cout deja paye du procede — un run ne peut pas
+#: le corriger, et le rejeter pour ce motif fermerait une porte sans issue tout en
+#: punissant l'agent qui s'est corrige. Il pese toujours un quart de la moyenne.
+DELIVERABLE_AXES = ["completeness", "precision", "traceability"]
 """Maturite des etapes : scores, autonomie, porte (gate), revue humaine et etat du pipeline (status)."""
 
 # ------------------------------------------------------------------------ maturite
@@ -52,11 +59,11 @@ def human_review(root: Path, stage_id: str, run: int):
 
 
 def compute_autonomy(root: Path, pipe: dict, stage_id: str, maturity: dict) -> bool:
-    """Autonomie = les N derniers runs sont au-dessus du seuil ET humainement approuves.
+    """Autonomie = les N derniers runs sont au-dessus du seuil, et ceux qui ont ete
+    produits **sous surveillance** portent une revue humaine approuvee.
 
-    # ponytail: lecture stricte du contrat (chaque run de la fenetre doit porter une revue
-    humaine approuvee). Plafond : l'autonomie est plus longue a gagner. Upgrade : rendre la
-    regle configurable dans pipeline.json.
+    # ponytail: lecture stricte du contrat sur les runs supervises. Plafond : l'autonomie
+    est plus longue a gagner. Upgrade : rendre la regle configurable dans pipeline.json.
     """
     threshold = float(pipe.get("maturity_threshold", 4.0))
     window = int(pipe.get("consecutive_runs_to_autonomy", 3))
@@ -66,6 +73,11 @@ def compute_autonomy(root: Path, pipe: dict, stage_id: str, maturity: dict) -> b
     for run in runs[-window:]:
         if run.get("verdict") != "accepted" or float(run.get("overall", 0)) < threshold:
             return False
+        if not run.get("supervised", True):
+            # Run produit alors que l'etape etait deja autonome : aucune revue humaine
+            # n'a ete demandee, en exiger une ici retirerait l'autonomie des le premier
+            # run qui en beneficie. Un run anterieur a ce champ est lu comme supervise.
+            continue
         review = run.get("human_review") or human_review(root, stage_id, run.get("run", 0))
         if not review or not review.get("approved"):
             return False
@@ -92,6 +104,22 @@ def stale_inputs(root: Path, stage: dict, run: dict) -> list:
     return sorted(path for path, value in recorded.items() if current.get(path) != value)
 
 
+def stale_deliverable(root: Path, stage: dict, run: dict) -> bool:
+    """Le livrable a-t-il ete reecrit depuis qu'il a ete note ?
+
+    Symetrique amont de `stale_inputs` : une note porte sur un contenu, pas sur un nom de
+    fichier. Sans cette empreinte, un livrable pouvait etre reecrit apres sa revue et
+    franchir la porte sur la note de la version disparue — `validate` ne voit que la
+    forme, et la signature humaine est elle aussi attachee au run. Un run enregistre
+    avant l'existence de l'empreinte ne perime rien.
+    """
+    recorded = (run or {}).get("deliverable")
+    produces = (stage or {}).get("produces")
+    if not recorded or not produces:
+        return False
+    return digest(root / produces) != recorded
+
+
 def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
     scores = review.get("scores") or {}
     missing = [axis for axis in AXES if axis not in scores]
@@ -102,6 +130,13 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
         value = float(scores[axis])
         if not 0 <= value <= 5:
             raise ValueError(f"Score hors bornes pour '{axis}' : {value} (attendu 0-5).")
+        # La grille n'a que six niveaux ancres (0 absent ... 5 exemplaire) : une demi-note
+        # ne correspond a aucun. La regle etait ecrite dans la skill de revue, donc
+        # dependante du modele qui la lit ; sans elle, un 2,9 juste sous le plancher ou un
+        # 3,0 juste dessus se negocient, et l'echelle ordinale cesse d'etre comparable.
+        if value != int(value):
+            raise ValueError(f"Score non entier pour '{axis}' : {value} — la grille de "
+                             "maturite n'a que six niveaux (0 a 5).")
         values.append(value)
     overall = round(sum(values) / len(values), 1)
     threshold = float(pipe.get("maturity_threshold", 4.0))
@@ -113,12 +148,14 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
     # qu'on ne peut pas auditer — et il servira d'entree a toute l'aval. La regle etait
     # ecrite dans le prompt du reviewer et nulle part dans le moteur : un reviewer
     # complaisant (ou un modele qui derive) la contournait sans que rien ne le voie.
-    # C'est le moteur qui la tient, pas la consigne.
+    # C'est le moteur qui la tient, pas la consigne. Il ne porte que sur les axes du
+    # livrable (voir DELIVERABLE_AXES).
     floor = float(pipe.get("min_axis_score", 3.0))
-    weak = [axis for axis in AXES if float(scores[axis]) < floor]
+    weak = [axis for axis in DELIVERABLE_AXES if float(scores[axis]) < floor]
     if weak:
         verdict = "rejected"
 
+    stage = registry.find_agent(stage_id) or {}
     maturity = load_maturity(root)
     entry = stage_maturity(maturity, stage_id)
     run_number = len(entry["runs"]) + 1
@@ -132,7 +169,11 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
         "weak_axes": weak,
         "findings": truncate(review.get("findings", [])),
         "recommendations": truncate(review.get("recommendations", [])),
-        "inputs": input_digests(root, registry.find_agent(stage_id)),
+        "inputs": input_digests(root, stage),
+        "deliverable": digest(root / stage["produces"]) if stage.get("produces") else "",
+        # Etat de surveillance au moment de la note : c'est lui qui dit si l'absence de
+        # signature humaine sur ce run est normale (voir compute_autonomy).
+        "supervised": not bool(entry.get("autonomous")),
     }
     entry["runs"].append(record)
     entry["autonomous"] = compute_autonomy(root, pipe, stage_id, maturity)
@@ -228,6 +269,12 @@ def gate_stage(root: Path, pipe: dict, stage_id: str) -> dict:
             "Entree amont modifiee depuis la revue : " + ", ".join(stale)
             + " — relancer le reviewer."
         )
+
+    if stale_deliverable(root, stage, last):
+        out["stale_deliverable"] = True
+        out["blocking"].append(
+            "Livrable modifie depuis la revue : la note du run {} porte sur une version "
+            "qui n'est plus sur disque — relancer le reviewer.".format(last.get("run")))
 
     review = human_review(root, stage_id, last.get("run", 0))
     if review:
@@ -357,6 +404,7 @@ def status_data(root: Path, pipe: dict) -> dict:
             "autonomous": bool(entry.get("autonomous")),
             "human_role": stage.get("human_role"),
             "stale_inputs": stale,
+            "stale_deliverable": stale_deliverable(root, stage, last),
         }
         if not row["invocable"]:
             row["next_action"] = (f"Agent non invocable sur {view['platform']} : "
@@ -371,6 +419,9 @@ def status_data(root: Path, pipe: dict) -> dict:
                                   + ") : reprendre puis relancer le reviewer")
         elif last is None:
             row["next_action"] = "Lancer le reviewer (agent aidlc-core:reviewer)"
+        elif row["stale_deliverable"]:
+            row["next_action"] = ("Livrable modifie depuis la revue : relancer le "
+                                  "reviewer")
         elif last.get("verdict") != "accepted" or float(last.get("overall", 0)) < threshold:
             row["next_action"] = "Reprendre le livrable puis relancer le reviewer"
         elif not row["autonomous"] and not human_review(root, stage_id, last.get("run", 0)):
