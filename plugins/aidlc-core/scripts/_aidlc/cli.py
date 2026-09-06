@@ -6,6 +6,7 @@ import sys
 
 from .commands import cmd_agents
 from .commands import cmd_check_json
+from .commands import cmd_coverage
 from .commands import cmd_check_okf
 from .commands import cmd_check_python
 from .commands import cmd_gate
@@ -18,10 +19,11 @@ from .commands import cmd_ratchet
 from .commands import cmd_scaffold
 from .commands import cmd_score
 from .commands import cmd_status
+from .commands import cmd_test
 from .commands import cmd_validate
 from .commands import cmd_watchdog
 from .commands import cmd_watchdog_touched
-from .selftest import selftest
+from .tests import run as tests_run
 from .util import workspace_root
 """Parseur de commandes et bascule du moteur — appele par le point d'entree
 scripts/aidlc.py (des sous-commandes exposees par commands)."""
@@ -30,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aidlc.py", description="Moteur deterministe du harness AI-DLC.")
     parser.add_argument("--selftest", action="store_true",
-                        help="Lance l'auto-test integre et sort.")
+                        help="Alias historique de `test` : lance la suite et sort.")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("log", help="Journalise un evenement de hook lu sur stdin.")
@@ -128,6 +130,22 @@ def build_parser() -> argparse.ArgumentParser:
                             help="Mode hook PostToolUse : parse le fichier .json ecrit, non bloquant.")
     check_json.add_argument("--file",
                             help="Chemin du fichier touche (mode --touched ; defaut : stdin du hook).")
+    test = sub.add_parser("test",
+                          help="Suite de tests du moteur (unittest, stdlib).")
+    test.add_argument("-k", dest="select", metavar="MOTIF",
+                      help="Ne garde que les tests dont l'identifiant contient MOTIF.")
+    test.add_argument("-v", "--verbose", action="store_true",
+                      help="Un nom de test par ligne.")
+    test.add_argument("--failfast", action="store_true",
+                      help="S'arrete au premier echec.")
+
+    coverage_cmd = sub.add_parser(
+        "coverage",
+        help="Ratchet de couverture : la couverture ne descend jamais (exit 2).")
+    coverage_cmd.add_argument("--reset", action="store_true",
+                              help="Rebase le plancher sur l'etat courant (geste humain).")
+    coverage_cmd.add_argument("-k", dest="select", metavar="MOTIF",
+                              help="Restreint la mesure aux tests correspondants.")
     return parser
 
 
@@ -135,7 +153,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.selftest:
-        return selftest()
+        return tests_run()
     if not args.command:
         parser.print_help(sys.stderr)
         return 1
@@ -155,6 +173,7 @@ def main(argv=None) -> int:
         "check-okf": cmd_check_okf, "check-python": cmd_check_python,
         "check-json": cmd_check_json, "ratchet": cmd_ratchet,
         "watchdog": cmd_watchdog, "watchdog-touched": cmd_watchdog_touched,
+        "test": cmd_test, "coverage": cmd_coverage,
     }
     try:
         return handlers[args.command](root, args)

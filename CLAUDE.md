@@ -59,11 +59,13 @@ knowledge/                    base de connaissance du dépôt (projet d'essai) �
 
 plugins/aidlc-core/           noyau : orchestrator, reviewer, librarian, aidlc.py, hooks, skills
   pipeline.json                 gouvernance seule (seuils, `watchdog`, `planned_stages`) — aucun registre d'étapes
+  scripts/_aidlc/tests/         la suite : harness.py (socle partagé) + un test_<module>.py par concern
 plugins/<plugin>/agent.json   manifeste d'un agent : le seul contrat que l'orchestrateur lit
 plugins/aidlc-plan/           agent d'étape (produit un livrable, donc gouverné)
 plugins/aidlc-design/         agent d'étape aval (consomme le livrable de plan)
 plugins/aidlc-security/       agent d'équipe consultatif (exemple de référence, équipe AppSec)
 planchers figés               .aidlc/ratchet.json — planchers de sévérité (guard protégé)
+                              .aidlc/coverage.json — plancher de couverture (ne descend jamais)
 
 deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR)
 knowledge-sources.json        bundles OKF distants déclarés — projet consommateur
@@ -96,7 +98,11 @@ python3 $S watchdog                     # détecteurs de stagnation sur les jour
 python3 $S check-okf knowledge          # conformité OKF v0.2 du bundle knowledge/ (exit 1 = non conforme)
 python3 $S check-python                 # tout Python compile (règle 6 ; exit 1 = erreur de syntaxe)
 python3 $S check-json                   # tout JSON parse (règle 6 ; exit 1 = JSON invalide)
-python3 $S --selftest                   # auto-test : le seul test du projet, il doit passer
+python3 $S test                         # suite de tests du moteur (unittest stdlib) — doit passer
+python3 $S test -k registry             # ne garde que les tests dont l'identifiant contient « registry »
+python3 $S coverage                     # non-régression de couverture (exit 2 = la couverture a baissé)
+python3 $S coverage --reset             # rebase le plancher de couverture (geste humain, visible au diff)
+python3 $S --selftest                   # alias historique de `test` (hooks, CI, consommateurs)
 ```
 
 Dans un **projet consommateur**, le script se lance depuis le plugin installé — les hooks et les
@@ -114,13 +120,15 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
 2. **Toute logique déterministe vit sous `plugins/aidlc-core/scripts/`** : le point d'entrée
    `aidlc.py` délègue au paquet stdlib `_aidlc/`, un module par concern (`util`, `checks`,
    `maturity`, `registry`, `scaffold`, `improve`, `hookslog`, `okf`, `knowledge`, `syntax`,
-   `selftest`, `commands`, `cli`). Jamais de
+   `ratchet`, `watchdog`, `coverage`, `commands`, `cli`, plus le paquet `tests/`). Jamais de
    second point d'entrée, jamais de logique dans un `Makefile` ni en shell inline dans un hook. Si
    une nouvelle vérification est nécessaire, elle s'exprime d'abord de façon **déclarative** dans
    le `checks.json` de l'étape ; on ne touche au Python que si aucune règle existante ne convient.
 3. **Aucune dépendance externe.** Bibliothèque standard Python uniquement (`json`, `os`, `sys`, `re`,
-   `pathlib`, `argparse`, `datetime`, `uuid`, `subprocess`, `statistics`). Pas de `pip install`, pas
-   de YAML, pas de framework de test.
+   `pathlib`, `argparse`, `datetime`, `uuid`, `subprocess`, `statistics`, `unittest`, `trace`). Pas
+   de `pip install`, pas de YAML. Le framework de test est `unittest` — il est dans la stdlib, donc
+   la suite tourne chez n'importe quel consommateur avec `python3` seul. Pas de pytest : ce serait
+   une dépendance externe, et c'est elle qui est interdite, pas le fait de tester sérieusement.
 4. **L'état runtime et le référentiel de règles ne sont jamais édités à la main par un agent.**
    `.aidlc/maturity.json`, `.aidlc/reviews/*.json`, `.aidlc/ratchet.json`,
    `.aidlc/improvement-queue.jsonl` et `.aidlc/logs/` ne sont écrits que par les scripts
@@ -137,6 +145,44 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    dans `hooks.json` et dans les `SKILL.md` doivent correspondre exactement à l'arborescence réelle.
 7. Les raccourcis assumés sont marqués par un commentaire `# ponytail: ...` expliquant le compromis.
    Pas d'abstraction spéculative : le moins de fichiers possible.
+8. **Toute logique déterministe nouvelle arrive avec son test.** Un module de `_aidlc/` a un
+   `_aidlc/tests/test_<module>.py` en face de lui ; une sous-commande nouvelle est testée deux
+   fois — sa fonction `cmd_*` appelée directement (`test_commands.py`) et son contrat en
+   sous-processus (`test_cli.py`, codes de sortie, stdout machine / stderr humain). La couverture
+   ne descend jamais : `aidlc.py coverage` rougit la CI si elle baisse.
+
+## Tester
+
+La suite vit dans `plugins/aidlc-core/scripts/_aidlc/tests/` — un module par concern, en face du
+module qu'il teste. Elle repose sur `unittest` (bibliothèque standard : rien à installer, ni ici
+ni chez un consommateur) et n'est atteignable que par le point d'entrée : `aidlc.py test`, dont
+`--selftest` reste l'alias historique.
+
+```bash
+S=plugins/aidlc-core/scripts/aidlc.py
+python3 $S test                  # toute la suite
+python3 $S test -k registry -v   # un sous-ensemble, un nom de test par ligne
+python3 $S test --failfast       # s'arrête au premier échec
+python3 $S coverage              # non-régression de couverture (exit 2 = baisse)
+```
+
+Ce qui vaut pour un test de ce dépôt :
+
+- **`harness.AidlcTestCase` ou rien.** Chaque test reçoit un projet temporaire neuf qui joue les
+  deux racines, un environnement sauvé puis restauré, et un cache de registre vidé. Un test qui
+  dépend de l'ordre des autres, laisse une variable d'environnement ou écrit hors de `self.root`
+  est un défaut, pas une commodité. Le dépôt réel ne s'ouvre qu'en lecture, via `repo_root()`.
+- **Le nom de la méthode est la spécification.** Il est en français et se lit comme une phrase :
+  c'est lui qui s'affiche quand le test tombe. C'est l'exception assumée à la règle « identifiants
+  en anglais » — un nom de test ne nomme pas une API, il énonce un comportement attendu.
+- **Une méthode = un comportement.** On ne fusionne pas deux assertions distinctes pour raccourcir.
+- **Pas de test tautologique.** Une assertion qui ne tombe jamais quand le comportement change ne
+  teste rien. Les chemins d'erreur et les entrées malformées valent mieux que le chemin nominal.
+- **Jamais de test qui relance la suite.** `test`, `--selftest` et `coverage` lancent la suite
+  entière ; un test qui les invoque récurse. Un garde-fou de réentrance neutralise l'imbrication,
+  mais on teste ce routage par substitution (`unittest.mock`), pas en relançant.
+- **Aucune dépendance externe, y compris pour mesurer.** La couverture se mesure avec `trace`
+  (stdlib), jamais avec le paquet pip `coverage`.
 
 ## Ajouter un agent
 

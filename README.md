@@ -109,8 +109,9 @@ dans [docs/MAINTAINER.md](docs/MAINTAINER.md). Depuis la racine du dépôt, le s
 directement (il s'auto-localise) :
 
 ```bash
-# 1. Vérifier que le harnais est sain (le seul test du projet)
-python3 plugins/aidlc-core/scripts/aidlc.py --selftest
+# 1. Vérifier que le harnais est sain (suite unittest, stdlib — rien à installer)
+python3 plugins/aidlc-core/scripts/aidlc.py test
+python3 plugins/aidlc-core/scripts/aidlc.py coverage
 
 # 2. Voir où en est le pipeline (les livrables, eux, vivent dans le projet consommateur)
 python3 plugins/aidlc-core/scripts/aidlc.py status

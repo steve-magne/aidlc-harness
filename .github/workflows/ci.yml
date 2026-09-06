@@ -6,6 +6,25 @@ on:
     branches: [main]
 
 jobs:
+  # La suite du moteur, sur plusieurs versions de Python. Le harnais promet de tourner
+  # chez n'importe quel consommateur avec `python3` seul (aucun `pip install`) : cette
+  # matrice est la porte qui défend cette promesse au lieu de la répéter. Élargir la
+  # liste est une ligne ; si une version rougit, c'est la promesse qui a cassé.
+  tests:
+    name: Suite du moteur (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: aidlc.py test
+        run: python3 plugins/aidlc-core/scripts/aidlc.py test
+
   checks:
     name: Gates du harnais
     runs-on: ubuntu-latest
@@ -15,18 +34,25 @@ jobs:
       # Portes canoniques du dépôt, dans l'ordre : hygiène du code via le moteur
       # (check-python, check-json — CLAUDE.md, règle 6 : tout Python compile, tout JSON
       # parse), registre d'agents (les manifestes agent.json de CE dépôt doivent être
-      # valides ; ceux des autres équipes ne rougissent jamais notre CI), selftest
-      # (auto-test par assertions du moteur), puis conformance OKF v0.2 des deux bundles
-      # (knowledge/, docs/) — exit non nul = build rouge. Ces portes sont le moteur
-      # seul : pas de dépendance externe, stdlib Python uniquement.
+      # valides ; ceux des autres équipes ne rougissent jamais notre CI), non-régression
+      # de couverture, puis conformance OKF v0.2 des deux bundles (knowledge/, docs/) —
+      # exit non nul = build rouge. Ces portes sont le moteur seul : pas de dépendance
+      # externe, stdlib Python uniquement. La suite elle-même tourne dans le job `tests`,
+      # sur plusieurs versions de Python.
       - name: Hygiène syntaxique (check-python, check-json)
         run: |
           python3 plugins/aidlc-core/scripts/aidlc.py check-python
           python3 plugins/aidlc-core/scripts/aidlc.py check-json
       - name: Registre d'agents (agents --strict)
         run: python3 plugins/aidlc-core/scripts/aidlc.py agents --strict
-      - name: Selftest du moteur (--selftest)
-        run: python3 plugins/aidlc-core/scripts/aidlc.py --selftest
+      # Ratchet de couverture : le taux de lignes couvertes ne descend jamais sous le
+      # plancher figé dans .aidlc/coverage.json. Exit 2 = régression, build rouge. Le
+      # geste légal pour rebaser un plancher est `aidlc.py coverage --reset`, dans le
+      # dépôt auteur, et il se voit dans le diff. Mesuré sur une seule version : le taux
+      # varie d'une version de Python à l'autre (branches conditionnelles), et comparer
+      # un plancher unique à plusieurs mesures produirait de fausses régressions.
+      - name: Non-régression de couverture (coverage)
+        run: python3 plugins/aidlc-core/scripts/aidlc.py coverage
       - name: Conformance OKF v0.2 de knowledge/
         run: python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
       - name: Conformance OKF v0.2 de docs/

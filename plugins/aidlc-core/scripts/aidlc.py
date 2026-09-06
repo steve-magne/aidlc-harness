@@ -3,8 +3,8 @@
 """aidlc.py — point d'entree du moteur deterministe du harness AI-DLC.
 
 Toute la logique vit dans le paquet stdlib `_aidlc/` (meme repertoire) : un module par
-concern (util, checks, maturity, scaffold, improve, hookslog, okf, syntax, selftest,
-commands, cli). Ce fichier ne fait que mettre le repertoire sur sys.path et appeler
+concern (util, checks, maturity, scaffold, improve, hookslog, okf, syntax, coverage,
+commands, cli) et un paquet tests/ qui porte la suite unittest. Ce fichier ne fait que mettre le repertoire sur sys.path et appeler
 `_aidlc.cli.main` — il garde le chemin d'invocation stable que les hooks, les skills et
 les consommateurs utilisent : ${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py.
 
@@ -13,7 +13,8 @@ stderr ; sous-commandes log, guard, validate, score, gate, review-request, statu
 scaffold, improve, check-okf (<dir>, --touched, --stop), check-python et check-json
 (hygiene syntaxique du depot : tout Python compile, tout JSON parse), ratchet (planchers
 de severite figures) et watchdog (detecteurs de stagnation, plus watchdog-touched en
-hook PostToolUse), plus --selftest.
+hook PostToolUse), test (suite unittest du moteur, alias --selftest) et coverage
+(ratchet de couverture, exit 2 si elle baisse).
 """
 
 import os

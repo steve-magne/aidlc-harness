@@ -140,9 +140,12 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 python3 plugins/aidlc-core/scripts/aidlc.py check-python
 python3 plugins/aidlc-core/scripts/aidlc.py check-json
 
-# 2. L'auto-test du harnais passe — le seul test du projet ; il vérifie aussi la conformité
-#    OKF v0.2 des bundles docs/ et knowledge/ (frontmatter, fichiers réservés, dates du journal)
-python3 plugins/aidlc-core/scripts/aidlc.py --selftest
+# 2. La suite de tests du moteur passe ; elle vérifie aussi la conformité OKF v0.2 des
+#    bundles docs/ et knowledge/ (frontmatter, fichiers réservés, dates du journal)
+python3 plugins/aidlc-core/scripts/aidlc.py test
+
+# 2ter. La couverture n'a pas baissé (exit 2 = régression)
+python3 plugins/aidlc-core/scripts/aidlc.py coverage
 
 # 2bis. Conformance OKF des bundles de connaissance (exit 1 si non conforme)
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
@@ -187,7 +190,7 @@ celui qui ne l'installe pas voit une entrée `missing_producers` s'il en dépend
 
 ### 3.2 Checklist de publication
 
-1. Les vérifications de la section 2.5 passent (check-python, check-json, selftest, `claude plugin validate`).
+1. Les vérifications de la section 2.5 passent (check-python, check-json, test, coverage, `claude plugin validate`).
 2. Les versions sont incrémentées pour **tous** les plugins modifiés (`aidlc-core` seulement si
    le noyau a changé). Le manifeste `agent.json` de chaque agent touché est valide :
    `python3 plugins/aidlc-core/scripts/aidlc.py agents --strict` (porte CI).
@@ -252,7 +255,7 @@ sur le `SKILL.md`, le template ou le `checks.json` de l'étape faible ; elle ne 
 sans accord humain explicite, et elle corrige la **source** (ce dépôt), jamais une copie installée.
 
 Une évolution acceptée suit ensuite exactement le circuit de publication de la section 3 :
-incrémenter la version du plugin modifié, vérifier (selftest, `claude plugin validate`), committer,
+incrémenter la version du plugin modifié, vérifier (test, coverage, `claude plugin validate`), committer,
 pousser, annoncer aux consommateurs (`claude plugin update`).
 
 ## 5. Commandes utiles (récapitulatif)
@@ -269,7 +272,8 @@ python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage> --force   # écrase
 python3 plugins/aidlc-core/scripts/aidlc.py ratchet                # fige les planchers de sévérité des checks.json (exit 2 = régression)
 python3 plugins/aidlc-core/scripts/aidlc.py ratchet --reset <stage>  # repart du contrat courant après décision humaine
 python3 plugins/aidlc-core/scripts/aidlc.py watchdog                # détecteurs de stagnation sur les journaux (exit 2 = halte)
-python3 plugins/aidlc-core/scripts/aidlc.py --selftest             # auto-test (doit passer avant chaque release)
+python3 plugins/aidlc-core/scripts/aidlc.py test                   # suite de tests (doit passer avant chaque release)
+python3 plugins/aidlc-core/scripts/aidlc.py coverage               # non-régression de couverture (exit 2 = baisse)
 claude plugin validate plugins/aidlc-core                          # validité des plugins pour Claude Code
 claude plugin validate plugins/aidlc-<stage>
 ```

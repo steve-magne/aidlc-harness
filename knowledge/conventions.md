@@ -77,7 +77,7 @@ sépare un 4 d'un 3.
    journalisation de l'écriture fautive — session, fichier — pour le diagnostic `improve`) et
    `check-okf --stop` à la fermeture — l'arrêt est refusé tant que le bundle est non conforme en
    session interactive (en headless `claude -p`, le refus est émis et enregistré sans bloquer).
-   La passe de conformité du harnais (`aidlc.py --selftest`) couvre `docs/` et `knowledge/` du
+   La passe de conformité du harnais (`aidlc.py test`) couvre `docs/` et `knowledge/` du
    dépôt ; pour un bundle arbitraire — ex. le `knowledge/` d'un projet consommateur — la
    sous-commande `aidlc.py check-okf <dossier>` est la porte dure (exit 1 si non conforme) :
    branchez-la en CI pour gater le bundle à chaque changement.
