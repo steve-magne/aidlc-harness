@@ -1,7 +1,7 @@
 {
   "name": "aidlc-plan",
   "description": "Étape Plan du harness AI-DLC : cadrage du besoin avec le Product Owner et production du livrable deliverables/plan/intent.md, contrôlé par checks.json.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "Steve"
   },

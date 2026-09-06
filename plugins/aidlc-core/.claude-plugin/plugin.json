@@ -1,7 +1,7 @@
 {
   "name": "aidlc-core",
   "description": "Noyau du harness AI-DLC : orchestration du pipeline SDLC, revue de maturité des livrables, journalisation des sessions, portes de qualité et auto-construction de nouvelles étapes.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "Steve"
   },

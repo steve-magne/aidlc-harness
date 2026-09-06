@@ -48,6 +48,7 @@ from .maturity import render_status
 from .maturity import review_request
 from .scaffold import scaffold
 from .maturity import status_data
+from .checks import contract_problems
 from .checks import validate_stage
 from .ratchet import ratchet_reset
 from .ratchet import ratchet_run
@@ -438,10 +439,19 @@ def selftest() -> int:
         market = json.loads(read_text(root / ".claude-plugin/marketplace.json"))
         check(any(p["name"] == "aidlc-design" for p in market["plugins"]),
               "le scaffold doit inscrire le plugin au marketplace")
-        check(len(info["created"]) == 7,
-              "le scaffold doit creer 7 fichiers (dont le manifeste agent.json)")
+        check(len(info["created"]) == 8,
+              "le scaffold doit creer 8 fichiers (manifeste et rubrique de revue compris)")
+        check((root / "plugins/aidlc-design/review.md").exists(),
+              "le scaffold doit creer la rubrique de revue de l'equipe")
+        check(json.loads(read_text(root / "plugins/aidlc-design/agent.json"))["review"]
+              == "review.md",
+              "le manifeste genere doit designer la rubrique de revue")
         check(validate_stage(root, load_pipeline(), "design")["stage"] == "design",
               "le checks.json genere doit rester exploitable par validate")
+        registry.reset_cache()
+        check(contract_problems(registry.find_agent("design")) == [],
+              "un plugin fraichement scaffolde doit passer le controle de contrat : "
+              "gabarit et checks.json generes ensemble ne doivent jamais diverger")
         # le scaffold a reecrit le contrat de design : restaurer la fixture du test
         write_json(design_checks_path, design_checks)
         write_json(root / "plugins/aidlc-design/agent.json",
@@ -1176,6 +1186,75 @@ def selftest() -> int:
                   for h in holes),
               "une entree sans producteur installe doit remonter dans missing_producers")
 
+        # 38. Contrat d'agent controle a vide : le registre est ouvert, et le
+        #     checks.json d'une equipe voisine n'etait lu qu'au moment de valider un
+        #     livrable — une regle inconnue, une regex fautive ou une section mal
+        #     orthographiee y restaient invisibles jusqu'a rendre le contrat
+        #     insatisfiable en pleine session.
+        check(contract_problems(registry.find_agent("plan")) == [],
+              "un contrat coherent ne doit remonter aucun probleme")
+        check(contract_problems(registry.find_agent("security-review")) == [],
+              "un agent consultatif n'a pas de contrat a verifier")
+
+        lint_dir = ensure_dir(root / "plugins" / "aidlc-lint")
+        write_json(lint_dir / "agent.json",
+                   _manifest("lint", "X", "deliverables/lint/doc.md",
+                             ["deliverables/plan/intent.md"]))
+        write_json(lint_dir / "checks.json", {
+            "required_sections": ["## Contexte"],
+            "min_words": 900, "max_words": 100,
+            "forbidden_patterns": ["(?i)\\b[non-ferme"],
+            "min_items_per_section": {"## Absente": 2},
+            "required_input_section": {"deliverables/jamais.md": "## Contexte"},
+            "regle_inventee": True,
+        })
+        registry.reset_cache()
+        found = contract_problems(registry.find_agent("lint"))
+        for fragment, label in (
+                ("regle inconnue", "une regle inconnue ne sera jamais appliquee : le dire"),
+                ("regex invalide", "une regex fautive doit etre signalee a vide"),
+                ("insatisfiable", "une section exigee hors de required_sections est un piege"),
+                ("'consumes'", "une regle qui vise une entree non consommee ne verifie rien"),
+                ("depasse max_words", "min_words superieur a max_words doit etre refuse")):
+            check(any(fragment in problem for problem in found), label)
+
+        # derive gabarit / contrat : la skill d'etape part du gabarit du plugin ; un
+        # squelette sans les sections exigees ne peut pas valider.
+        ensure_dir(lint_dir / "templates")
+        template = lint_dir / "templates" / "doc.md"
+        template.write_text("# Doc\n\n## Autre chose\n", encoding="utf-8")
+        found = contract_problems(registry.find_agent("lint"))
+        check(any("gabarit" in problem and "## Contexte" in problem for problem in found),
+              "un gabarit qui ne porte pas les sections exigees doit etre signale")
+        template.write_text("# Doc\n\n## Contexte\n", encoding="utf-8")
+        check(not any("gabarit" in problem
+                      for problem in contract_problems(registry.find_agent("lint"))),
+              "un gabarit aligne sur le contrat ne doit rien remonter")
+
+        # une rubrique de revue declaree mais absente : le reviewer noterait a la grille
+        # universelle sans que personne le sache.
+        write_json(lint_dir / "agent.json",
+                   dict(_manifest("lint", "X", "deliverables/lint/doc.md"),
+                        review="review.md"))
+        registry.reset_cache()
+        check(any("rubrique de revue introuvable" in problem
+                  for problem in contract_problems(registry.find_agent("lint"))),
+              "une rubrique de revue declaree mais absente doit etre signalee")
+        (lint_dir / "review.md").write_text("# Rubrique\n", encoding="utf-8")
+        check(not any("rubrique" in problem
+                      for problem in contract_problems(registry.find_agent("lint"))),
+              "une rubrique presente ne doit rien remonter")
+
+        # une etape gouvernee sans contrat n'a aucun metre : le dire, sans deviner
+        write_json(lint_dir / "agent.json",
+                   dict(_manifest("lint", "X", "deliverables/lint/doc.md"), checks=None))
+        registry.reset_cache()
+        check(any("sans contrat" in problem
+                  for problem in contract_problems(registry.find_agent("lint"))),
+              "une etape gouvernee sans checks.json doit etre signalee")
+        (lint_dir / "agent.json").unlink()
+        registry.reset_cache()
+
         # ratchet : desinstaller un agent n'efface pas son plancher
         (bad_dir / "agent.json").unlink()
         registry.reset_cache()
@@ -1196,6 +1275,32 @@ def selftest() -> int:
         state = json.loads(read_text(aidlc_dir(root) / "ratchet.json"))
         check("design" in state["stages"],
               "le plancher de l'agent retire doit rester ecrit dans le ratchet")
+
+        # 39. Plancher par axe : une moyenne suffisante ne rachete pas un axe effondre.
+        #     La regle vivait dans le prompt du reviewer et nulle part dans le moteur —
+        #     un reviewer complaisant faisait franchir la porte a un livrable qu'on ne
+        #     peut pas auditer. Elle est desormais tenue par record_score.
+        record = record_score(root, pipe, "plan", {
+            "stage": "plan", "scores": {"completeness": 5, "precision": 5,
+                                        "traceability": 5, "autonomy": 1},
+            "verdict": "accepted"})
+        check(record["overall"] == 4.0,
+              "la moyenne doit rester au-dessus du seuil : c'est tout l'interet du cas")
+        check(record["verdict"] == "rejected",
+              "un axe sous le plancher doit forcer le verdict a rejected, meme si le "
+              "reviewer a rendu 'accepted'")
+        check(record["weak_axes"] == ["autonomy"], "l'axe fautif doit etre nomme")
+        decision = gate_stage(root, pipe, "plan")
+        check(not decision["passed"] and any("plancher" in b for b in decision["blocking"]),
+              "gate doit bloquer en nommant le plancher, pas seulement le verdict")
+        check(decision.get("weak_axes") == ["autonomy"],
+              "gate doit exposer l'axe effondre pour que l'orchestrateur sache quoi reprendre")
+        record = record_score(root, pipe, "plan", {
+            "stage": "plan", "scores": {"completeness": 3, "precision": 3,
+                                        "traceability": 3, "autonomy": 3},
+            "verdict": "accepted"})
+        check(record["weak_axes"] == [] and record["verdict"] == "accepted",
+              "un axe exactement au plancher passe : le plancher est inclusif")
 
         # savoir OKF distant : sources declarees, catalogue, recherche, resolution.
         # Une source dont le `repo` est un dossier existant est lue telle quelle : le

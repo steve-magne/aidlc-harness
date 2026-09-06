@@ -48,6 +48,9 @@ Invoque le sous-agent `reviewer` (agent `aidlc-core:reviewer`) avec, dans son pr
 - les chemins et le contenu des `consumes` de l'étape (indispensable pour noter la traçabilité) ;
 - le contrat de l'étape (champ `checks` du manifeste, relatif à celui-ci) et les `warnings` de la
   validation ;
+- **la rubrique de revue de l'équipe** : champ `review` du manifeste, résolu relativement à `root`
+  (tous deux dans `agents --json`). Elle dit ce que chaque axe veut dire pour ce métier. Si le
+  champ est absent, dis-le au reviewer : il notera à la grille universelle seule ;
 - le contexte du bundle `knowledge/` (via le sous-agent `librarian` si l'étape en dépend) ;
 - le nombre de tours et d'allers-retours humains de la session, extraits des logs :
   `.aidlc/logs/<session_id>.jsonl` — c'est la matière de l'axe `autonomy` ;
@@ -84,6 +87,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" score <stage> --file .aidlc/tmp
 Le script **recalcule** `overall` comme la moyenne des quatre axes (arrondie à 0,1) et ignore la
 valeur fournie par le reviewer : c'est normal, ne t'en étonne pas et ne cherche pas à la corriger en
 amont. Il ajoute le run à `.aidlc/maturity.json`.
+
+Il applique aussi le **plancher par axe** (`min_axis_score` de `pipeline.json`, 3 par défaut) : si
+un axe passe dessous, le verdict enregistré est `rejected` même si le reviewer a rendu `accepted`,
+et `weak_axes` nomme les axes fautifs. C'est le moteur qui tient cette règle, pas la consigne du
+reviewer — ne relance pas la revue pour contourner le plancher, reprends le livrable.
 
 ## 6. Restituer et conclure
 

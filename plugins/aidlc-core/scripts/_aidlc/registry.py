@@ -146,6 +146,9 @@ def validate_manifest(data, source: str) -> list:
             problems.append(f"{source} : '{key}' doit etre une liste.")
     if data.get("produces") is not None and not isinstance(data["produces"], str):
         problems.append(f"{source} : 'produces' doit etre le chemin d'un fichier unique.")
+    if data.get("review") is not None and not isinstance(data["review"], str):
+        problems.append(f"{source} : 'review' doit etre le chemin d'un fichier de "
+                        "rubrique, relatif au plugin.")
     return problems
 
 
@@ -170,6 +173,7 @@ def _normalize(data: dict, manifest: Path, project: Path) -> dict:
         "consumes": list(data.get("consumes") or []),
         "requires": list(data.get("requires") or []),
         "checks": data.get("checks"),
+        "review": data.get("review"),
         "human_role": data.get("human_role"),
         "manifest": str(manifest),
         "root": str(root),

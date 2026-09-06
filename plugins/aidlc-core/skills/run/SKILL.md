@@ -51,6 +51,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json
   encore. **Arrête-toi** et propose `aidlc-core:new-stage`. Ne tente pas d'improviser le livrable.
 - `"invocable": false` -> l'agent ne déclare pas d'invocation pour cette plateforme : arrête-toi et
   nomme l'équipe propriétaire (`team`).
+- `contract_problems` mentionne cet agent -> son `checks.json` est incohérent (règle jamais
+  appliquée, section exigée que le contrat n'impose pas, gabarit qui a dérivé). **Arrête-toi** :
+  le livrable ne pourrait pas valider quoi que tu écrives. Relaie le message et nomme l'équipe
+  propriétaire — ce contrat se corrige dans son dépôt, pas ici.
 - Sinon, continue : retiens `invoke` (l'invocation exacte), `produces` et `consumes`.
 
 ## 3. Vérifier les entrées amont

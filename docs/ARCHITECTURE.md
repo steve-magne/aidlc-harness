@@ -83,6 +83,7 @@ ou à Codex.
 | `consumes` | non | Les livrables amont attendus. C'est ce qui place l'agent dans la chaîne. |
 | `requires` | non | Dépendance sur un agent qui ne produit rien (rare : la dépendance normale passe par les livrables). |
 | `checks` | non | Contrat déterministe, **relatif au manifeste** — donc lu dans le plugin de l'équipe. |
+| `review` | non | Rubrique de revue de l'équipe, **relative au manifeste**. Ce que chaque axe de maturité veut dire pour ce métier. Elle précise et durcit la grille universelle, jamais l'inverse. |
 | `human_role` | non | Le rôle humain responsable de la revue. |
 
 Un agent **sans `produces`** est *consultatif* : invocable pour un avis, jamais noté, aucune porte.
@@ -253,6 +254,33 @@ des entrées amont (design et suivantes).
 Ajouter une exigence à une étape, c'est éditer un fichier JSON, pas écrire du Python. C'est le
 levier principal du self-improvement : une faiblesse récurrente détectée par le reviewer se
 traduit par une règle supplémentaire dans le `checks.json` de l'étape.
+
+#### Le contrat est contrôlé à vide
+
+Le registre est ouvert : le noyau lit le `checks.json` d'une équipe qu'il ne connaît pas. Ce
+fichier n'était jusqu'ici ouvert qu'au moment de valider un livrable — une règle mal nommée, une
+regex fautive ou une section mal orthographiée y restaient donc invisibles jusqu'à rendre le
+contrat **insatisfiable en pleine session** : l'agent corrige, revalide, et n'y arrive jamais.
+
+`aidlc.py agents` contrôle désormais chaque contrat **avant tout livrable**, et remonte sous
+`contract_problems` (préfixe `[contrat]` en sortie humaine, également dans `status`) :
+
+- une clé de règle inconnue — elle ne sera jamais appliquée ;
+- une regex de `forbidden_patterns` / `required_patterns` qui ne compile pas ;
+- une section visée par `min_items_per_section`, `proof_of_run`, `required_input_section` ou
+  `must_not_violate_scope` mais absente de `required_sections` — le contrat est insatisfiable ;
+- une clé de `required_input_section` qui n'est pas une entrée `consumes` de l'agent, ou
+  `must_reference_inputs` actif sur un agent sans entrée : la règle ne vérifie rien ;
+- `min_words` supérieur à `max_words` ;
+- une étape gouvernée sans champ `checks` : son livrable ne serait validé par aucune règle ;
+- la **dérive gabarit / contrat** — les skills d'étape partent de `templates/<nom du livrable>` du
+  plugin ; si ce squelette ne porte pas les sections exigées, l'agent démarre sur un livrable qui
+  ne peut pas valider. Seules les sections sont confrontées : un gabarit est court et plein de
+  marqueurs, il ne peut satisfaire ni `min_words` ni `forbidden_patterns`.
+
+La sévérité est la même que pour les manifestes : `agents --strict` (porte CI) ne rougit que pour
+les contrats **de ce dépôt** — la CI d'un consommateur n'échoue pas sur le contrat cassé d'une
+direction voisine, elle l'affiche.
 
 ### 3.3 `plugins/aidlc-core/scripts/` — la seule logique déterministe
 
@@ -576,6 +604,48 @@ Le reviewer émet `accepted` ou `rejected`. Un verdict `accepted` avec une note 
 au seuil ne franchit pas la porte : le seuil prime sur l'avis. Chaque note doit être justifiée par
 une citation du livrable ; une note sans citation est traitée comme non justifiée lors de la revue
 humaine.
+
+#### Le plancher par axe est tenu par le moteur
+
+`min_axis_score` (`pipeline.json`, **3** par défaut) : si un seul axe passe sous ce plancher,
+`aidlc.py score` force le verdict enregistré à `rejected`, quelle que soit la moyenne et quel que
+soit le verdict rendu par le reviewer. Le run porte alors `weak_axes`, et `gate` bloque en nommant
+l'axe fautif.
+
+La règle existait déjà — dans le **prompt** du reviewer, et nulle part ailleurs. Un livrable noté
+`{completeness: 5, precision: 5, traceability: 5, autonomy: 1}` obtient une moyenne de 4,0 : avec
+un verdict `accepted`, il franchissait la porte. Une consigne de prompt n'est pas un garde-fou —
+elle dépend du modèle qui la lit, et c'est exactement ce que le harnais refuse ailleurs (liste
+protégée, ratchet, holdout). Elle est désormais dans le moteur.
+
+Une moyenne flatteuse ne rachète pas un axe effondré : un livrable complet, précis et produit sans
+relance mais **sans aucune traçabilité** reste un livrable qu'on ne peut pas auditer — et il
+servira d'entrée à toute l'aval.
+
+### 5.6 La rubrique de l'équipe
+
+La grille des §5.1 à §5.4 est **universelle** : elle vaut pour tout livrable. Elle ne sait pas ce
+que « précis » veut dire pour une intention produit par opposition à une conception cible. Le
+champ `review` du manifeste comble cet écart : chaque équipe maintient, **dans son plugin**, une
+rubrique que le reviewer charge avant de noter (`plugins/aidlc-plan/review.md`,
+`plugins/aidlc-design/review.md`).
+
+Une rubrique dit trois choses, et rien d'autre :
+
+1. ce que chaque axe veut dire pour ce métier (« un persona sans volume ni fréquence plafonne
+   `completeness` à 2 ») ;
+2. les fautes **rédhibitoires** du métier, qui imposent `rejected` quelle que soit la moyenne ;
+3. les nuances d'`autonomy` propres à l'étape (en Design, signaler une lacune de l'intention amont
+   plutôt que de produire une conception bancale vaut 5).
+
+**Ce qu'une rubrique ne peut pas faire** — et c'est la frontière qui rend le dispositif sûr : elle
+ne change ni le barème 0-5, ni les quatre axes, ni le seuil, ni le plancher par axe, ni le calcul
+de la note. Elle **précise et durcit**, jamais l'inverse. Une équipe affine la lecture de son
+métier ; elle n'assouplit pas le mètre qui la juge.
+
+Une rubrique déclarée mais absente du plugin est signalée par `agents` (`[contrat]`) : sans ce
+contrôle, le reviewer retomberait silencieusement sur la grille universelle et l'équipe croirait
+sa rubrique appliquée. `scaffold` en génère une avec l'agent, pour qu'aucune étape ne naisse sans.
 
 ---
 
