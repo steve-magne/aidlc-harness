@@ -323,6 +323,7 @@ les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 | `knowledge index` | sommaire des bundles OKF distants déclarés dans `knowledge-sources.json` : une ligne par concept (référence, type, titre, description) |
 | `knowledge search <mots>` | concepts portant **tous** les mots (frontmatter d'abord, puis corps) ; rend des références, pas du contenu |
 | `knowledge get <source>/<id>` | le markdown d'un seul concept ; `--refresh` met le cache à jour, `--source` restreint, `--json` rend la forme machine |
+| `knowledge links <source>/<id>` | les voisins du concept dans le graphe : `->` ce qu'il cite, `<-` ce qui le cite. La traversée est **déterministe** — elle suit les liens croisés relatifs de la spec, là où la recherche par mots-clés ne rend que des correspondances isolées |
 | `check-okf <dir>` | vérifie la conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet (`knowledge/`, et `docs/` s'il existe), non bloquant, retour en contexte |
 | `check-okf --stop` | mode hook `Stop` : porte de sortie — refuse la fermeture de session (deny) si un bundle du projet est non conforme, et enregistre le refus dans la file d'amélioration |
@@ -343,9 +344,23 @@ de fichier hors de `scripts/`.
 
 Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des sessions Claude Code.
 
-- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop` appellent `log`.
-  C'est la matière première de l'axe *autonomy* et du diagnostic `improve` : on sait combien de
-  tours, quels outils, quelles relances ont été nécessaires pour produire un livrable.
+- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop` et `SessionEnd` appellent
+  `log`. C'est la matière première de l'axe *autonomy* et du diagnostic `improve` : on sait
+  combien de tours, quelles relances ont été nécessaires pour produire un livrable.
+- `PostToolUseFailure`, `Notification` (matcher `permission_prompt|idle_prompt|agent_needs_input`),
+  `PermissionDenied` et `PreCompact` appellent `log` : un outil qui résiste, une permission
+  demandée, un refus humain sur une action, un contexte qui déborde. L'axe *autonomy* mesure le
+  coût déjà payé du procédé — ces événements sont ce coût ; non journalisés, l'axe se noterait à
+  l'impression. Le `Notification` est filtré sur les motifs qui disent quelque chose du procédé :
+  une reprise de quota ou une authentification n'en disent rien.
+- `PostToolUse` sur `Write|Edit` appelle `log` **en premier**, avant toute vérification. C'est ce
+  qui fait exister la matière « quels outils, quels fichiers » : les détecteurs d'écriture du
+  watchdog (`validation_failures`, `write_loop`) comptent `payload.tool_name` et
+  `tool_input.file_path` dans le journal, et sans un événement d'outil journalisé ils ne peuvent
+  jamais se déclencher. Le journal est écrit avant les validations pour exister même quand
+  l'une d'elles échoue. Du `tool_input`, seuls les **chemins** sont retenus : le contenu écrit
+  n'entre pas dans `.aidlc/logs/` — il consommerait la fenêtre de relecture en quelques
+  événements et recopierait le travail en clair.
 - `Stop` appelle `log` puis `check-okf --stop`. La fermeture de session est la **condition de
   sortie** du bundle de connaissance : si `knowledge/` (ou `docs/`, quand il existe) n'est pas
   conforme OKF v0.2, le hook refuse l'arrêt (`permissionDecision: deny`) et affiche la liste des
@@ -383,6 +398,12 @@ Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des ses
   skills, templates — c'est la **liste protégée**. Un modèle ne doit pas pouvoir éditer sa
   propre note ni les règles qui le jugent : l'intégrité de la mesure conditionne tout le reste.
   Dans le dépôt auteur (les deux racines confondues), la conception reste libre.
+  Il refuse enfin à un **sous-agent nommé** d'écrire le `produces` d'un *autre* agent : la chaîne
+  producteur → consommateur n'ordonne plus rien si l'agent aval peut « corriger » son entrée
+  amont — il se fabriquerait le contrat sur lequel il est jugé, et la porte de l'étape amont
+  noterait un texte que son propre agent n'a pas écrit. Le refus est nominatif (le `produces`
+  exact, jamais une annexe) et ne s'applique que si le payload du hook nomme l'agent courant :
+  sans identité, rien n'est bloqué — un garde-fou qui devine coûterait plus qu'il ne protège.
 
 Le journal est écrit sans jamais interrompre la session. Un hook qui casse une session coûte plus
 cher que l'absence de trace.
@@ -787,8 +808,8 @@ Quatre mécanismes, hérités des principes du « dark factory » (ai-software-f
 confiance indépendante des prompts :
 
 1. **La liste protégée** — un agent ne peut pas écrire dans l'état runtime (score, revues,
-   ratchet, file, registre des expériences, journaux) ni dans la copie installée du harnais (pipeline, contrats, hooks,
-   script, agents, skills, templates). Le hook `PreToolUse`/`guard` refuse ces écritures ; la
+   ratchet, file, registre des expériences, journaux), ni dans la copie installée du harnais (pipeline, contrats, hooks,
+   script, agents, skills, templates), ni dans le livrable d'un autre agent. Le hook `PreToolUse`/`guard` refuse ces écritures ; la
    conception du harnais vit dans le dépôt auteur, où les deux racines se confondent.
 2. **Le ratchet** — `aidlc.py ratchet` fige les planchers de sévérité de chaque `checks.json`
    (`min_words`, `min_items_per_section`, `required_sections`) dans `.aidlc/ratchet.json`

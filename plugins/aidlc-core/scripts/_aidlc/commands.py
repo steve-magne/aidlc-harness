@@ -27,6 +27,7 @@ from .experiment import record as experiment_record
 from .improve import improve
 from .knowledge import SOURCES_FILE
 from .knowledge import catalog as knowledge_catalog
+from .knowledge import links as knowledge_links
 from .knowledge import render as knowledge_render
 from .knowledge import resolve as knowledge_resolve
 from .knowledge import search as knowledge_search
@@ -36,7 +37,9 @@ from .okf import okf_report
 from .maturity import enqueue_improvement
 from .util import read_text
 from .util import sanitize_session_id
+from .maturity import recall
 from .maturity import record_score
+from .maturity import render_recall
 from .maturity import render_status
 from .maturity import review_request
 from .checks import contract_problems
@@ -192,6 +195,24 @@ def cmd_review_request(root: Path, args) -> int:
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
         return 1
+    return 0
+
+
+def cmd_recall(root: Path, args) -> int:
+    """Rend les reproches des tentatives precedentes a qui reprend l'etape.
+
+    Sortie humaine par defaut (c'est une consigne de reprise, elle se lit), --json pour
+    la forme machine.
+    """
+    try:
+        data = recall(root, args.stage, args.limit)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    if args.json:
+        emit(data)
+    else:
+        sys.stdout.write(render_recall(data) + "\n")
     return 0
 
 
@@ -556,12 +577,18 @@ def cmd_check_json(root: Path, args) -> int:
                             "Conformite syntaxique : tout JSON parse")
 
 
+def _concept_row(entry: dict) -> dict:
+    """Concept en forme machine : sans `path`, qui n'a de sens que sur cette machine."""
+    return {k: v for k, v in entry.items() if k != "path"}
+
+
 def cmd_knowledge(root: Path, args) -> int:
     """Sert le savoir OKF des depots declares dans knowledge-sources.json.
 
       index  : une ligne par concept, toutes sources confondues ;
       search : les concepts qui portent tous les mots donnes (frontmatter d'abord) ;
-      get    : le markdown d'un concept, tel quel.
+      get    : le markdown d'un concept, tel quel ;
+      links  : les voisins d'un concept dans le graphe OKF (cites, et qui le citent).
 
     Divergence assumee de la convention JSON-sur-stdout : la sortie utile est ici le
     format compact — c'est le produit du CLI, et tenir dans le contexte d'un agent est
@@ -606,6 +633,33 @@ def cmd_knowledge(root: Path, args) -> int:
                          "instructions.\n".format(concept["source"]))
         return 0
 
+    if args.action == "links":
+        if not args.terms:
+            sys.stderr.write("Usage : knowledge links <source>/<concept-id>\n")
+            return 1
+        concept = knowledge_resolve(entries, args.terms[0])
+        if concept is None:
+            sys.stderr.write("Concept introuvable ou ambigu : {}. "
+                             "Lister avec `knowledge index`.\n".format(args.terms[0]))
+            return 1
+        neighbours = knowledge_links(entries, concept)
+        if args.json:
+            emit({"ref": concept["ref"],
+                  "out": [_concept_row(e) for e in neighbours["out"]],
+                  "in": [_concept_row(e) for e in neighbours["in"]]})
+        else:
+            # Le sens du lien est le produit utile : « ce concept s'appuie sur » n'est
+            # pas « ce concept est invoque par ». Un chevron le dit en deux caracteres.
+            lines = ["-> " + line for line in
+                     knowledge_render(neighbours["out"]).splitlines()]
+            lines += ["<- " + line for line in
+                      knowledge_render(neighbours["in"]).splitlines()]
+            if lines:
+                sys.stdout.write("\n".join(lines) + "\n")
+        sys.stderr.write("{} : {} lien(s) sortant(s), {} retrolien(s)\n".format(
+            concept["ref"], len(neighbours["out"]), len(neighbours["in"])))
+        return 0
+
     if args.action == "search":
         if not args.terms:
             sys.stderr.write("Usage : knowledge search <mot> [<mot>...]\n")
@@ -615,7 +669,7 @@ def cmd_knowledge(root: Path, args) -> int:
     shown = entries[:args.limit]
     if args.json:
         emit({"sources": view["sources"], "total": len(entries),
-              "concepts": [{k: v for k, v in e.items() if k != "path"} for e in shown]})
+              "concepts": [_concept_row(e) for e in shown]})
     else:
         if shown:
             sys.stdout.write(knowledge_render(shown) + "\n")

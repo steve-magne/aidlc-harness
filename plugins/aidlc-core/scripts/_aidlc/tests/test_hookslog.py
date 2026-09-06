@@ -155,11 +155,47 @@ class TestHandleLog(AidlcTestCase):
         self.assertEqual(entry["stage"], "plan")
 
     def test_les_gros_champs_doivent_etre_tronques(self):
+        entry = self._write_event(tool_name="Write", prompt="x" * 5000,
+                                  tool_input={"file_path": str(self.intent)})
+        self.assertLessEqual(len(entry["payload"]["prompt"]), MAX_FIELD + 20)
+
+    def test_le_contenu_ecrit_n_entre_jamais_dans_le_journal(self):
+        # Le journal est relu par fenetre (LOG_TAIL_BYTES) : y recopier le contenu des
+        # fichiers ecrits la consommerait en quelques evenements, et mettrait le travail
+        # en clair dans .aidlc/logs/. Seuls les chemins sont relus.
         entry = self._write_event(tool_name="Write",
                                   tool_input={"file_path": str(self.intent),
-                                              "content": "x" * 5000})
-        self.assertLessEqual(len(entry["payload"]["tool_input"]["content"]),
-                            MAX_FIELD + 20)
+                                              "content": "secret" * 500})
+        self.assertEqual(entry["payload"]["tool_input"], {"file_path": str(self.intent)})
+
+    def test_le_chemin_d_un_notebook_est_conserve(self):
+        entry = self._write_event(tool_name="Write",
+                                  tool_input={"notebook_path": str(self.intent),
+                                              "new_source": "du code"})
+        self.assertEqual(entry["payload"]["tool_input"],
+                         {"notebook_path": str(self.intent)})
+
+    def test_un_tool_input_non_dictionnaire_est_laisse_tel_quel(self):
+        entry = self._write_event(tool_name="Bash", tool_input="ls -la")
+        self.assertEqual(entry["payload"]["tool_input"], "ls -la")
+
+    def test_le_motif_d_une_notification_est_journalise(self):
+        # Sans `notification_type`, une permission demandee et une session inactive se
+        # ressemblent dans le journal — or l'une dit le cout du procede, pas l'autre.
+        entry = self._write_event(hook_event_name="Notification",
+                                  notification_type="permission_prompt")
+        self.assertEqual(entry["payload"]["notification_type"], "permission_prompt")
+
+    def test_l_erreur_d_un_outil_est_journalisee(self):
+        entry = self._write_event(hook_event_name="PostToolUseFailure",
+                                  tool_name="Write", tool_error="permission refusee")
+        self.assertEqual(entry["payload"]["tool_error"], "permission refusee")
+
+    def test_la_sortie_d_un_outil_n_est_jamais_journalisee(self):
+        # `tool_output` est le plus gros champ du payload (un Read entier) et aucun
+        # diagnostic ne le relit : le journaliser gonflerait la fenetre pour rien.
+        entry = self._write_event(tool_name="Read", tool_output="x" * 5000)
+        self.assertNotIn("tool_output", entry["payload"])
 
     def test_accepte_un_session_id_non_textuel(self):
         entry = self._write_event(session_id=42)
@@ -422,3 +458,68 @@ class TestAgentProtectionReason(AidlcTestCase):
     def test_absorbe_une_exception_du_registre(self):
         with mock.patch.object(registry, "agents_list", side_effect=RuntimeError("boom")):
             self.assertIsNone(hookslog._agent_protection_reason(self.root / "x"))
+
+
+class TestDeliverableProtectionReason(AidlcTestCase):
+    """Le livrable d'un agent appartient a cet agent : un sous-agent nomme n'ecrit pas
+    le `produces` d'un voisin. Sans identite dans le payload, rien ne bloque."""
+
+    def _reason(self, file_path, **payload):
+        return hookslog.guard_decision(self.root, json.dumps(
+            dict({"tool_name": "Write",
+                  "tool_input": {"file_path": str(file_path)}}, **payload)))
+
+    def test_refuse_a_design_d_ecrire_le_livrable_de_plan(self):
+        reason = self._reason(self.root / "deliverables" / "plan" / "intent.md",
+                              agent_type="aidlc-design:design")
+        self.assertIsNotNone(reason)
+        self.assertIn("plan", reason)
+
+    def test_le_refus_nomme_l_equipe_proprietaire(self):
+        reason = self._reason(self.root / "deliverables" / "plan" / "intent.md",
+                              agent_type="aidlc-design:design")
+        self.assertIn("Produit", reason)
+
+    def test_laisse_un_agent_ecrire_son_propre_livrable(self):
+        self.assertIsNone(self._reason(self.root / "deliverables" / "plan" / "intent.md",
+                                       agent_type="aidlc-plan:plan"))
+
+    def test_l_identite_est_reconnue_par_l_id_nu(self):
+        # Une plateforme qui nommerait l'agent par son id, pas par son invocation.
+        self.assertIsNotNone(self._reason(self.root / "deliverables" / "plan" / "intent.md",
+                                          agent_type="design"))
+
+    def test_sans_identite_dans_le_payload_rien_n_est_refuse(self):
+        # Session principale : le garde-fou ne devine pas qui ecrit.
+        self.assertIsNone(self._reason(self.root / "deliverables" / "plan" / "intent.md"))
+
+    def test_un_agent_inconnu_du_registre_ne_declenche_aucun_refus(self):
+        self.assertIsNone(self._reason(self.root / "deliverables" / "plan" / "intent.md",
+                                       agent_type="acme-autre:inconnu"))
+
+    def test_une_annexe_du_meme_repertoire_reste_ecrivable(self):
+        # Le refus porte sur le `produces` exact, pas sur le repertoire de l'etape :
+        # une note de travail voisine n'est le contrat de personne.
+        self.assertIsNone(self._reason(self.root / "deliverables" / "plan" / "notes.md",
+                                       agent_type="aidlc-design:design"))
+
+    def test_un_agent_consultatif_ne_protege_aucun_chemin(self):
+        self.write_agent("acme-security", manifest("security-review", "AppSec"))
+        self.assertIsNone(self._reason(self.root / "deliverables" / "design" / "spec.md",
+                                       agent_type="aidlc-security:security-review"))
+
+    def test_le_champ_agent_id_vaut_identite_a_defaut_d_agent_type(self):
+        self.assertIsNotNone(self._reason(self.root / "deliverables" / "plan" / "intent.md",
+                                          agent_id="design"))
+
+    def test_un_produces_au_chemin_illegal_ne_protege_rien(self):
+        # Manifeste d'une equipe voisine dont le `produces` ne peut pas etre resolu :
+        # il ne doit ni proteger, ni faire tomber le garde-fou pour les autres.
+        self.write_agent("acme-casse",
+                         manifest("casse", "Acme", "deliverables/x\x00y.md"))
+        self.assertIsNone(self._reason(self.root / "deliverables" / "casse.md",
+                                       agent_type="aidlc-design:design"))
+
+    def test_absorbe_une_exception_du_registre_a_l_identification(self):
+        with mock.patch.object(registry, "agents_list", side_effect=RuntimeError("boom")):
+            self.assertIsNone(hookslog._actor_agent_id({"agent_type": "design"}))

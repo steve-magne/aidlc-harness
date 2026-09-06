@@ -21,6 +21,7 @@ SOURCES_FILE = "knowledge-sources.json"
 RESERVED = ("index.md", "log.md")  # fichiers reserves de la spec, jamais des concepts
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$")
 _FLOW_LIST = re.compile(r"^\[(.*)\]$")
+_BODY_LINK = re.compile(r"\[[^\]\n]*\]\(([^)\s]+)\)")
 
 
 def sources_path(root: Path) -> Path:
@@ -181,3 +182,44 @@ def resolve(entries: list, ref: str):
         return exact[0]
     suffix = [e for e in entries if e["ref"].endswith("/" + ref.strip("/"))]
     return suffix[0] if len(suffix) == 1 else None
+
+
+def _outgoing(entry: dict, by_path: dict) -> list:
+    """Concepts du meme bundle cites par les liens markdown relatifs de `entry`.
+
+    Un lien absolu (http, mailto) ou une ancre pure ne designe pas un concept : ignore.
+    """
+    base = Path(entry["path"]).parent
+    seen, out = set(), []
+    for href in _BODY_LINK.findall(read_text(Path(entry["path"]))):
+        href = href.split("#", 1)[0].strip()
+        if not href or "://" in href or href.startswith(("#", "mailto:")):
+            continue
+        try:
+            target = str((base / href).resolve())
+        except (OSError, ValueError):
+            continue  # href pathologique (octet nul, chemin illegal) : pas un concept
+        hit = by_path.get(target)
+        if hit and hit["ref"] != entry["ref"] and hit["ref"] not in seen:
+            seen.add(hit["ref"])
+            out.append(hit)
+    return out
+
+
+def links(entries: list, concept: dict) -> dict:
+    """Voisins d'un concept : `out` (concepts qu'il cite), `in` (concepts qui le citent).
+
+    C'est la traversee deterministe que les liens croises relatifs de la spec OKF rendent
+    possible : un chemin de faits verifiable, la ou une recherche par mots-cles ne rend
+    que des correspondances isolees. La traversee ne sort jamais du bundle d'origine —
+    un lien relatif y est confine par construction.
+
+    # ponytail: les retroliens se calculent en relisant le corps de chaque concept de la
+    # source. Plafond : O(n) lectures par appel, invisible sous quelques centaines de
+    # concepts. Upgrade : un index de liens mis en cache a cote du bundle.
+    """
+    same = [e for e in entries if e["source"] == concept["source"]]
+    by_path = {str(Path(entry["path"]).resolve()): entry for entry in same}
+    incoming = [e for e in same if e["ref"] != concept["ref"]
+                and any(t["ref"] == concept["ref"] for t in _outgoing(e, by_path))]
+    return {"out": _outgoing(concept, by_path), "in": incoming}

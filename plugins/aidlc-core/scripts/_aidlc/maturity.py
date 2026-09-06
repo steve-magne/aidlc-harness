@@ -306,6 +306,69 @@ def gate_stage(root: Path, pipe: dict, stage_id: str) -> dict:
     return out
 
 
+# ------------------------------------------------------------------------ recall
+
+def recall(root: Path, stage_id: str, limit: int = 3) -> dict:
+    """Ce qu'un agent doit savoir des tentatives precedentes avant de reprendre l'etape.
+
+    Les findings du reviewer, les axes effondres et la justification d'un refus humain
+    sont deja sur disque a la fin d'un run — mais rien ne les rendait, si bien qu'ils
+    mouraient avec la session. Un agent qui reprenait une etape refusee refaisait
+    l'erreur pour laquelle elle avait ete refusee.
+
+    Ce n'est pas une entorse au principe « pas de memoire implicite » : rien ne circule
+    tout seul entre deux etapes. C'est une lecture explicite, demandee, de ce que le
+    projet a deja juge — le livrable reste le seul contrat entre agents.
+    """
+    stage = registry.find_agent(stage_id)
+    if stage is None:
+        raise ValueError(f"Agent inconnu du registre : {stage_id}")
+    entry = stage_maturity(load_maturity(root), stage_id)
+    runs = entry["runs"][-max(1, limit):] if entry["runs"] else []
+    out = []
+    for run in runs:
+        # La signature humaine est relue sur disque plutot que prise dans le run : le
+        # champ n'y est recopie que par `gate`, et un refus signe apres la derniere
+        # porte serait invisible — or c'est exactement celui qui compte pour reprendre.
+        review = human_review(root, stage_id, run.get("run", 0)) or {}
+        out.append({
+            "run": run.get("run"), "ts": run.get("ts"),
+            "overall": run.get("overall"), "verdict": run.get("verdict"),
+            "weak_axes": run.get("weak_axes") or [],
+            "findings": run.get("findings") or [],
+            "recommendations": run.get("recommendations") or [],
+            "human_approved": review.get("approved") if review else None,
+            "human_justification": review.get("justification", "") if review else "",
+        })
+    return {"stage": stage_id, "produces": stage.get("produces"),
+            "autonomous": bool(entry.get("autonomous")),
+            "total_runs": len(entry["runs"]), "runs": out}
+
+
+def render_recall(data: dict) -> str:
+    """Rendu humain : le plus recent en premier, c'est celui qu'on doit corriger."""
+    if not data["runs"]:
+        return ("Etape '{}' : aucune tentative anterieure — rien a reprendre."
+                .format(data["stage"]))
+    lines = ["Etape '{}' — {} run(s), {} rappele(s){}".format(
+        data["stage"], data["total_runs"], len(data["runs"]),
+        ", autonome" if data["autonomous"] else "")]
+    for run in reversed(data["runs"]):
+        lines.append("")
+        lines.append("run {} ({}) : {} — note {}{}".format(
+            run["run"], run["ts"], run["verdict"], run["overall"],
+            " | axes sous plancher : " + ", ".join(run["weak_axes"])
+            if run["weak_axes"] else ""))
+        if run["human_approved"] is False:
+            lines.append("  refus humain : " + (run["human_justification"]
+                                                or "sans justification"))
+        for finding in run["findings"]:
+            lines.append("  - reproche : " + str(finding))
+        for reco in run["recommendations"]:
+            lines.append("  - a faire  : " + str(reco))
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------------ review-request
 
 REVIEW_INSTRUCTIONS = """Revue humaine — etape '{stage}' (run {run})

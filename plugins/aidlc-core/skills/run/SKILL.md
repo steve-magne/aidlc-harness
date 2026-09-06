@@ -78,12 +78,20 @@ Transmets cette synthèse à la skill de l'étape.
 
 ## 5. Produire le livrable
 
+Si l'étape porte déjà un run, récupère d'abord ce qui lui a été reproché :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" recall <stage>
+```
+
 Invoque **exactement** la valeur du champ `invoke` du catalogue (par exemple `aidlc-plan:plan`),
 via l'outil Skill, en lui passant :
 
 - le chemin du livrable attendu (`produces`) ;
 - les chemins des `consumes` ;
-- la synthèse du librarian.
+- la synthèse du librarian ;
+- les reproches du `recall`, s'il y en a — sans eux l'agent refait l'erreur pour laquelle
+  l'étape a été refusée.
 
 La skill de l'étape mène le dialogue métier et écrit le livrable. Laisse-la faire : tu n'écris pas
 dans `deliverables/` toi-même.

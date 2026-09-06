@@ -12,7 +12,9 @@ from ..maturity import gate_stage
 from ..maturity import human_review
 from ..maturity import load_maturity
 from ..maturity import maturity_path
+from ..maturity import recall
 from ..maturity import record_score
+from ..maturity import render_recall
 from ..maturity import render_status
 from ..maturity import review_request
 from ..maturity import stage_maturity
@@ -718,3 +720,95 @@ class TestPeremptionDuLivrableNote(AidlcTestCase):
     def test_un_agent_sans_livrable_ne_perime_jamais(self):
         """Un manifeste consultatif n'a pas de `produces` : il n'y a rien a comparer."""
         self.assertFalse(stale_deliverable(self.root, {}, {"deliverable": "abc"}))
+
+
+class TestRecall(AidlcTestCase):
+    """Reprise d'une etape : ce que le projet a deja reproche au livrable precedent."""
+
+    def setUp(self):
+        super().setUp()
+        self.plan_intent()
+
+    def test_etape_inconnue_du_registre_leve(self):
+        with self.assertRaises(ValueError):
+            recall(self.root, "inexistante")
+
+    def test_sans_aucun_run_la_liste_est_vide(self):
+        self.assertEqual(recall(self.root, "plan")["runs"], [])
+
+    def test_les_reproches_du_reviewer_sont_rendus(self):
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": SCORES_BAS, "findings": ["Criteres non chiffres."]})
+        self.assertEqual(recall(self.root, "plan")["runs"][0]["findings"],
+                         ["Criteres non chiffres."])
+
+    def test_les_recommandations_du_reviewer_sont_rendues(self):
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": SCORES_BAS, "recommendations": ["Chiffrer la cible."]})
+        self.assertEqual(recall(self.root, "plan")["runs"][0]["recommendations"],
+                         ["Chiffrer la cible."])
+
+    def test_les_axes_sous_plancher_sont_rendus(self):
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_BAS})
+        self.assertIn("precision", recall(self.root, "plan")["runs"][0]["weak_axes"])
+
+    def test_le_refus_humain_est_rendu_sans_attendre_la_porte(self):
+        # La justification n'est recopiee dans le run que par `gate` : la relire sur
+        # disque est ce qui rend visible un refus signe apres la derniere porte.
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        write_json(aidlc_dir(self.root) / "reviews" / "plan-1.json",
+                   {"approved": False, "reviewer": "Steve",
+                    "justification": "Le besoin reel n'est pas celui-la."})
+        run = recall(self.root, "plan")["runs"][0]
+        self.assertFalse(run["human_approved"])
+        self.assertEqual(run["human_justification"], "Le besoin reel n'est pas celui-la.")
+
+    def test_sans_signature_humaine_l_approbation_est_indeterminee(self):
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        self.assertIsNone(recall(self.root, "plan")["runs"][0]["human_approved"])
+
+    def test_la_limite_ne_garde_que_les_derniers_runs(self):
+        for _ in range(4):
+            record_score(self.root, self.pipeline, "plan", {"scores": SCORES_BAS})
+        data = recall(self.root, "plan", limit=2)
+        self.assertEqual([r["run"] for r in data["runs"]], [3, 4])
+        self.assertEqual(data["total_runs"], 4)
+
+    def test_une_limite_nulle_garde_quand_meme_le_dernier_run(self):
+        # Rappeler zero run n'a aucun sens pour une reprise : le plancher est 1.
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_BAS})
+        self.assertEqual(len(recall(self.root, "plan", limit=0)["runs"]), 1)
+
+    def test_le_rendu_humain_annonce_l_absence_de_tentative(self):
+        self.assertIn("rien a reprendre", render_recall(recall(self.root, "plan")))
+
+    def test_le_rendu_humain_porte_le_reproche_et_le_refus(self):
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": SCORES_BAS, "findings": ["Criteres non chiffres."]})
+        write_json(aidlc_dir(self.root) / "reviews" / "plan-1.json",
+                   {"approved": False, "reviewer": "Steve", "justification": "Hors sujet."})
+        rendu = render_recall(recall(self.root, "plan"))
+        self.assertIn("Criteres non chiffres.", rendu)
+        self.assertIn("Hors sujet.", rendu)
+
+    def test_le_rendu_humain_porte_les_recommandations(self):
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": SCORES_BAS, "recommendations": ["Chiffrer la cible."]})
+        self.assertIn("a faire  : Chiffrer la cible.",
+                      render_recall(recall(self.root, "plan")))
+
+    def test_un_refus_sans_justification_reste_lisible(self):
+        # Le fichier de revue est rempli a la main : l'absence de justification ne doit
+        # pas rendre le rappel muet sur le refus lui-meme.
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        write_json(aidlc_dir(self.root) / "reviews" / "plan-1.json",
+                   {"approved": False, "reviewer": "Steve"})
+        self.assertIn("sans justification", render_recall(recall(self.root, "plan")))
+
+    def test_le_rendu_humain_place_le_run_le_plus_recent_en_premier(self):
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": SCORES_BAS, "findings": ["Ancien reproche."]})
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": SCORES_BAS, "findings": ["Reproche recent."]})
+        rendu = render_recall(recall(self.root, "plan"))
+        self.assertLess(rendu.index("Reproche recent."), rendu.index("Ancien reproche."))

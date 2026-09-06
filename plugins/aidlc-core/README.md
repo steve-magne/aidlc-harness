@@ -143,6 +143,7 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 | `knowledge index` | sommaire des bundles OKF distants déclarés : une ligne par concept (référence, type, titre, description) |
 | `knowledge search <mots>` | concepts portant tous les mots (frontmatter d'abord, puis corps) — rend des références |
 | `knowledge get <source>/<id>` | le markdown d'un concept ; `--source`, `--refresh`, `--limit`, `--json` |
+| `knowledge links <source>/<id>` | les voisins dans le graphe OKF : `->` cités, `<-` qui citent |
 | `check-okf <dir>` | conformance OKF v0.2 d'un bundle (`docs/`, `knowledge/`, ou le `knowledge/` d'un consommateur) ; exit 1 si non conforme |
 | `check-okf --touched` | même contrôle en mode hook `PostToolUse` : gate les bundles OKF du projet touchés par l'écriture, non bloquant |
 | `check-okf --stop` | mode hook `Stop` : refuse la fermeture de session (deny) si un bundle du projet est non conforme ; enregistre le refus dans la file d'amélioration |
@@ -159,8 +160,18 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 
 `hooks/hooks.json` connecte le moteur aux événements de la session :
 
-- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop` → `aidlc.py log` : la
-  session est tracée (tours, outils, relances) sans jamais l'interrompre.
+- `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `SessionEnd` →
+  `aidlc.py log` : la session est tracée (tours, relances) sans jamais l'interrompre.
+- `PostToolUse` (matcher `Write|Edit`) → `aidlc.py log`, **en premier** : c'est ce qui fait
+  exister « quels outils, quels fichiers ». Les détecteurs d'écriture du watchdog comptent
+  `payload.tool_name` et `tool_input.file_path` dans le journal ; sans un événement d'outil
+  journalisé, ils ne peuvent jamais se déclencher. Du `tool_input`, seuls les chemins sont
+  retenus — le contenu écrit n'entre pas dans `.aidlc/logs/`.
+- `PostToolUseFailure`, `Notification` (matcher
+  `permission_prompt|idle_prompt|agent_needs_input`), `PermissionDenied`, `PreCompact` →
+  `aidlc.py log` : ce que le procédé a coûté — un outil qui résiste, une permission demandée,
+  un refus humain, un contexte qui déborde. C'est la matière de l'axe *autonomy*, qui sans elle
+  se noterait à l'impression.
 - `Stop` → `aidlc.py log` puis `aidlc.py check-okf --stop` : la fermeture de session est la
   **condition de sortie** du bundle de connaissance — `knowledge/` non conforme ⇒ refus d'arrêt
   (`deny`) avec la liste des problèmes à corriger. Portée du contrat : interactive, l'arrêt

@@ -15,6 +15,7 @@ from .harness import document
 from .harness import manifest
 from .. import commands
 from ..cli import build_parser
+from ..maturity import record_score
 from ..util import write_json
 
 """Couche commandes (_aidlc.commands) : les gestionnaires appeles par cli.main, en mode
@@ -302,6 +303,42 @@ class TestCmdReviewRequest(AidlcTestCase):
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         self.assertIn("Agent inconnu du registre", err)
+
+
+class TestCmdRecall(AidlcTestCase):
+    """recall : consigne de reprise humaine par defaut, JSON sur demande."""
+
+    def _noter(self, **review):
+        self.plan_intent()
+        review.setdefault("scores", {"completeness": 2, "precision": 2,
+                                     "traceability": 2, "autonomy": 2})
+        record_score(self.root, self.pipeline, "plan", review)
+
+    def test_etape_inconnue_rend_un_avec_le_motif_sur_stderr(self):
+        code, out, err = run(commands.cmd_recall, self.root, parse(["recall", "fantome"]))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("Agent inconnu du registre", err)
+
+    def test_mode_humain_affiche_le_reproche(self):
+        self._noter(findings=["Criteres non chiffres."])
+        code, out, _ = run(commands.cmd_recall, self.root, parse(["recall", "plan"]))
+        self.assertEqual(code, 0)
+        self.assertIn("Criteres non chiffres.", out)
+
+    def test_mode_json_rend_la_structure_du_rappel(self):
+        self._noter(findings=["Criteres non chiffres."])
+        code, out, err = run(commands.cmd_recall, self.root,
+                             parse(["recall", "plan", "--json"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(json.loads(out)["runs"][0]["findings"],
+                         ["Criteres non chiffres."])
+
+    def test_sans_run_le_mode_humain_le_dit_sans_echouer(self):
+        code, out, _ = run(commands.cmd_recall, self.root, parse(["recall", "plan"]))
+        self.assertEqual(code, 0)
+        self.assertIn("rien a reprendre", out)
 
 
 class TestCmdStatus(AidlcTestCase):
@@ -830,6 +867,10 @@ CONCEPT_MARGE = ("---\ntype: Reference\ntitle: Marge brute\n"
                  "description: Calcul de la marge brute.\ntags: [finance, marge]\n---\n\n"
                  "La marge brute se calcule ainsi.\n")
 CONCEPT_AUTRE = "---\ntype: Reference\ntitle: Autre concept\n---\n\nSans rapport.\n"
+#: Cite CONCEPT_AUTRE : de quoi exercer les deux sens de la traversee.
+CONCEPT_LIANT = ("---\ntype: Reference\ntitle: Marge brute\n"
+                 "description: Calcul de la marge brute.\n---\n\n"
+                 "Depend de [l'autre](concept-deux.md).\n")
 
 
 class TestCmdKnowledge(AidlcTestCase):
@@ -894,6 +935,54 @@ class TestCmdKnowledge(AidlcTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(len(out.strip().splitlines()), 1)
         self.assertIn("non affiche", err)
+
+    def test_links_liste_le_lien_sortant(self):
+        self._declare_source(**{"concept-un.md": CONCEPT_LIANT,
+                                "concept-deux.md": CONCEPT_AUTRE})
+        code, out, err = run(commands.cmd_knowledge, self.root, parse(
+            ["knowledge", "links", "acme/concept-un"]))
+        self.assertEqual(code, 0)
+        self.assertIn("-> acme/concept-deux", out)
+
+    def test_links_liste_le_retrolien(self):
+        self._declare_source(**{"concept-un.md": CONCEPT_LIANT,
+                                "concept-deux.md": CONCEPT_AUTRE})
+        code, out, err = run(commands.cmd_knowledge, self.root, parse(
+            ["knowledge", "links", "acme/concept-deux"]))
+        self.assertEqual(code, 0)
+        self.assertIn("<- acme/concept-un", out)
+
+    def test_links_json_separe_les_deux_sens(self):
+        self._declare_source(**{"concept-un.md": CONCEPT_LIANT,
+                                "concept-deux.md": CONCEPT_AUTRE})
+        code, out, _ = run(commands.cmd_knowledge, self.root, parse(
+            ["knowledge", "links", "acme/concept-un", "--json"]))
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual([e["ref"] for e in data["out"]], ["acme/concept-deux"])
+        self.assertEqual(data["in"], [])
+
+    def test_links_annonce_le_compte_des_voisins_sur_stderr(self):
+        self._declare_source(**{"concept-un.md": CONCEPT_LIANT,
+                                "concept-deux.md": CONCEPT_AUTRE})
+        _, _, err = run(commands.cmd_knowledge, self.root, parse(
+            ["knowledge", "links", "acme/concept-un"]))
+        self.assertIn("1 lien(s) sortant(s), 0 retrolien(s)", err)
+
+    def test_links_sans_terme_affiche_l_usage(self):
+        self._declare_source(**{"concept-un.md": CONCEPT_MARGE})
+        code, out, err = run(commands.cmd_knowledge, self.root, parse(
+            ["knowledge", "links"]))
+        self.assertEqual(code, 1)
+        self.assertIn("Usage", err)
+
+    def test_links_concept_introuvable_rend_un(self):
+        self._declare_source(**{"concept-un.md": CONCEPT_MARGE})
+        code, out, err = run(commands.cmd_knowledge, self.root, parse(
+            ["knowledge", "links", "acme/absent"]))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("introuvable", err)
 
     def test_search_sans_terme_affiche_l_usage(self):
         self._declare_source(**{"concept-un.md": CONCEPT_MARGE})

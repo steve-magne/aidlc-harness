@@ -89,6 +89,7 @@ python3 $S validate plan                # vérifie le livrable de l'étape plan
 python3 $S score plan --file review.json  # enregistre une revue du reviewer
 python3 $S gate plan                    # décide si l'étape est franchie (exit 2 = bloquant)
 python3 $S review-request plan          # prépare le formulaire de revue humaine
+python3 $S recall plan                  # reproches des tentatives précédentes (reprise)
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
 python3 $S experiment record --stage plan --target precision \
     --file plugins/aidlc-plan/checks.json --cause "..."   # date un correctif appliqué au harnais
@@ -96,6 +97,7 @@ python3 $S experiment effect            # effet mesuré de chaque correctif sur 
 python3 $S knowledge index              # sommaire des bundles OKF distants déclarés
 python3 $S knowledge search marge brute # recherche par mots-clés (frontmatter puis corps)
 python3 $S knowledge get <source>/<id>  # markdown d'un seul concept
+python3 $S knowledge links <source>/<id>  # voisins dans le graphe OKF (cites, et qui citent)
 python3 $S scaffold design              # génère le plugin d'un agent (n'écrit pas dans le noyau)
 python3 $S ratchet                      # fige les planchers de sévérité des checks.json (exit 2 = régression)
 python3 $S watchdog                     # détecteurs de stagnation sur les journaux (exit 2 = halte)
@@ -139,9 +141,11 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    que par les scripts (`score`, `ratchet`, `experiment record`, hooks) et l'humain (revues). Un hook `PreToolUse` refuse activement ces
    écritures, ainsi que toute écriture dans la **copie installée du harnais** hors du projet
    (pipeline.json, hooks/, script, agents, skills, templates — la liste protégée) **et dans le
-   plugin d'un agent appartenant à une autre équipe, installé hors du projet** : un agent n'édite
-   ni les règles qui le jugent, ni sa propre note, ni l'implémentation d'une direction voisine —
-   son manifeste est lu, pas réécrit. C'est un garde-fou d'intégrité, pas une gêne à contourner ;
+   plugin d'un agent appartenant à une autre équipe, installé hors du projet**, et **le livrable
+   d'un autre agent** (le `produces` exact d'un voisin, quand le hook nomme l'agent courant) : un
+   agent n'édite ni les règles qui le jugent, ni sa propre note, ni l'implémentation d'une
+   direction voisine, ni le contrat sur lequel il sera jugé — son manifeste est lu, pas réécrit,
+   et une entrée amont qui ne convient pas se corrige en relançant l'agent qui la produit. C'est un garde-fou d'intégrité, pas une gêne à contourner ;
    chaque agent évolue dans le dépôt de son équipe.
 5. **Aucun placeholder non résolu** (`TODO`, `TBD`, `<à remplir>`, « lorem ») dans un fichier livré.
    Seule exception : les marqueurs entre chevrons des `templates/`, qui sont documentés comme tels.
