@@ -235,6 +235,30 @@ Ne créez pas un plugin à la main : `/aidlc-core:new-stage` mène l'entretien m
 `scaffold`, qui génère le plugin complet (`plugin.json`, `agent.json`, agent, `SKILL.md`, template,
 `checks.json`, `review.md`) et l'inscrit au marketplace.
 
+### Ajouter le plugin d'une autre équipe à son workflow
+
+Côté consommateur (parcours A), un plugin est une **composition livrée en un seul dépôt** : l'agent
+(`agents/*.md`), ses skills (`skills/*/SKILL.md`), ses hooks (`hooks/hooks.json`) et,
+potentiellement, un serveur MCP (`.mcp.json` à la racine du plugin, à côté de
+`.claude-plugin/plugin.json`). L'ajouter ne demande que l'URL ou le dépôt GitHub de cette équipe —
+à condition qu'il porte un `.claude-plugin/marketplace.json` à sa racine (même pour un seul
+plugin) :
+
+```bash
+claude plugin marketplace add <owner/repo-ou-url-git-ou-chemin-local>
+claude plugin install <nom-du-plugin>@<nom-du-marketplace>
+```
+
+`<nom-du-marketplace>` est le champ `name` du `marketplace.json` de ce dépôt (`aidlc` pour celui-ci).
+**Rien à câbler côté harnais** : une fois installé par Claude Code, le manifeste `agent.json` du
+plugin est découvert dans le cache d'installation au même titre que les plugins de ce dépôt — il
+apparaît directement dans `python3 $S agents`. S'il déclare `produces`, c'est une étape gouvernée,
+insérée dans la chaîne producteur → consommateur ; sinon, un agent consultatif, comme
+`aidlc-security`.
+
+Pour un agent pas encore publié comme plugin Claude Code (développement local, ou usage sous Codex
+où il n'y a pas de cache de plugins), la voie de secours reste `AIDLC_AGENT_PATH`, ci-dessus.
+
 ---
 
 ## Le savoir externe (OKF)
