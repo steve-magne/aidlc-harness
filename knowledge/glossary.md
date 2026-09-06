@@ -4,7 +4,7 @@ title: Glossaire du harness AI-DLC
 description: Vocabulaire du dépôt aidlc-harness — un terme employé dans un livrable doit correspondre à une entrée de ce glossaire.
 tags: [glossary, vocabulary]
 stages: [plan, design, build, test, deploy, maintain]
-generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+generated: { by: human:steve-magne, at: 2026-09-06T00:00:00Z }
 ---
 
 # Glossaire
@@ -46,8 +46,9 @@ entrée. S'oppose à la notation qualitative du reviewer.
 **checks.json** — Fichier déclaratif, un par plugin d'étape, qui énumère les checks déterministes
 du livrable. Ajouter une exigence, c'est éditer ce JSON, pas écrire du code.
 
-**Entrée** (*input*) — Livrable amont déclaré obligatoire pour une étape dans `pipeline.json`. La
-règle `must_reference_inputs` vérifie que le livrable produit cite réellement ses entrées.
+**Entrée** (*input*) — Livrable amont déclaré obligatoire pour une étape dans le champ `consumes`
+de l'`agent.json` de son agent. La règle `must_reference_inputs` vérifie que le livrable produit
+cite réellement ses entrées.
 
 **Étape** (*stage*) — Une des six phases du pipeline. Identifiée par un `id` en anglais, elle
 possède un plugin, une skill, un livrable unique, des entrées, un fichier de checks et un rôle
@@ -108,8 +109,11 @@ définies dans la spec : https://github.com/GoogleCloudPlatform/open-knowledge-f
 **Orchestrator** — Agent qui pilote le pipeline : il détermine l'étape courante, lance la skill de
 l'étape, déclenche le reviewer, puis la porte. Il ne rédige jamais un livrable lui-même.
 
-**Pipeline** — La suite ordonnée des six étapes, déclarée dans `pipeline.json`. Aucun composant ne
-doit contenir de liste d'étapes en dur.
+**Pipeline** — La suite des étapes du cycle de vie. L'ordre se dérive de la chaîne
+producteur → consommateur des manifestes `agent.json` (`produces`/`consumes`), jamais d'une
+position dans un fichier. `pipeline.json` ne porte que la gouvernance par défaut (seuils,
+`watchdog`) et `planned_stages`, une feuille de route consultative. Aucun composant ne doit
+contenir de liste d'étapes en dur.
 
 **Plugin** — Unité d'extension Claude Code (`plugins/aidlc-*`), composée d'agents, de skills, de
 templates, de checks et parfois de hooks. `aidlc-core` porte l'infrastructure, `aidlc-<stage>`
@@ -129,9 +133,11 @@ pas le droit d'écrire dans `.aidlc/`.
 **Revue humaine** — Signature d'un responsable dans `.aidlc/reviews/<stage>-<run>.json`, avec un
 booléen d'approbation et une justification. Un refus alimente la file d'amélioration.
 
-**Rôle humain** — Fonction responsable d'une étape, déclarée dans `pipeline.json` : Product Owner
-pour `plan`, Architecte de solution pour `design`, Tech Lead pour `build`, QA Lead pour `test`,
-SRE / Release Manager pour `deploy`, Ops / Support pour `maintain`.
+**Rôle humain** — Fonction responsable d'une étape, déclarée dans le champ `human_role` de
+l'`agent.json` de l'agent (pré-rempli depuis `planned_stages` tant que l'étape n'est pas publiée) :
+Product Owner / Business Analyst pour `plan`, Architecte d'entreprise pour `design`, Tech Lead
+pour `build`, QA Lead pour `test`, SRE / Release Manager pour `deploy`, Ops / Support pour
+`maintain`.
 
 **Run** — Une exécution d'une étape, du lancement de la skill jusqu'à l'enregistrement du score.
 Numéroté et historisé par étape dans `.aidlc/maturity.json`.
@@ -151,15 +157,18 @@ le diagnostic, l'agent propose le correctif, l'humain l'accepte.
 minimale pour qu'un livrable soit accepté. Le seuil prime sur le verdict du reviewer.
 
 **Skill** — Procédure exécutable décrite dans `skills/<nom>/SKILL.md`. Une skill par étape décrit
-la recette du livrable ; `aidlc-core` en expose cinq transverses (`run`, `status`, `review`,
-`new-stage`, `improve`).
+la recette du livrable ; `aidlc-core` en expose sept transverses (`run`, `status`, `review`,
+`new-stage`, `improve`, `dispatch`, `knowledge`).
 
 **Source de vérité** — Fichier qui fait autorité sur un sujet et que l'on ne duplique jamais :
-`pipeline.json` pour les étapes, `checks.json` pour les exigences d'un livrable, les concepts du
-bundle `knowledge/` pour les références du projet, ce glossaire pour le vocabulaire.
+`agent.json` pour la définition d'une étape (livrable, entrées, contrat), `checks.json` pour les
+exigences d'un livrable, les concepts du bundle `knowledge/` pour les références du projet, ce
+glossaire pour le vocabulaire.
 
-**Statut d'étape** — Champ `status` de `pipeline.json` : `implemented` si le plugin existe,
-`planned` si l'étape est déclarée mais reste à générer.
+**Statut d'étape** — Dérivé par le registre, jamais déclaré : une étape est *implémentée* dès
+qu'un plugin installé porte un `agent.json` avec ce `produces` ; elle reste *prévue* — affichée
+« plugin non installé » par `status` — tant que seule une entrée `planned_stages` (gouvernance
+`pipeline.json` ou `aidlc.json`) l'annonce sans agent producteur.
 
 **Template** — Squelette d'un livrable, dans `templates/` du plugin d'étape. Seul endroit du dépôt
 où des marqueurs de remplissage entre chevrons sont autorisés, parce qu'ils sont destinés à être
