@@ -138,6 +138,25 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         if key not in KNOWN_RULES and not key.startswith("_"):
             warnings.append(f"Regle inconnue ignoree : {key}")
 
+    # Chainage : une entree amont absente n'invalide pas la FORME du livrable — c'est la
+    # porte (gate) qui refuse une etape batie sur du vide, pas la validation. Mais les
+    # regles qui lisent l'amont cessent alors de verifier quoi que ce soit : elles
+    # comparent le livrable a un fichier qui n'existe pas et passent en silence. Un
+    # contrat qui ne verifie plus rien doit le dire, sinon le vert ment.
+    absent_rules = [name for name in ("must_reference_inputs", "required_input_section",
+                                      "must_not_violate_scope") if checks.get(name)]
+    for input_path in stage.get("consumes") or []:
+        if (root / input_path).exists():
+            continue
+        producer = registry.producer_of(input_path)
+        warnings.append(
+            "Entree amont absente : {}{}{} — la porte de l'etape restera fermee.".format(
+                input_path,
+                f" (produite par l'agent '{producer}')" if producer else
+                " (aucun agent installe ne la produit)",
+                ", donc " + ", ".join(absent_rules) + " n'ont rien verifie"
+                if absent_rules else ""))
+
     if "required_frontmatter" in checks:
         ran += 1
         for key in checks["required_frontmatter"]:

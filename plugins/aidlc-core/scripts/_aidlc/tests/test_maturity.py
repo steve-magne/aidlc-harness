@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from .harness import AidlcTestCase
 from .harness import GOOD_SECTIONS
@@ -16,7 +17,10 @@ from ..maturity import recall
 from ..maturity import record_score
 from ..maturity import render_recall
 from ..maturity import render_status
+from ..maturity import authoring
 from ..maturity import review_request
+from ..maturity import sign_review
+from ..maturity import upstream_blockers
 from ..maturity import stage_maturity
 from ..maturity import stale_deliverable
 from ..maturity import status_data
@@ -365,7 +369,11 @@ class TestGateStage(AidlcTestCase):
         _review(self.root, "design", 1, approved=True)
         self.assertTrue(gate_stage(self.root, self.pipeline, "design")["passed"])
 
+        # Le PO revise son cadrage, puis le fait renoter et resigner : sa propre porte
+        # se referme, mais la note de design porte toujours sur la version disparue.
         intent.write_text(document(GOOD_SECTIONS, filler=4), encoding="utf-8")
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        _review(self.root, "plan", 2, approved=True)
         decision = gate_stage(self.root, self.pipeline, "design")
         self.assertFalse(decision["passed"])
         self.assertEqual(decision["stale_inputs"], ["deliverables/plan/intent.md"])
@@ -513,16 +521,41 @@ class TestRenderStatus(AidlcTestCase):
         data = status_data(self.root, self.pipeline)
         self.assertIn("EQUIPE", render_status(data))
 
-    def test_aucun_role_humain_declare_est_annonce_explicitement(self):
+    def test_la_colonne_d_attente_nomme_le_role_humain_de_l_etape_courante(self):
+        data = status_data(self.root, self.pipeline)
+        rendered = render_status(data)
+        self.assertIn("EN ATTENTE DE", rendered)
+        self.assertIn("Role de test", rendered)
+
+    def test_un_role_humain_absent_affiche_un_tiret_sans_casser_la_colonne(self):
         self.write_agent("aidlc-plan", manifest("plan", "Produit",
                                                 "deliverables/plan/intent.md",
                                                 human_role=None))
-        self.write_agent("aidlc-design", manifest("design", "Architecture",
-                                                   "deliverables/design/spec.md",
-                                                   ["deliverables/plan/intent.md"],
-                                                   human_role=None))
         data = status_data(self.root, self.pipeline)
-        self.assertIn("Roles humains : aucun declare", render_status(data))
+        row = next(r for r in data["stages"] if r["stage"] == "plan")
+        self.assertIsNone(row["waiting_for"])
+        self.assertIn("EN ATTENTE DE", render_status(data))
+
+    def test_un_role_humain_trop_long_est_tronque_pour_ne_pas_pousser_l_action(self):
+        self.write_agent(
+            "aidlc-plan",
+            manifest("plan", "Produit", "deliverables/plan/intent.md",
+                     human_role="Product Owner / Business Analyst du domaine Facturation"))
+        rendered = render_status(status_data(self.root, self.pipeline))
+        self.assertIn("Product Owner / Busines...", rendered)
+
+    def test_un_blocage_amont_est_annonce_sous_le_tableau(self):
+        rendered = render_status(status_data(self.root, self.pipeline))
+        self.assertIn("Bloque : design attend deliverables/plan/intent.md", rendered)
+
+    def test_la_gouvernance_affichee_nomme_le_fichier_du_projet_quand_il_existe(self):
+        self.write_json("aidlc.json", {"maturity_threshold": 3.5})
+        rendered = render_status(status_data(self.root, self.pipeline))
+        self.assertIn("Gouvernance : aidlc.json", rendered)
+
+    def test_la_gouvernance_affichee_retombe_sur_le_harnais_sans_fichier_projet(self):
+        rendered = render_status(status_data(self.root, self.pipeline))
+        self.assertIn("Gouvernance : harnais (pipeline.json)", rendered)
 
     def test_un_agent_consultatif_est_annonce_avec_ses_capacites(self):
         self.write_agent("aidlc-conseil", manifest("conseil", "Conseil",
@@ -812,3 +845,295 @@ class TestRecall(AidlcTestCase):
                      {"scores": SCORES_BAS, "findings": ["Reproche recent."]})
         rendu = render_recall(recall(self.root, "plan"))
         self.assertLess(rendu.index("Reproche recent."), rendu.index("Ancien reproche."))
+
+
+DESIGN_SPEC = {"## Contexte": "Contexte issu de deliverables/plan/intent.md."}
+DESIGN_FRONT = {"stage": "design", "version": "1", "status": "draft",
+                "author": "Steve", "date": "2026-09-03"}
+
+
+def _spec(case):
+    return case.write("deliverables/design/spec.md",
+                      document(DESIGN_SPEC, front=DESIGN_FRONT))
+
+
+def _franchir(case, stage_id, run=1):
+    """Amene une etape jusqu'a porte ouverte : note haute puis signature approuvee."""
+    record_score(case.root, case.pipeline, stage_id, {"scores": SCORES_HAUTS})
+    _review(case.root, stage_id, run, approved=True)
+
+
+class TestPorteAmont(AidlcTestCase):
+    """Le chainage de bout en bout, tenu par la porte et non par un prompt.
+
+    C'etait la promesse centrale du harnais et elle n'etait ecrite nulle part dans le
+    moteur : `gate design` rendait `passed: true` alors que `deliverables/plan/intent.md`
+    n'avait jamais ete ecrit — le livrable aval n'avait qu'a mentionner le chemin de son
+    entree pour que `must_reference_inputs` soit satisfait. Seule la skill `run` verifiait
+    l'amont, en prose, et n'importe quel appel direct ou en CI la contournait.
+    """
+
+    def test_une_entree_amont_absente_ferme_la_porte_aval(self):
+        _spec(self)
+        _franchir(self, "design")
+        decision = gate_stage(self.root, self.pipeline, "design")
+        self.assertFalse(decision["passed"])
+        self.assertTrue(any("Entree amont absente" in b for b in decision["blocking"]),
+                        decision["blocking"])
+
+    def test_le_blocage_amont_nomme_l_agent_a_lancer_d_abord(self):
+        _spec(self)
+        _franchir(self, "design")
+        decision = gate_stage(self.root, self.pipeline, "design")
+        self.assertTrue(any("l'agent 'plan'" in b for b in decision["blocking"]))
+
+    def test_une_entree_que_personne_ne_produit_le_dit(self):
+        self.write_agent("aidlc-orphelin",
+                         manifest("orphelin", "Produit", "deliverables/orphelin/out.md",
+                                  ["deliverables/inexistant/amont.md"]),
+                         {"required_sections": ["## Contexte"]})
+        decision = gate_stage(self.root, self.pipeline, "orphelin")
+        self.assertTrue(any("son plugin manque" in b for b in decision["blocking"]),
+                        decision["blocking"])
+
+    def test_une_porte_amont_fermee_ferme_la_porte_aval(self):
+        self.plan_intent()          # l'amont existe...
+        _spec(self)
+        _franchir(self, "design")   # ...mais il n'a jamais ete note ni signe
+        decision = gate_stage(self.root, self.pipeline, "design")
+        self.assertFalse(decision["passed"])
+        self.assertTrue(any("Porte amont fermee" in b for b in decision["blocking"]),
+                        decision["blocking"])
+
+    def test_le_blocage_amont_relaie_le_motif_de_l_amont(self):
+        self.plan_intent()
+        _spec(self)
+        _franchir(self, "design")
+        decision = gate_stage(self.root, self.pipeline, "design")
+        self.assertTrue(any("Aucun score de maturite" in b for b in decision["blocking"]),
+                        decision["blocking"])
+
+    def test_une_chaine_complete_franchit_la_porte_aval(self):
+        self.plan_intent()
+        _franchir(self, "plan")
+        _spec(self)
+        _franchir(self, "design")
+        decision = gate_stage(self.root, self.pipeline, "design")
+        self.assertTrue(decision["passed"], decision["blocking"])
+        self.assertNotIn("upstream", decision)
+
+    def test_le_bloquant_amont_precede_les_autres_motifs(self):
+        _spec(self)
+        decision = gate_stage(self.root, self.pipeline, "design")
+        self.assertIn("Entree amont absente", decision["blocking"][0])
+
+    def test_les_bloquants_amont_sont_rendus_a_part(self):
+        _spec(self)
+        decision = gate_stage(self.root, self.pipeline, "design")
+        self.assertEqual(len(decision["upstream"]), 1)
+
+    def test_une_etape_sans_entree_amont_n_est_jamais_bloquee_par_l_amont(self):
+        self.plan_intent()
+        _franchir(self, "plan")
+        self.assertTrue(gate_stage(self.root, self.pipeline, "plan")["passed"])
+
+    def test_un_cycle_de_dependances_ne_fait_pas_recurser_indefiniment(self):
+        """Le registre signale le cycle par ailleurs ; la porte, elle, doit rendre la
+        main. `seen` coupe la remontee au deuxieme passage sur le meme agent."""
+        contract = {"required_sections": ["## Contexte"]}
+        self.write_agent("aidlc-a", manifest("a", "A", "deliverables/a/out.md",
+                                             ["deliverables/b/out.md"]), contract)
+        self.write_agent("aidlc-b", manifest("b", "B", "deliverables/b/out.md",
+                                             ["deliverables/a/out.md"]), contract)
+        self.write("deliverables/a/out.md", "## Contexte\nDu contenu.\n")
+        self.write("deliverables/b/out.md", "## Contexte\nDu contenu.\n")
+        decision = gate_stage(self.root, self.pipeline, "a")
+        self.assertFalse(decision["passed"])
+
+
+class TestUpstreamBlockers(AidlcTestCase):
+    """La fonction seule, hors de la porte."""
+
+    def test_sans_entree_amont_il_n_y_a_aucun_bloquant(self):
+        stage = {"id": "plan", "consumes": []}
+        self.assertEqual(upstream_blockers(self.root, self.pipeline, stage, set()), [])
+
+    def test_un_amont_deja_visite_n_est_pas_re_evalue(self):
+        stage = {"id": "design", "consumes": ["deliverables/plan/intent.md"]}
+        self.plan_intent()
+        self.assertEqual(
+            upstream_blockers(self.root, self.pipeline, stage, {"design", "plan"}), [])
+
+
+class TestStatusChainage(AidlcTestCase):
+    """Le tableau de bord chaine sans rappeler la porte : l'ordre topologique du
+    registre suffit a savoir qu'un amont n'est pas franchi."""
+
+    def test_une_etape_dont_l_amont_manque_attend_au_lieu_de_produire(self):
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "design")
+        self.assertEqual(row["next_action"], "En attente de l'amont : plan")
+
+    def test_le_blocage_amont_est_rendu_en_detail(self):
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "design")
+        self.assertEqual(row["blocked_by"], [{
+            "input": "deliverables/plan/intent.md", "producer": "plan",
+            "reason": "livrable pas encore produit"}])
+
+    def test_un_amont_produit_mais_non_franchi_bloque_toujours_l_aval(self):
+        self.plan_intent()
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "design")
+        self.assertEqual(row["blocked_by"][0]["reason"], "porte amont non franchie")
+
+    def test_un_amont_franchi_libere_l_aval(self):
+        self.plan_intent()
+        _franchir(self, "plan")
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "design")
+        self.assertEqual(row["blocked_by"], [])
+        self.assertEqual(row["next_action"], "Produire le livrable : aidlc-design:design")
+
+    def test_une_entree_sans_producteur_installe_est_nommee_comme_telle(self):
+        self.write_agent("aidlc-orphelin",
+                         manifest("orphelin", "Produit", "deliverables/orphelin/out.md",
+                                  ["deliverables/inexistant/amont.md"]))
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "orphelin")
+        self.assertEqual(row["blocked_by"][0]["reason"],
+                         "aucun agent installe ne le produit")
+        self.assertIn("amont.md", row["next_action"])
+
+    def test_l_etape_courante_reste_l_amont_quand_l_aval_est_bloque(self):
+        _spec(self)
+        _franchir(self, "design")
+        self.assertEqual(status_data(self.root, self.pipeline)["current_stage"], "plan")
+
+
+class TestColonneEnAttente(AidlcTestCase):
+    """Qui doit agir maintenant — la question que le tableau de bord ne repondait pas."""
+
+    def test_l_etape_courante_attend_son_role_humain(self):
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "plan")
+        self.assertEqual(row["waiting_for"], "Role de test")
+
+    def test_une_etape_bloquee_par_l_amont_n_attend_personne(self):
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "design")
+        self.assertIsNone(row["waiting_for"])
+
+    def test_une_etape_franchie_n_attend_personne(self):
+        self.plan_intent()
+        _franchir(self, "plan")
+        row = next(r for r in status_data(self.root, self.pipeline)["stages"]
+                   if r["stage"] == "plan")
+        self.assertIsNone(row["waiting_for"])
+
+
+class TestAuthoring(AidlcTestCase):
+    """Une etape prevue se scaffolde chez l'auteur et s'attend chez le consommateur :
+    proposer `scaffold` a une equipe projet, c'est lui proposer d'ecrire dans une copie
+    que le garde-fou protege."""
+
+    def test_le_depot_auteur_est_reconnu_quand_le_harnais_y_vit(self):
+        self.assertTrue(authoring(self.root))
+
+    def test_un_projet_consommateur_n_est_pas_un_depot_auteur(self):
+        harness = self.root / "ailleurs" / "aidlc-core"
+        self.write_json("ailleurs/aidlc-core/pipeline.json", {"version": 2})
+        os.environ["AIDLC_HARNESS_ROOT"] = str(harness)
+        self.assertFalse(authoring(self.root / "projet"))
+
+    def test_le_consommateur_se_voit_proposer_d_attendre_la_publication(self):
+        data = status_data(self.root, self.pipeline)
+        data["authoring"] = False
+        self.assertIn("a publier par l'equipe Ingenierie", render_status(data))
+
+
+class TestSignReview(AidlcTestCase):
+    """Signer sans manipuler de JSON : la commande tient les exigences que le fichier
+    ne sait pas tenir."""
+
+    def _pret(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+
+    def test_un_agent_inconnu_leve_value_error(self):
+        with self.assertRaises(ValueError):
+            sign_review(self.root, self.pipeline, "fantome", True, "Steve", "ok")
+
+    def test_un_agent_consultatif_n_a_rien_a_signer(self):
+        self.write_agent("aidlc-conseil", manifest("conseil", "Conseil"))
+        with self.assertRaises(ValueError):
+            sign_review(self.root, self.pipeline, "conseil", True, "Steve", "ok")
+
+    def test_sans_score_enregistre_il_n_y_a_rien_a_signer(self):
+        self.plan_intent()
+        with self.assertRaises(ValueError) as raised:
+            sign_review(self.root, self.pipeline, "plan", True, "Steve", "ok")
+        self.assertIn("Aucun score", str(raised.exception))
+
+    def test_un_relecteur_anonyme_est_refuse(self):
+        self._pret()
+        with self.assertRaises(ValueError) as raised:
+            sign_review(self.root, self.pipeline, "plan", True, "  ", "ok")
+        self.assertIn("relecteur", str(raised.exception))
+
+    def test_une_approbation_sans_justification_est_refusee(self):
+        self._pret()
+        with self.assertRaises(ValueError) as raised:
+            sign_review(self.root, self.pipeline, "plan", True, "Steve", "")
+        self.assertIn("justification", str(raised.exception))
+
+    def test_un_refus_sans_justification_est_refuse(self):
+        self._pret()
+        with self.assertRaises(ValueError):
+            sign_review(self.root, self.pipeline, "plan", False, "Steve", "   ")
+
+    def test_la_signature_ecrit_la_revue_du_dernier_run(self):
+        self._pret()
+        signed = sign_review(self.root, self.pipeline, "plan", True, "Steve",
+                             "Criteres chiffres et testables.")
+        self.assertEqual(signed["run"], 1)
+        review = self.read_json(".aidlc/reviews/plan-1.json")
+        self.assertTrue(review["approved"])
+        self.assertEqual(review["reviewer"], "Steve")
+        self.assertTrue(review["ts"].endswith("+00:00"))
+
+    def test_la_signature_ouvre_la_porte(self):
+        self._pret()
+        sign_review(self.root, self.pipeline, "plan", True, "Steve", "Conforme.")
+        self.assertTrue(gate_stage(self.root, self.pipeline, "plan")["passed"])
+
+    def test_un_refus_signe_ferme_la_porte_et_alimente_la_boucle(self):
+        self._pret()
+        sign_review(self.root, self.pipeline, "plan", False, "Steve",
+                    "Criteres d'acceptation non chiffres.")
+        decision = gate_stage(self.root, self.pipeline, "plan")
+        self.assertFalse(decision["passed"])
+        self.assertIn("Criteres d'acceptation non chiffres.",
+                      self.read(".aidlc/improvement-queue.jsonl"))
+
+    def test_une_signature_ne_se_reecrit_pas(self):
+        self._pret()
+        sign_review(self.root, self.pipeline, "plan", True, "Steve", "Conforme.")
+        with self.assertRaises(ValueError) as raised:
+            sign_review(self.root, self.pipeline, "plan", False, "Autre", "Non.")
+        self.assertIn("deja signe par Steve", str(raised.exception))
+
+    def test_force_permet_de_revenir_sur_une_signature(self):
+        self._pret()
+        sign_review(self.root, self.pipeline, "plan", True, "Steve", "Conforme.")
+        sign_review(self.root, self.pipeline, "plan", False, "Steve",
+                    "Je me suis trompe.", force=True)
+        self.assertFalse(self.read_json(".aidlc/reviews/plan-1.json")["approved"])
+
+    def test_les_espaces_autour_du_nom_et_du_motif_sont_retires(self):
+        self._pret()
+        signed = sign_review(self.root, self.pipeline, "plan", True, "  Steve  ",
+                             "  Conforme.  ")
+        self.assertEqual(signed["reviewer"], "Steve")
+        self.assertEqual(self.read_json(".aidlc/reviews/plan-1.json")["justification"],
+                         "Conforme.")

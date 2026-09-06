@@ -37,7 +37,14 @@ Trois idées structurent tout le reste :
 Toute la conception d'étape se mène dans **ce dépôt**, qui contient `plugins/` et
 `.claude-plugin/marketplace.json`. Un projet consommateur ne scaffolde pas d'étape : sa copie
 installée du harnais n'a ni `plugins/` ni `marketplace.json` à mettre à jour, et le scaffolder le
-refuse.
+refuse. Le tableau de bord le dit de lui-même : une étape prévue mais non installée propose
+`aidlc.py scaffold <étape>` **ici**, et « à publier par l'équipe \<équipe\> » chez un
+consommateur — la distinction est déterministe (`maturity.authoring` : le harnais vit-il sous la
+racine du projet ?), pas une consigne de prose.
+
+Symétriquement, `aidlc.py init` est une commande **de consommateur** : elle amorce un projet
+d'accueil (gouvernance `aidlc.json`, `deliverables/`, bundle `knowledge/`, inventaire des sources
+existantes). Vous ne la lancez pas ici, sauf pour reproduire ce que vit une équipe projet.
 
 Deux façons de travailler ici :
 
@@ -292,6 +299,7 @@ python3 plugins/aidlc-core/scripts/aidlc.py check-okf <dir>        # conformité
 python3 plugins/aidlc-core/scripts/aidlc.py check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
 python3 plugins/aidlc-core/scripts/aidlc.py check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage>       # génère le plugin d'une étape planned
+python3 plugins/aidlc-core/scripts/aidlc.py init                   # (côté consommateur) amorce un projet d'accueil
 python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage> --force   # écrase et régénère
 python3 plugins/aidlc-core/scripts/aidlc.py ratchet                # fige les planchers de sévérité des checks.json (exit 2 = régression)
 python3 plugins/aidlc-core/scripts/aidlc.py ratchet --reset <stage>  # repart du contrat courant après décision humaine

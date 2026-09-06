@@ -806,3 +806,118 @@ class TestAgentsControleDeContrat(AidlcTestCase):
         result = self.run_cli("agents", "--strict")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("insatisfiable", result.stderr)
+
+
+class TestContratSign(AidlcTestCase):
+    """`sign` en sous-processus : c'est exactement le contexte d'un agent qui lancerait
+    la commande par un outil Bash — pas de terminal, donc pas de signature. Ce test-la
+    n'est pas une formalite : c'est le garde-fou lui-meme, celui qui distingue
+    « l'humain a signe » de « l'agent a ecrit qu'il avait signe »."""
+
+    def test_sans_terminal_la_signature_est_refusee(self):
+        result = self.run_cli("sign", "plan", "--approve", "--by", "Steve",
+                              "--why", "Conforme.")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("geste humain", result.stderr)
+
+    def test_sans_terminal_aucune_revue_n_est_ecrite(self):
+        self.run_cli("sign", "plan", "--approve", "--by", "Steve", "--why", "Conforme.")
+        self.assertFalse((self.root / ".aidlc" / "reviews").exists())
+
+    def test_sans_terminal_stdout_reste_vide(self):
+        result = self.run_cli("sign", "plan", "--approve", "--by", "S", "--why", "w")
+        self.assertEqual(result.stdout, "")
+
+    def test_la_sous_commande_est_exposee_par_le_parseur(self):
+        result = self.run_cli("sign", "--help")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--approve", result.stdout)
+
+
+class TestContratInit(AidlcTestCase):
+    """`init` en sous-processus : machine sur stdout, compte rendu sur stderr."""
+
+    def test_l_amorcage_sort_a_zero_et_rend_du_json(self):
+        result = self.run_cli("init")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = self.assertJson(result)
+        self.assertIn("aidlc.json", data["created"])
+
+    def test_le_compte_rendu_humain_part_sur_stderr(self):
+        result = self.run_cli("init")
+        self.assertIn("Projet amorce", result.stderr)
+
+    def test_le_projet_amorce_est_ensuite_lisible_par_status(self):
+        self.run_cli("init")
+        result = self.run_cli("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Gouvernance : aidlc.json", result.stdout)
+
+
+class TestContratChainage(AidlcTestCase):
+    """La promesse de bout en bout, vue depuis le contrat public : c'est le code de
+    sortie de `gate` qui doit refuser une etape batie sur du vide, pas un prompt."""
+
+    def test_la_porte_aval_refuse_quand_l_amont_n_existe_pas(self):
+        self.write("deliverables/design/spec.md",
+                   document({"## Contexte": "Issu de deliverables/plan/intent.md."},
+                            front={"stage": "design", "version": "1", "status": "draft",
+                                   "author": "Steve", "date": "2026-09-03"}))
+        review = self.write_json("review.json", {
+            "stage": "design", "scores": {"completeness": 5, "precision": 5,
+                                          "traceability": 5, "autonomy": 5}})
+        self.run_cli("score", "design", "--file", str(review))
+        self.write_json(".aidlc/reviews/design-1.json", {
+            "stage": "design", "run": 1, "approved": True, "reviewer": "Archi",
+            "justification": "ok", "ts": "2026-09-06T10:00:00+00:00"})
+        result = self.run_cli("gate", "design")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Entree amont absente", self.assertJson(result)["blocking"][0])
+
+    def test_le_tableau_de_bord_dit_que_l_aval_attend_son_amont(self):
+        result = self.run_cli("status")
+        self.assertIn("En attente de l'amont : plan", result.stdout)
+
+
+class TestGouvernanceProjet(AidlcTestCase):
+    """Le seuil et le workflow lus depuis l'aidlc.json du projet, en sous-processus :
+    c'est la seule facon pour une equipe de fixer son exigence sans ecrire dans la copie
+    installee du harnais, que le garde-fou protege."""
+
+    def test_le_seuil_du_projet_recouvre_celui_du_harnais(self):
+        self.write_json("aidlc.json", {"maturity_threshold": 4.9})
+        result = self.run_cli("status")
+        self.assertIn("Seuil de maturite : 4.9", result.stdout)
+
+    def test_le_workflow_declare_restreint_le_tableau_de_bord(self):
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        result = self.run_cli("status", "--json")
+        self.assertEqual([r["stage"] for r in self.assertJson(result)["stages"]], ["plan"])
+
+    def test_une_cle_mal_orthographiee_est_signalee_au_lieu_d_etre_avalee(self):
+        self.write_json("aidlc.json", {"maturity_treshold": 4.9})
+        result = self.run_cli("status")
+        self.assertIn("Gouvernance du projet", result.stdout)
+
+    def test_une_gouvernance_projet_illisible_fait_sortir_en_erreur(self):
+        self.write("aidlc.json", "{ pas du json")
+        result = self.run_cli("status")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("JSON invalide", result.stderr)
+
+
+class TestAideDuParseur(AidlcTestCase):
+    """L'aide s'ouvre sur ce qu'un humain tape, pas sur les modes de hook."""
+
+    def test_les_modes_de_hook_sont_hors_de_l_aide(self):
+        result = self.run_cli("--help")
+        self.assertNotIn("watchdog-touched  ", result.stdout)
+
+    def test_les_modes_de_hook_restent_invocables(self):
+        result = self.run_cli("watchdog-touched", stdin="{}")
+        self.assertEqual(result.returncode, 0)
+
+    def test_l_aide_oriente_entre_piloter_un_projet_et_maintenir_le_harnais(self):
+        result = self.run_cli("--help")
+        self.assertIn("Piloter un projet", result.stdout)
+        self.assertIn("Maintenir le harnais", result.stdout)

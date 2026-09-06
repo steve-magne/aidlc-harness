@@ -62,12 +62,51 @@ def harness_root() -> Path:
     return here.parent
 
 
+#: Nom du fichier de gouvernance du **projet** consommateur, a sa racine. Le harnais
+#: porte la gouvernance par defaut ; ce fichier-ci porte celle de l'initiative.
+PROJECT_CONFIG = "aidlc.json"
+
+#: Cles qu'un projet peut redefinir. Volontairement restreint : un projet regle son
+#: exigence et declare son workflow, il ne redefinit pas le moteur.
+PROJECT_KEYS = ("maturity_threshold", "min_axis_score", "consecutive_runs_to_autonomy",
+                "watchdog", "planned_stages", "agents")
+
+
+def project_config_path(root: Path = None) -> Path:
+    return (root or workspace_root()) / PROJECT_CONFIG
+
+
+def project_config(root: Path = None) -> dict:
+    """Gouvernance declaree par le projet consommateur (aidlc.json a sa racine).
+
+    Absent = dict vide : un projet qui n'en pose pas herite du harnais, ce qui est le
+    cas courant. Illisible, en revanche, remonte : une config cassee silencieusement
+    ignoree ferait tourner le pipeline sur des seuils que personne n'a choisis. Les
+    appelants qui ne peuvent pas echouer (hooks) attrapent deja l'exception.
+    """
+    path = project_config_path(root)
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise json.JSONDecodeError("le fichier doit contenir un objet JSON", "{}", 0)
+    return {key: value for key, value in data.items() if key in PROJECT_KEYS}
+
+
 def load_pipeline() -> dict:
-    """Gouvernance du harnais : seuils de maturite, autonomie, seuils du watchdog et
-    feuille de route consultative (planned_stages). Ce fichier ne porte plus de
-    registre d'etapes : « quels agents existent » se lit dans le registre ouvert
-    (_aidlc.registry), alimente par les manifestes agent.json des plugins."""
-    return json.loads((harness_root() / "pipeline.json").read_text(encoding="utf-8"))
+    """Gouvernance effective : celle du harnais, recouverte par celle du projet.
+
+    Le harnais porte les defauts (seuils de maturite, autonomie, seuils du watchdog,
+    feuille de route consultative `planned_stages`). Le projet consommateur les
+    recouvre cle par cle dans son `aidlc.json` — c'est la seule facon pour une
+    initiative de fixer SON exigence et SON workflow sans editer la copie installee du
+    harnais, que le garde-fou protege. Ce fichier ne porte aucun registre d'etapes :
+    « quels agents existent » se lit dans le registre ouvert (_aidlc.registry),
+    alimente par les manifestes agent.json des plugins.
+    """
+    pipe = json.loads((harness_root() / "pipeline.json").read_text(encoding="utf-8"))
+    pipe.update(project_config())
+    return pipe
 
 
 def aidlc_dir(root: Path) -> Path:

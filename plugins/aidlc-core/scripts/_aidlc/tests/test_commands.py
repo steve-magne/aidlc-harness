@@ -472,6 +472,16 @@ class TestCmdAgents(AidlcTestCase):
         code, out, err = run(commands.cmd_agents, self.root, parse(["agents"]))
         self.assertEqual(code, 0)
 
+    def test_le_mode_humain_ne_deverse_pas_le_catalogue_json_sur_stdout(self):
+        """Sans --json, le catalogue complet s'ecrivait quand meme sur stdout : le
+        lecteur recevait 120 lignes de JSON avant son tableau. La convention du moteur
+        vaut ici comme ailleurs — machine sur stdout, humain sur stderr."""
+        self.write_agent("aidlc-plan", manifest("plan", "Produit",
+                                                "deliverables/plan/intent.md"), CHECKS)
+        code, out, err = run(commands.cmd_agents, self.root, parse(["agents"]))
+        self.assertEqual(out, "")
+        self.assertIn("aidlc-plan:plan", err)
+
 
 class TestCmdImprove(AidlcTestCase):
     """improve : diagnostic JSON, jamais un echec meme sur un projet vierge."""
@@ -1208,3 +1218,94 @@ class TestCmdSelfscore(AidlcTestCase):
             code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
         self.assertEqual(code, 1)
         self.assertIn("introuvable", err)
+
+
+class TestCmdSign(AidlcTestCase):
+    """`sign` : signer sans manipuler de JSON — et seulement depuis un terminal.
+
+    Le garde-fou `PreToolUse` ne couvre que l'outil Write : un agent qui lancerait
+    `aidlc.py sign` par un outil Bash contournerait « seul un humain signe ». Le test
+    du terminal est ce qui l'en empeche, et c'est donc le premier comportement teste.
+    """
+
+    def _pret(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": {
+            "completeness": 5, "precision": 5, "traceability": 5, "autonomy": 5}})
+
+    def _sign(self, *argv):
+        with mock.patch.object(sys, "stdin", mock.Mock(isatty=lambda: True)):
+            return run(commands.cmd_sign, self.root, parse(["sign", *argv]))
+
+    def test_hors_terminal_la_signature_est_refusee(self):
+        self._pret()
+        with mock.patch.object(sys, "stdin", mock.Mock(isatty=lambda: False)):
+            code, out, err = run(commands.cmd_sign, self.root,
+                                 parse(["sign", "plan", "--approve", "--by", "Steve",
+                                        "--why", "Conforme."]))
+        self.assertEqual(code, 1)
+        self.assertIn("geste humain", err)
+        self.assertFalse((self.root / ".aidlc/reviews/plan-1.json").exists())
+
+    def test_le_refus_hors_terminal_rappelle_la_voie_manuelle(self):
+        with mock.patch.object(sys, "stdin", mock.Mock(isatty=lambda: False)):
+            code, out, err = run(commands.cmd_sign, self.root,
+                                 parse(["sign", "plan", "--approve", "--by", "S",
+                                        "--why", "ok"]))
+        self.assertIn("review-request", err)
+
+    def test_une_approbation_ouvre_la_porte_et_sort_a_zero(self):
+        self._pret()
+        code, out, err = self._sign("plan", "--approve", "--by", "Steve",
+                                    "--why", "Criteres chiffres.")
+        self.assertEqual(code, 0)
+        self.assertTrue(json.loads(out)["gate"]["passed"])
+        self.assertIn("approuve par Steve", err)
+
+    def test_un_refus_ferme_la_porte_et_sort_a_deux(self):
+        self._pret()
+        code, out, err = self._sign("plan", "--reject", "--by", "Steve",
+                                    "--why", "Criteres non chiffres.")
+        self.assertEqual(code, 2)
+        self.assertIn("[bloquant]", err)
+        self.assertFalse(json.loads(out)["approved"])
+
+    def test_une_etape_sans_score_est_refusee_avec_son_motif(self):
+        self.plan_intent()
+        code, out, err = self._sign("plan", "--approve", "--by", "Steve", "--why", "ok")
+        self.assertEqual(code, 1)
+        self.assertIn("Aucun score", err)
+
+    def test_l_etape_suivante_est_annoncee_quand_la_porte_s_ouvre(self):
+        self._pret()
+        code, out, err = self._sign("plan", "--approve", "--by", "Steve", "--why", "ok")
+        self.assertIn("etape suivante : design", err)
+
+    def test_la_decision_est_exclusive_dans_le_parseur(self):
+        with self.muted(), self.assertRaises(SystemExit):
+            parse(["sign", "plan", "--approve", "--reject", "--by", "S", "--why", "w"])
+
+    def test_le_parseur_exige_un_relecteur_et_un_motif(self):
+        with self.muted(), self.assertRaises(SystemExit):
+            parse(["sign", "plan", "--approve"])
+
+
+class TestCmdInit(AidlcTestCase):
+    """`init` : amorcer un projet consommateur en une commande."""
+
+    def test_l_amorcage_pose_la_gouvernance_et_le_bundle(self):
+        code, out, err = run(commands.cmd_init, self.root, parse(["init"]))
+        self.assertEqual(code, 0)
+        self.assertIn("aidlc.json", json.loads(out)["created"])
+        self.assertTrue((self.root / "knowledge" / "index.md").exists())
+
+    def test_le_compte_rendu_humain_part_sur_stderr(self):
+        code, out, err = run(commands.cmd_init, self.root, parse(["init"]))
+        self.assertIn("Projet amorce", err)
+        self.assertIn("cree   aidlc.json", err)
+
+    def test_une_gouvernance_illisible_est_signalee_sans_trace(self):
+        self.write("pipeline.json", "{ pas du json")
+        code, out, err = run(commands.cmd_init, self.root, parse(["init"]))
+        self.assertEqual(code, 1)
+        self.assertIn("Gouvernance illisible", err)

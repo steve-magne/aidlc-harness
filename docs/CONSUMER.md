@@ -15,22 +15,32 @@ piloté par des agents Claude Code, validé par des contrôles déterministes, n
 *reviewer* et gardé par des portes de qualité qui exigent votre signature tant que l'étape n'est
 pas autonome.
 
-Aujourd'hui, **l'étape Plan est la seule implémentée** : elle produit le livrable de cadrage
-`deliverables/plan/intent.md`. Les autres étapes apparaissent au tableau de bord comme
-« planifiées » ; elles sont conçues et générées par l'équipe qui maintient le harnais, pas par le
-projet consommateur.
+Aujourd'hui, deux étapes sont implémentées — **Plan** (`deliverables/plan/intent.md`) et
+**Design** (`deliverables/design/spec.md`) — plus un agent consultatif AppSec. Les autres étapes
+apparaissent au tableau de bord comme « prévues, plugin non installé » ; elles sont conçues et
+publiées par l'équipe qui les porte, pas par le projet consommateur.
+
+**Ce que le harnais garantit, et qui n'est pas dans les prompts** : une étape ne démarre pas sans
+que le livrable de l'étape précédente existe **et** ait franchi sa propre porte. C'est le code de
+sortie de `gate` qui le dit, donc c'est vrai aussi en CI et quel que soit ce que l'agent a
+compris.
 
 ---
 
 ## 1. Ce que vous installez, et où atterrissent les fichiers
 
 Le harnais est distribué comme un **marketplace de plugins Claude Code** nommé `aidlc`, qui
-contient pour l'instant deux plugins :
+contient aujourd'hui quatre plugins :
 
 | Plugin | Rôle |
 | --- | --- |
 | `aidlc-core` | Le noyau : registre d'agents, gouvernance, script déterministe `aidlc.py`, orchestrateur, reviewer, librarian, hooks de journalisation et de garde-fous. Il ne contient la liste d'aucun agent : il les découvre. |
 | `aidlc-plan` | L'étape Plan : agent de dialogue avec le Product Owner, recette de la skill `plan`, squelette du livrable, contrat `checks.json`. |
+| `aidlc-design` | L'étape Design : consomme le livrable de Plan et arrête l'architecture cible. |
+| `aidlc-security` | Agent consultatif AppSec : un avis, pas un livrable — l'exemple à copier pour publier l'agent de votre équipe. |
+
+Vous n'installez que ce dont votre initiative a besoin, et vous déclarez le workflow retenu dans
+`aidlc.json` (section 3 bis).
 
 Deux racines sont à distinguer :
 
@@ -70,6 +80,7 @@ claude plugin marketplace add https://github.com/<organisation>/aidlc-harness.gi
 #    d'installation, si le harnais ne concerne que ce projet) :
 claude plugin install aidlc-core@aidlc
 claude plugin install aidlc-plan@aidlc
+claude plugin install aidlc-design@aidlc
 
 # 3. Vérifier :
 claude plugin list
@@ -83,6 +94,65 @@ session, ou fermez et rouvrez Claude Code.
 > choix recommandé pour un essai. En portée « utilisateur », ils s'activent dans tous vos projets,
 > y compris ceux qui ne consomment pas le harnais (la journalisation y créerait un dossier
 > `.aidlc/`).
+
+## 3 bis. Amorcer le projet : `aidlc.py init`
+
+Votre projet **existe déjà** : il a son code, son README, ses décisions d'architecture. Le harnais
+doit le savoir avant de faire parler ses agents. Une fois les plugins installés, depuis le bash
+d'une session Claude Code ouverte à la racine du projet :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" init
+```
+
+La commande **ne remplace jamais un fichier existant** ; on peut la relancer sans risque. Elle pose :
+
+| Fichier | Ce qu'il porte |
+| --- | --- |
+| `aidlc.json` | **La gouvernance de votre initiative** : votre seuil de maturité, votre plancher par axe, et surtout `agents` — la liste des agents qui composent *votre* workflow. |
+| `deliverables/` | Le dossier des livrables. |
+| `knowledge/` | Le bundle OKF du projet : `index.md`, `log.md`, et un concept `sources/projet-existant.md`. |
+| `knowledge-sources.json` | Les bundles OKF distants, vide au départ (section 6). |
+| `.gitignore` | Les deux caches jetables (`.aidlc/tmp/`, `.aidlc/logs/`) ajoutés à ce que vous aviez déjà. |
+
+`sources/projet-existant.md` est un **inventaire brut** : les README, manifestes de dépendances et
+documents de `docs/` trouvés à l'amorçage, listés en liens relatifs. Rien n'est lu ni résumé —
+c'est déterministe, il n'y a pas d'agent derrière. Son intérêt est que le `librarian` a désormais
+quelque chose à servir dès le premier run, au lieu d'un entretien à froid sur un projet dont le
+harnais ne sait rien. **Complétez-le** : c'est votre base, pas celle du harnais.
+
+### `aidlc.json` : votre exigence et votre workflow
+
+C'est le seul endroit où une équipe projet règle la gouvernance. Le `pipeline.json` du harnais vit
+dans la copie installée par Claude Code, que le garde-fou protège de toute écriture : sans ce
+fichier, vous subiriez les seuils du harnais et le workflow que la machine a installé.
+
+```json
+{
+  "maturity_threshold": 4.0,
+  "min_axis_score": 3.0,
+  "consecutive_runs_to_autonomy": 3,
+  "agents": ["plan", "design", "security-review"],
+  "planned_stages": [
+    { "id": "build", "name": "Build", "deliverable": "deliverables/build/plan.md",
+      "inputs": ["deliverables/design/spec.md"], "human_role": "Tech Lead", "team": "Ingenierie" }
+  ]
+}
+```
+
+- **`agents`** — la liste blanche des identifiants qui composent votre pipeline. Un plugin installé
+  sur la machine pour une autre initiative mais absent de cette liste **n'existe pas** pour ce
+  projet. Un identifiant listé dont aucun plugin n'est installé remonte en avertissement sous le
+  tableau de bord : c'est un plugin d'équipe qu'il vous reste à installer, pas une faute de frappe
+  silencieuse. Omettez la clé et tous les agents découverts composent le workflow.
+- **`planned_stages`** — *votre* feuille de route : les étapes que vous attendez et dont le plugin
+  n'est pas encore publié.
+- Les autres clés recouvrent celles du harnais, une par une. Ce que vous ne déclarez pas reste
+  celui du harnais.
+- Une clé inconnue est **ignorée**, et `status` vous le dit (`Gouvernance du projet : clé inconnue
+  '…'`) — plutôt que de vous laisser croire que votre seuil s'applique.
+
+Versionnez ce fichier : c'est une décision de projet, comme une dépendance.
 
 ## 4. Premier run : produire le livrable Plan
 
@@ -112,9 +182,26 @@ Ce qui se passe, dans l'ordre :
    livrable de 0 à 5 sur quatre axes — `completeness`, `precision`, `traceability`, `autonomy` —
    chaque note justifiée par une citation, verdict `accepted` ou `rejected`, et enregistre le score
    dans `.aidlc/maturity.json`.
-5. **La porte** (`gate`) s'ouvre seulement si la validation passe, le verdict est `accepted` et le
-   score est au moins `4.0` (le seuil). Tant que l'étape n'est pas autonome, **la revue humaine est
-   exigée** : la porte reste fermée et l'orchestrateur vous laisse la main (section suivante).
+5. **La porte** (`gate`) s'ouvre seulement si **l'amont est en place**, la validation passe, le
+   verdict est `accepted` et le score atteint votre seuil. Tant que l'étape n'est pas autonome,
+   **la revue humaine est exigée** : la porte reste fermée et l'orchestrateur vous laisse la main
+   (section suivante).
+
+   L'amont d'abord, et c'est le cœur du bout-en-bout : une étape ne se franchit pas sur du vide.
+   Pour chaque entrée déclarée dans le `consumes` de son manifeste, la porte exige que le
+   **fichier existe** et que **l'agent qui le produit ait franchi sa propre porte**. Sinon, deux
+   bloquants nommés :
+
+   ```
+   [bloquant] Entree amont absente : deliverables/plan/intent.md — produire d'abord le livrable de l'agent 'plan'.
+   [bloquant] Porte amont fermee : l'agent 'plan' n'a pas franchi la sienne (Revue humaine requise…).
+   ```
+
+   Ce contrôle est **dans le moteur**, pas dans un prompt : il vaut pour un appel direct, pour un
+   hook et pour votre CI, quel que soit ce que l'agent a compris. À l'écriture, la validation vous
+   avertit déjà (`Entree amont absente : … la porte de l'etape restera fermee`) — un livrable aval
+   peut être formellement valide tout en n'ayant aucun amont, et le vert ne doit pas le laisser
+   croire.
 
 Pendant tout le run, les hooks journalisent la session dans `.aidlc/logs/<session>.jsonl` et un
 garde-fou `PreToolUse` refuse que quiconque — agent compris — écrive dans `.aidlc/maturity.json`
@@ -132,20 +219,27 @@ Exemple de sortie en début de vie d'un projet consommateur :
 
 ```
 AI-DLC — tableau de bord (/chemin/de/votre/projet)
-Seuil de maturite : 4.0 | Etape courante : plan
+Seuil de maturite : 4.0 | Plateforme : claude-code | Gouvernance : aidlc.json | Etape courante : plan
 
-ETAPE      PLUGIN      LIVRABLE  VALIDE  SCORE  AUTO  PROCHAINE ACTION
-plan       implemented non      -       -      non   Produire le livrable : skill aidlc-plan:plan
-design     planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold design
-build      planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold build
-test       planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold test
-deploy     planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold deploy
-maintain   planned     non      -       -      non   Scaffolder l'etape : aidlc.py scaffold maintain
+AGENT   EQUIPE        LIVRABLE  VALIDE  SCORE  AUTO  EN ATTENTE DE               PROCHAINE ACTION
+plan    Produit       non       -       -      non   Product Owner / Busines...  Produire le livrable : aidlc-plan:plan
+design  Architecture  non       -       -      non   -                           En attente de l'amont : plan
+
+Bloque : design attend deliverables/plan/intent.md — livrable pas encore produit.
+Prevu, plugin non installe : build (Build) — a publier par l'equipe Ingenierie
 ```
 
-Les lignes `design` → `maintain` affichent une action **réservée à l'équipe qui maintient le
-harnais** : un projet consommateur ne scaffolde pas d'étape, il attend que le plugin correspondant
-soit publié dans le marketplace (voir « Mises à jour »).
+Trois choses à lire :
+
+- **`EN ATTENTE DE`** répond à « c'est à qui ? ». Une seule ligne porte un nom à la fois : celle
+  qui est jouable. Une étape franchie n'attend personne, et une étape bloquée par son amont non
+  plus — l'action est sur la ligne du dessus.
+- **`En attente de l'amont : plan`** : l'étape `design` n'est pas jouable. Ne lancez pas son agent,
+  lancez celui de l'amont.
+- **`a publier par l'equipe <équipe>`** : le plugin de cette étape n'est pas encore publié. Un
+  projet consommateur ne scaffolde pas d'étape — il attend que l'équipe propriétaire la publie au
+  marketplace (voir « Mises à jour »). Dans le dépôt qui *maintient* le harnais, la même ligne
+  propose `aidlc.py scaffold <étape>`.
 
 ## 5. La revue humaine : lire, signer, ou refuser
 
@@ -175,41 +269,70 @@ revue du reviewer.
 
 ### 5.3 Vous signez
 
-Copiez le gabarit vers le fichier de revue définitif et renseignez-le :
+**Depuis votre terminal** — pas depuis la session Claude — une seule commande :
 
 ```bash
-cp .aidlc/reviews/plan-1.template.json .aidlc/reviews/plan-1.json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" sign plan --approve --by "Votre Prénom Nom" --why "Le problème, le périmètre et les critères d'acceptation correspondent au besoin exprimé."
 ```
 
-```json
-{
-  "stage": "plan",
-  "run": 1,
-  "approved": true,
-  "reviewer": "Votre Prénom Nom",
-  "justification": "Le problème, le périmètre et les critères d'acceptation correspondent au besoin exprimé.",
-  "ts": "2026-09-04T10:00:00+00:00"
-}
-```
+Elle écrit `.aidlc/reviews/plan-1.json` avec le bon horodatage, puis **rejoue la porte dans la
+foulée** : sortie 0, l'étape est franchie et l'étape suivante est annoncée ; sortie 2, elle vous
+liste ce qui bloque encore. Vous n'avez plus ni gabarit à copier, ni JSON à remplir, ni à demander
+à Claude de rouvrir quoi que ce soit.
 
-Puis dites à Claude, dans la session : **« la revue humaine est signée, rouvre la porte »**.
-L'orchestrateur relance `gate` : la porte s'ouvre, l'étape est franchie et il vous propose l'étape
-suivante (`design` — planifiée, donc à attendre du mainteneur du harnais).
+Trois exigences que la commande tient et que le fichier ne savait pas tenir :
+
+- **un relecteur nommé** — une revue anonyme n'engage personne ;
+- **une justification, y compris pour approuver** — sans motif écrit, la signature ne dit pas ce
+  qui a été vérifié ;
+- **pas de réécriture silencieuse** — un run déjà signé est refusé, avec le nom et la date de la
+  signature en place. Pour revenir sur votre décision : `--force`, ou supprimez le fichier.
 
 ### 5.4 Vous refusez
 
-Si le livrable n'est pas acceptable, mettez `"approved": false`. La **justification est
-obligatoire** : elle est copiée automatiquement dans `.aidlc/improvement-queue.jsonl` et alimente
-la boucle d'amélioration du harnais (la skill `aidlc-core:improve` du dépôt d'origine). La porte
-reste fermée ; reprenez le livrable (`/aidlc-core:run plan`, qui entre alors en mode « reprise »),
-puis une nouvelle revue du reviewer ouvrira un run n° 2 (`plan-2`).
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" sign plan --reject --by "Votre Prénom Nom" --why "Les critères d'acceptation ne sont pas chiffrés."
+```
+
+La **justification est obligatoire** dans les deux sens : elle est copiée automatiquement dans
+`.aidlc/improvement-queue.jsonl` et alimente la boucle d'amélioration du harnais (la skill
+`aidlc-core:improve` du dépôt d'origine). La porte reste fermée ; reprenez le livrable
+(`/aidlc-core:run plan`, qui entre alors en mode « reprise » et vous relit vos reproches), puis une
+nouvelle revue du reviewer ouvrira un run n° 2 (`plan-2`).
 
 ### Qui peut signer ?
 
-**Uniquement un humain.** Le hook `PreToolUse` refuse les écritures d'agents dans
-`.aidlc/reviews/` : Claude ne peut ni remplir le fichier à votre place ni le modifier après
-signature. La signature se reconnaît par la présence du fichier `<stage>-<run>.json` — le
-`.template.json` seul ne vaut pas signature.
+**Uniquement un humain, depuis un terminal.** Deux verrous, pas un :
+
+- le hook `PreToolUse` refuse les écritures d'agents dans `.aidlc/reviews/` : Claude ne peut ni
+  remplir le fichier à votre place ni le modifier après signature ;
+- `sign` **refuse de tourner sans terminal interactif**. Un agent qui lancerait la commande par un
+  outil Bash n'a pas de stdin interactif : il reçoit un refus, pas une signature. C'est ce qui
+  distingue « l'humain a signé » de « l'agent a écrit qu'il avait signé ».
+
+La signature se reconnaît par la présence du fichier `<stage>-<run>.json` — le `.template.json`
+seul ne vaut pas signature.
+
+### Sans terminal (CI, session headless)
+
+La voie manuelle reste ouverte : `review-request` pose le gabarit
+`.aidlc/reviews/plan-1.template.json`, copiez-le en `plan-1.json` et renseignez `approved`,
+`reviewer`, `justification` et `ts` à la main.
+
+### Se passer la main entre équipes
+
+Le harnais gouverne des **livrables**, et le relais entre personas passe par votre dépôt : chaque
+étape franchie se transmet en poussant `deliverables/`, `.aidlc/maturity.json` et
+`.aidlc/reviews/`. Le Product Owner cadre et signe, pousse ; l'architecte tire, lance
+`/aidlc-core:run design`, signe à son tour. À chaque `git pull`, `/aidlc-core:status` répond à
+« où en est-on, et **qui attend-on** » — c'est la colonne `EN ATTENTE DE`.
+
+Deux garde-fous rendent ce relais sûr :
+
+- une étape aval **ne peut pas démarrer** tant que son entrée amont n'existe pas ou que l'amont n'a
+  pas franchi sa porte (section 4, étape 5) ;
+- si l'amont est révisé **après** que l'aval a été noté, la porte de l'aval se rouvre
+  automatiquement — la note portait sur une version disparue.
 
 ### Quand la revue humaine n'est-elle plus exigée ?
 
@@ -224,10 +347,12 @@ Dans une session Claude Code, le plugin expose le script dans l'environnement (`
 n'existe que dans la session) :
 
 ```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" init              # amorce le projet (idempotent)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents            # catalogue des agents installés
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status            # tableau de bord
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate plan         # porte : exit 0 = franchie, exit 2 = bloquée
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request plan   # prépare la revue humaine (gabarit + consignes)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" sign plan --approve --by "Nom" --why "..."  # signe et rejoue la porte (terminal humain)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" recall plan           # ce qui a été reproché aux runs précédents
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" watchdog           # détecteurs de stagnation sur les journaux (exit 2 = halte)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" ratchet           # fige les planchers de sévérité des contrats (exit 2 = régression)
@@ -334,6 +459,7 @@ existe). Toute non-conformité — frontmatter manquant ou mal formé, sommaire 
 
 | Chemin (relatif au projet) | Contenu | Versionner ? |
 | --- | --- | --- |
+| `aidlc.json` | La gouvernance de l'initiative : seuils, workflow (`agents`), feuille de route | **Oui** — c'est la décision de l'équipe sur son exigence. |
 | `knowledge/` | La base de connaissance du projet (bundle OKF : concepts, `index.md`, `log.md`) | **Oui** — normes et ADR versionnés comme le code. |
 | `knowledge-sources.json` | Les bundles OKF distants que vos agents peuvent consulter | **Oui** — c'est une décision de projet, comme une dépendance. |
 | `deliverables/plan/intent.md` | Le livrable de l'étape | **Oui** — c'est la matière première de l'étape Design. |
@@ -388,6 +514,11 @@ claude plugin marketplace remove aidlc
 | Les hooks ne se déclenchent pas (pas de validation à l'écriture) | Plugin `aidlc-core` absent ou désactivé dans la session | `claude plugin list` ; `/reload-plugins` ou relancez Claude Code. |
 | « Etape inconnue » ou comportement obsolète | Marketplace périmé en cache | `claude plugin marketplace update aidlc`. |
 | `CLAUDE_PLUGIN_ROOT` n'est pas défini | La commande est lancée hors session | Exécutez-la depuis le bash d'une session Claude Code ouverte dans le projet. |
+| Une étape affiche « En attente de l'amont : X » | Son entrée n'existe pas, ou l'agent X n'a pas franchi sa porte | Lancez `/aidlc-core:run X` et faites signer l'étape X. Une étape aval ne démarre jamais sur un amont absent — c'est voulu. |
+| Un agent installé n'apparaît pas au tableau de bord | Il n'est pas dans la clé `agents` de votre `aidlc.json` | Ajoutez son identifiant, ou retirez la clé `agents` pour prendre tous les agents découverts. |
+| « Agent 'X' declare dans aidlc.json mais introuvable » | Vous avez déclaré un agent dont le plugin n'est pas installé | Installez le plugin de l'équipe qui le porte (section 8), ou retirez l'identifiant. |
+| « Signature refusee : `sign` est un geste humain » | La commande a été lancée hors d'un terminal (par un agent, ou en CI) | Relancez-la depuis votre terminal, ou remplissez le fichier de revue à la main (section 5). |
+| Votre seuil de maturité n'est pas appliqué | Clé mal orthographiée dans `aidlc.json` | `status` affiche « Gouvernance du projet : cle inconnue '…' ». Corrigez l'orthographe. |
 | L'étape `design` (ou suivante) est « planned » | Le plugin n'est pas encore publié par le mainteneur | Rien à faire côté projet : le mainteneur scaffolde l'étape dans le dépôt du harnais, puis vous l'installez (section 8). |
 | Une étape franchie repasse à « à faire » sans avoir été touchée, avec « Entrée amont modifiée » | Le livrable amont a été révisé depuis que cette étape a été notée : la note portait sur une version disparue | Relisez le diff de l'amont, dites quelles décisions il remet en cause, corrigez le livrable, puis relancez le reviewer (`/aidlc-core:run <étape>`). |
 | « Livrable modifié depuis la revue » | Le fichier noté a été retouché après sa revue : la note et la signature humaine portent sur une version qui n'est plus sur disque | Relancez le reviewer sur la version courante (`/aidlc-core:review <étape>`), puis refaites signer. Une retouche, même mineure, redemande une note. |

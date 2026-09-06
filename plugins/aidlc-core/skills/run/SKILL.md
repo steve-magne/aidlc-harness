@@ -59,15 +59,25 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json
 
 ## 3. Vérifier les entrées amont
 
-Pour chaque chemin listé dans `consumes` :
+**Ce n'est plus à toi de le vérifier à la main : la porte le fait.** `gate <stage>` refuse une
+étape dont une entrée `consumes` n'existe pas, ou dont l'agent producteur n'a pas franchi sa
+propre porte — et les bloquants amont arrivent **en tête** du tableau `blocking`.
 
-- Le fichier doit exister. S'il manque, cherche dans le catalogue l'agent qui le `produces` et
-  dis lequel lancer d'abord (`/aidlc-core:run <agent amont>`), puis arrête-toi. Si personne ne le
-  produit, c'est un trou du registre (`missing_producers`) : dis-le, le plugin manque.
-- Le fichier doit avoir passé sa propre porte. En cas de doute :
-  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <étape amont>` (exit 0 = franchie,
-  exit 2 = bloquée).
-  Une porte amont fermée est bloquante : ne construis pas sur du sable.
+Demande-la donc tout de suite, avant de faire écrire quoi que ce soit :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
+```
+
+- `Entree amont absente : <chemin> — produire d'abord le livrable de l'agent '<amont>'` →
+  arrête-toi et propose `/aidlc-core:run <amont>`.
+- `... aucun agent installe ne la produit, son plugin manque` → trou du registre : dis quel plugin
+  manque, ne l'improvise pas.
+- `Porte amont fermee : l'agent '<amont>' n'a pas franchi la sienne (<motif>)` → relaie le motif
+  et renvoie sur l'amont. **Ne construis pas sur du sable.**
+
+Le reste du tableau `blocking` (pas de score, revue humaine, validation) concerne l'étape
+elle-même : il est normal à ce stade, tu le traiteras aux étapes 6 à 9.
 
 ## 4. Charger le contexte
 

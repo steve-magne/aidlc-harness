@@ -13,6 +13,7 @@ from .commands import cmd_experiment
 from .commands import cmd_gate
 from .commands import cmd_guard
 from .commands import cmd_improve
+from .commands import cmd_init
 from .commands import cmd_knowledge
 from .commands import cmd_recall
 from .commands import cmd_log
@@ -20,6 +21,7 @@ from .commands import cmd_review_request
 from .commands import cmd_ratchet
 from .commands import cmd_scaffold
 from .commands import cmd_score
+from .commands import cmd_sign
 from .commands import cmd_selfscore
 from .commands import cmd_status
 from .commands import cmd_test
@@ -34,13 +36,29 @@ scripts/aidlc.py (des sous-commandes exposees par commands)."""
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="aidlc.py", description="Moteur deterministe du harness AI-DLC.")
+        prog="aidlc.py", description="Moteur deterministe du harness AI-DLC.",
+        epilog="Piloter un projet : init, status, validate, review-request, sign, gate, "
+               "recall, knowledge.\n"
+               "Maintenir le harnais : agents, scaffold, ratchet, improve, experiment, "
+               "test, coverage, selfscore, check-*.\n"
+               "Les modes appeles par les hooks (log, guard, watchdog-touched, --touched, "
+               "--stop) ne s'invoquent pas a la main.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--selftest", action="store_true",
                         help="Alias historique de `test` : lance la suite et sort.")
-    sub = parser.add_subparsers(dest="command")
+    # metavar : sans lui, argparse deroule les 24 choix dans la ligne d'usage, y
+    # compris les modes de hook qu'on veut justement sortir de la vue.
+    sub = parser.add_subparsers(dest="command", metavar="<commande>")
 
-    sub.add_parser("log", help="Journalise un evenement de hook lu sur stdin.")
-    sub.add_parser("guard", help="Protege .aidlc/ des ecritures d'agents (hook PreToolUse).")
+    # Modes de hook : fonctionnels, mais retires de l'aide. Ils sont declares dans
+    # hooks.json et n'ont aucun usage a la main — les laisser en tete de la liste des
+    # sous-commandes faisait ouvrir l'aide sur ce que personne ne tape.
+    sub.add_parser("log")
+    sub.add_parser("guard")
+
+    sub.add_parser("init",
+                   help="Amorce le projet consommateur : aidlc.json, deliverables/, "
+                        "bundle knowledge/ et inventaire des sources existantes.")
 
     validate = sub.add_parser("validate", help="Valide un livrable contre son checks.json.")
     validate.add_argument("stage", nargs="?")
@@ -58,6 +76,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     request = sub.add_parser("review-request", help="Prepare la revue humaine d'une etape.")
     request.add_argument("stage")
+
+    sign = sub.add_parser(
+        "sign", help="Signe la revue humaine d'une etape et rejoue la porte "
+                     "(geste humain : exige un terminal).")
+    sign.add_argument("stage")
+    decision = sign.add_mutually_exclusive_group(required=True)
+    decision.add_argument("--approve", dest="approve", action="store_true",
+                          help="Approuve le livrable en l'etat.")
+    decision.add_argument("--reject", dest="approve", action="store_false",
+                          help="Refuse le livrable : la justification alimente improve.")
+    sign.add_argument("--by", required=True, help="Nom du relecteur qui signe.")
+    sign.add_argument("--why", required=True,
+                      help="Justification, obligatoire dans les deux sens.")
+    sign.add_argument("--force", action="store_true",
+                      help="Remplace une signature deja apposee sur ce run.")
 
     recall_cmd = sub.add_parser(
         "recall", help="Reproches des tentatives precedentes d'une etape (reprise).")
@@ -125,8 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("watchdog",
                    help="Detecteurs de stagnation sur les journaux (exit 2 si halte).")
-    sub.add_parser("watchdog-touched",
-                   help="Mode hook PostToolUse du watchdog : diagnostic non bloquant.")
+    sub.add_parser("watchdog-touched")
 
     check_okf = sub.add_parser("check-okf",
                                help="Conformance OKF v0.2 d'un bundle (exit 1 si non conforme).")
@@ -199,8 +231,9 @@ def main(argv=None) -> int:
         return cmd_guard(root, sys.stdin.read())
 
     handlers = {
+        "init": cmd_init,
         "validate": cmd_validate, "score": cmd_score, "gate": cmd_gate,
-        "agents": cmd_agents,
+        "sign": cmd_sign, "agents": cmd_agents,
         "review-request": cmd_review_request, "recall": cmd_recall,
         "status": cmd_status,
         "scaffold": cmd_scaffold, "improve": cmd_improve,

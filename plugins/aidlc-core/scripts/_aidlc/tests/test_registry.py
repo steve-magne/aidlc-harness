@@ -612,3 +612,62 @@ class TestValidateManifestRubrique(AidlcTestCase):
         agent = manifest("lint", "X", "deliverables/lint/doc.md")
         self.assertFalse(any("'review'" in p
                              for p in registry.validate_manifest(agent, "agent.json")))
+
+
+class TestWorkflowDeclareParLeProjet(AidlcTestCase):
+    """`agents` dans aidlc.json : l'initiative declare qui la compose.
+
+    La decouverte reste ouverte — on installe ce qu'on veut sur sa machine — mais ce
+    n'est plus la machine qui decide du pipeline. Sans cette liste, deux projets ouverts
+    sur le meme poste heritaient forcement du meme workflow, et un plugin installe pour
+    une autre initiative s'invitait dans le tableau de bord.
+    """
+
+    def test_sans_declaration_tous_les_agents_decouverts_composent_le_workflow(self):
+        self.assertEqual(sorted(a["id"] for a in registry.catalog()["agents"]),
+                         ["design", "plan"])
+
+    def test_la_liste_declaree_restreint_le_registre(self):
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertEqual([a["id"] for a in registry.catalog()["agents"]], ["plan"])
+
+    def test_un_agent_ecarte_disparait_aussi_des_etapes(self):
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertIsNone(registry.find_agent("design"))
+
+    def test_un_agent_declare_mais_non_installe_est_signale(self):
+        self.write_json("aidlc.json", {"agents": ["plan", "build"]})
+        registry.reset_cache()
+        warnings = registry.catalog()["warnings"]
+        self.assertTrue(any("'build'" in message and "aidlc.json" in message
+                            for message in warnings), warnings)
+
+    def test_le_catalogue_rend_la_liste_declaree(self):
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertEqual(registry.catalog()["declared"], ["plan"])
+
+    def test_sans_declaration_la_liste_rendue_est_vide(self):
+        self.assertEqual(registry.catalog()["declared"], [])
+
+    def test_la_declaration_entre_dans_la_cle_de_cache(self):
+        self.assertEqual(len(registry.catalog()["agents"]), 2)
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        # Sans reset : la cle de cache porte la liste declaree, le catalogue suit.
+        self.assertEqual(len(registry.catalog()["agents"]), 1)
+
+
+class TestProducerOf(AidlcTestCase):
+    """L'arete producteur -> consommateur, lue a l'envers : qui produit cette entree ?"""
+
+    def test_le_producteur_d_un_livrable_est_nomme(self):
+        self.assertEqual(registry.producer_of("deliverables/plan/intent.md"), "plan")
+
+    def test_un_chemin_que_personne_ne_produit_ne_rend_aucun_producteur(self):
+        self.assertIsNone(registry.producer_of("deliverables/inexistant/amont.md"))
+
+    def test_un_agent_consultatif_n_est_jamais_producteur(self):
+        self.write_agent("aidlc-conseil", manifest("conseil", "Conseil"))
+        self.assertIsNone(registry.producer_of(""))

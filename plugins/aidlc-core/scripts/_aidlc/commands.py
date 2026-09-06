@@ -25,6 +25,9 @@ from .experiment import MIN_RUNS_AFTER
 from .experiment import effects as experiment_effects
 from .experiment import record as experiment_record
 from .improve import improve
+from .init import config_problems
+from .init import init_project
+from .init import render_init
 from .knowledge import SOURCES_FILE
 from .knowledge import catalog as knowledge_catalog
 from .knowledge import links as knowledge_links
@@ -42,6 +45,7 @@ from .maturity import record_score
 from .maturity import render_recall
 from .maturity import render_status
 from .maturity import review_request
+from .maturity import sign_review
 from .checks import contract_problems
 from .checks import run_checks
 from .scaffold import scaffold
@@ -199,6 +203,57 @@ def cmd_review_request(root: Path, args) -> int:
     return 0
 
 
+def cmd_sign(root: Path, args) -> int:
+    """Signature humaine d'une revue, puis reouverture de la porte dans la foulee.
+
+    Le garde-fou tient par le terminal : un agent qui lancerait cette commande depuis un
+    outil Bash n'a pas de stdin interactif, et se voit refuser. Ce n'est pas une
+    formalite — c'est la seule chose qui distingue « l'humain a signe » de « l'agent a
+    ecrit qu'il avait signe », et le hook PreToolUse ne couvre que l'outil Write.
+    """
+    if not sys.stdin.isatty():
+        sys.stderr.write(
+            "Signature refusee : `sign` est un geste humain et exige un terminal.\n"
+            "  - depuis votre terminal, relancez la meme commande ;\n"
+            "  - sans terminal (CI, session headless), remplissez a la main "
+            ".aidlc/reviews/<etape>-<run>.json — `review-request` en pose le gabarit.\n")
+        return 1
+    try:
+        signed = sign_review(root, load_pipeline(), args.stage,
+                             approved=args.approve, reviewer=args.by,
+                             justification=args.why, force=args.force)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    decision = gate_stage(root, load_pipeline(), args.stage)
+    signed["gate"] = decision
+    emit(signed)
+    sys.stderr.write("Revue {} : run {} de '{}' {} par {}.\n".format(
+        signed["review"], signed["run"], signed["stage"],
+        "approuve" if signed["approved"] else "refuse", signed["reviewer"]))
+    if decision["passed"]:
+        sys.stderr.write("Porte franchie{}.\n".format(
+            " — etape suivante : " + decision["next_stage"]
+            if decision.get("next_stage") else ""))
+        return 0
+    for message in decision["blocking"]:
+        sys.stderr.write(f"  [bloquant] {message}\n")
+    return 2
+
+
+def cmd_init(root: Path, args) -> int:
+    """Amorce le projet consommateur : gouvernance, dossiers, bundle OKF, inventaire."""
+    try:
+        pipe = load_pipeline()
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"Gouvernance illisible : {exc}\n")
+        return 1
+    result = init_project(root, pipe)
+    emit(result)
+    sys.stderr.write(render_init(result) + "\n")
+    return 0
+
+
 def cmd_recall(root: Path, args) -> int:
     """Rend les reproches des tentatives precedentes a qui reprend l'etape.
 
@@ -255,7 +310,10 @@ def cmd_agents(root: Path, args) -> int:
     if args.json:
         emit(view)
     else:
-        emit(view)
+        # Sortie humaine seule : le catalogue complet sur stdout par-dessus le tableau
+        # noyait la lecture sous 120 lignes de JSON que personne n'avait demandees. La
+        # convention du moteur vaut ici comme ailleurs — machine sur stdout avec --json,
+        # humain sur stderr sans.
         for agent in view["agents"]:
             sys.stderr.write("  {:<20} {:<16} {:<10} {}\n".format(
                 agent["id"], (agent.get("team") or "-")[:16], agent["kind"],
