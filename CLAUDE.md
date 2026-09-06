@@ -73,9 +73,12 @@ planchers figés               .aidlc/ratchet.json — planchers de sévérité 
                               .aidlc/coverage.json — plancher de couverture (ne descend jamais)
 mémoire de la boucle          .aidlc/experiments.jsonl — correctifs appliqués et effet mesuré
 
-aidlc.json                    gouvernance du PROJET : seuils, `agents` (workflow), feuille de
-                              route — posé par `aidlc.py init`, recouvre pipeline.json
-deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR)
+aidlc.json                    gouvernance du PROJET : seuils, `agents` (workflow), `initiative`
+                              (le nom de l'idée en cours), feuille de route — posé par
+                              `aidlc.py init`, écrit ensuite par `aidlc.py workflow`
+deliverables/<stage>/         livrables — dans le PROJET consommateur (CLAUDE_PROJECT_DIR) ;
+                              sous deliverables/<initiative>/<stage>/ quand le projet
+                              nomme son initiative, et .aidlc/ se décale de même
 knowledge-sources.json        bundles OKF distants déclarés — projet consommateur
 .aidlc/                       état runtime (logs, maturity.json, reviews, tmp/knowledge = cache
                               des bundles distants) — projet consommateur
@@ -92,7 +95,10 @@ S=plugins/aidlc-core/scripts/aidlc.py
 python3 $S agents                       # catalogue du registre (équipes, capacités, invocation)
 python3 $S agents --capability security:review --json
 python3 $S init                         # amorce un projet consommateur (aidlc.json, knowledge/, inventaire)
+python3 $S workflow                     # ce qui compose la chaîne, et ce qui est publié sans être branché
+python3 $S workflow --add design --initiative reco-panier   # composer le workflow, nommer l'idée
 python3 $S status                       # tableau de bord des étapes, et qui est attendu
+python3 $S status --history             # journal de passage : qui a produit, noté et signé quoi
 python3 $S validate plan                # vérifie le livrable de l'étape plan
 python3 $S score plan --file review.json  # enregistre une revue du reviewer
 python3 $S gate plan                    # décide si l'étape est franchie (exit 2 = bloquant)
@@ -100,6 +106,7 @@ python3 $S review-request plan          # prépare le formulaire de revue humain
 python3 $S sign plan --approve --by "Nom" --why "..."  # signe la revue et rejoue la porte (exige un terminal humain)
 python3 $S recall plan                  # reproches des tentatives précédentes (reprise)
 python3 $S improve --stage plan         # diagnostic pour la boucle d'amélioration
+python3 $S feedback --agent plan        # ce que ce projet a mesuré sur un agent, à rendre à son équipe
 python3 $S experiment record --stage plan --target precision \
     --file plugins/aidlc-plan/checks.json --cause "..."   # date un correctif appliqué au harnais
 python3 $S experiment effect            # effet mesuré de chaque correctif sur les runs suivants
@@ -185,7 +192,28 @@ skills utilisent `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py"` ; le projet 
    une CI. `validate` reste au niveau de la forme du livrable, mais **avertit** quand une entrée
    amont manque, car les règles qui la lisent (`must_reference_inputs`, `required_input_section`,
    `must_not_violate_scope`) ne vérifient alors plus rien. Un vert muet est un mensonge.
-11. **La signature humaine est un geste de terminal.** `aidlc.py sign` refuse de tourner sans
+11. **Une étape gouvernée sans contrat ne franchit rien.** `gate` consulte `contract_problems`
+   avant tout le reste : un `checks.json` absent ou incohérent est un bloquant, au même titre
+   qu'une entrée amont manquante. Sans cette règle, `validate` rendait `ok: true` avec
+   `checks_run: 0` — le vert le plus muet du harnais, et il portait justement sur l'agent qu'une
+   équipe vient de brancher. Le bloquant nomme l'équipe propriétaire : le contrat se corrige dans
+   son dépôt, pas ici.
+
+12. **Un projet mène plusieurs idées ; les chemins le savent.** La clé `initiative` d'`aidlc.json`
+   décale les livrables sous `deliverables/<idée>/` et l'état runtime sous `.aidlc/<idée>/`. Le
+   segment s'insère à **un seul endroit** — `registry._normalize`, par `util.scoped` — pour que la
+   porte, le garde-fou, la validation et le tableau de bord suivent sans le savoir ; un contrat
+   déclare ses chemins nus comme le manifeste, et `checks.scoped_checks` les situe au chargement.
+   Le garde-fou, lui, porte sur **tout** `.aidlc/` et jamais sur le seul dossier courant : sinon,
+   déclarer une initiative déverrouillerait les scores de la précédente. Absente, rien ne change.
+
+13. **La liste blanche du workflow ne s'édite qu'avec `aidlc.py workflow`.** Un agent ne peut pas
+   écrire `aidlc.json` (le hook le refuse), et un humain n'a pas à éditer un JSON à la main pour
+   brancher l'agent d'une équipe : la sous-commande valide ce qu'elle écrit, refuse un identifiant
+   qu'aucun manifeste ne porte, préserve les clés du fichier et prévient quand un retrait casse la
+   chaîne. C'est le même raisonnement que `sign`.
+
+14. **La signature humaine est un geste de terminal.** `aidlc.py sign` refuse de tourner sans
    stdin interactif : le hook `PreToolUse` ne couvre que l'outil Write, et rien n'empêcherait
    sinon un agent d'appeler la commande par Bash. C'est ce test-là qui distingue « l'humain a
    signé » de « l'agent a écrit qu'il avait signé » ; ne l'affaiblissez pas pour la commodité
@@ -233,6 +261,13 @@ Ce qui vaut pour un test de ce dépôt :
   mais on teste ce routage par substitution (`unittest.mock`), pas en relançant.
 - **Aucune dépendance externe, y compris pour mesurer.** La couverture se mesure avec `trace`
   (stdlib), jamais avec le paquet pip `coverage`.
+
+## Amorcer un projet consommateur
+
+La skill `/aidlc-core:setup` mène le premier contact : `aidlc.py init`, puis la composition
+du workflow (`aidlc.py workflow`) — quels agents d'équipe traversent l'initiative, et sous
+quel nom. C'est le seul endroit d'où la clé `agents` et la clé `initiative` d'`aidlc.json`
+sont écrites : ni un agent (le hook le refuse), ni un humain à la main.
 
 ## Ajouter un agent
 

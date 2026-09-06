@@ -187,7 +187,7 @@ class TestCmdValidate(AidlcTestCase):
             ["validate", "--touched", "--file", str(path)]))
         self.assertEqual(code, 0)
         message = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("EN ECHEC", message)
+        self.assertIn("EN ÉCHEC", message)
 
     def test_sans_etape_ni_mode_touche_affiche_l_usage_et_rend_un(self):
         code, out, err = run(commands.cmd_validate, self.root, parse(["validate"]))
@@ -338,7 +338,7 @@ class TestCmdRecall(AidlcTestCase):
     def test_sans_run_le_mode_humain_le_dit_sans_echouer(self):
         code, out, _ = run(commands.cmd_recall, self.root, parse(["recall", "plan"]))
         self.assertEqual(code, 0)
-        self.assertIn("rien a reprendre", out)
+        self.assertIn("rien à reprendre", out)
 
 
 class TestCmdStatus(AidlcTestCase):
@@ -566,7 +566,7 @@ class TestCmdRatchet(AidlcTestCase):
         code, out, err = run(commands.cmd_ratchet, self.root, parse(["ratchet"]))
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(out)["baseline"])
-        self.assertIn("Ratchet fige pour la premiere fois", err)
+        self.assertIn("Ratchet figé pour la première fois", err)
 
     def test_regression_du_plancher_est_bloquante(self):
         run(commands.cmd_ratchet, self.root, parse(["ratchet"]))
@@ -673,7 +673,7 @@ class TestCmdCheckOkf(AidlcTestCase):
             ["check-okf", str(self.root / "knowledge")]))
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(out)["ok"])
-        self.assertIn("Conformite OKF v0.2", err)
+        self.assertIn("Conformité OKF v0.2", err)
 
     def test_bundle_non_conforme_liste_les_problemes(self):
         self.write("knowledge/concept-un.md", OKF_BAD_CONCEPT)
@@ -773,7 +773,7 @@ class TestCmdCheckPython(AidlcTestCase):
         code, out, err = run(commands.cmd_check_python, self.root, parse(
             ["check-python", str(self.root / "absent")]))
         self.assertEqual(code, 1)
-        self.assertIn("Repertoire introuvable", err)
+        self.assertIn("Répertoire introuvable", err)
 
     def test_syntaxe_cassee_rend_un(self):
         self.write("script.py", "def f(:\n    pass\n")
@@ -837,7 +837,7 @@ class TestCmdCheckPython(AidlcTestCase):
             ["check-python", "--touched", "--file", str(path)]))
         self.assertEqual(code, 0)
         message = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn(f"Conformite syntaxique : {path} compile.", message)
+        self.assertIn(f"Conformité syntaxique : {path} compile.", message)
 
 
 class TestCmdCheckJson(AidlcTestCase):
@@ -1096,7 +1096,7 @@ class TestCmdCoverage(AidlcTestCase):
             code, out, err = run(commands.cmd_coverage, self.root, parse(["coverage"]))
         self.assertEqual(code, 2)
         self.assertFalse(json.loads(out)["passed"])
-        self.assertIn("[couverture] commands : 95% -> 80%", err)
+        self.assertIn("[couverture] commands : 95% → 80%", err)
         self.assertIn("corriger ou --reset", err)
 
     def test_regression_avec_module_disparu_affiche_absent(self):
@@ -1107,7 +1107,7 @@ class TestCmdCoverage(AidlcTestCase):
                 "hint": ""}):
             code, out, err = run(commands.cmd_coverage, self.root, parse(["coverage"]))
         self.assertEqual(code, 2)
-        self.assertIn("[couverture] supprime : 95% -> absent", err)
+        self.assertIn("[couverture] supprime : 95% → absent", err)
 
     def test_mesure_conforme_rend_zero_et_resume_la_couverture(self):
         with mock.patch.object(commands, "coverage_run", return_value={
@@ -1174,7 +1174,7 @@ class TestCmdSelfscore(AidlcTestCase):
     def test_le_score_et_les_seuils_sont_rappeles(self):
         with mock.patch.object(commands, "selfscore_run", return_value=rapport()):
             code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
-        self.assertIn("Score de maturite du harnais : 4.80/5", err)
+        self.assertIn("Score de maturité du harnais : 4.80/5", err)
         self.assertIn("seuil 4.0", err)
 
     def test_un_axe_effondre_bloque_avec_le_code_deux(self):
@@ -1260,7 +1260,7 @@ class TestCmdSign(AidlcTestCase):
                                     "--why", "Criteres chiffres.")
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(out)["gate"]["passed"])
-        self.assertIn("approuve par Steve", err)
+        self.assertIn("approuvé par Steve", err)
 
     def test_un_refus_ferme_la_porte_et_sort_a_deux(self):
         self._pret()
@@ -1279,7 +1279,7 @@ class TestCmdSign(AidlcTestCase):
     def test_l_etape_suivante_est_annoncee_quand_la_porte_s_ouvre(self):
         self._pret()
         code, out, err = self._sign("plan", "--approve", "--by", "Steve", "--why", "ok")
-        self.assertIn("etape suivante : design", err)
+        self.assertIn("étape suivante : design", err)
 
     def test_la_decision_est_exclusive_dans_le_parseur(self):
         with self.muted(), self.assertRaises(SystemExit):
@@ -1301,11 +1301,159 @@ class TestCmdInit(AidlcTestCase):
 
     def test_le_compte_rendu_humain_part_sur_stderr(self):
         code, out, err = run(commands.cmd_init, self.root, parse(["init"]))
-        self.assertIn("Projet amorce", err)
-        self.assertIn("cree   aidlc.json", err)
+        self.assertIn("Projet amorcé", err)
+        self.assertIn("créé   aidlc.json", err)
 
     def test_une_gouvernance_illisible_est_signalee_sans_trace(self):
         self.write("pipeline.json", "{ pas du json")
         code, out, err = run(commands.cmd_init, self.root, parse(["init"]))
         self.assertEqual(code, 1)
         self.assertIn("Gouvernance illisible", err)
+
+
+class TestCmdWorkflow(AidlcTestCase):
+    """`workflow` : composer la chaine de l'initiative sans editer le JSON a la main."""
+
+    def setUp(self):
+        super().setUp()
+        write_json(self.root / "aidlc.json", {"agents": ["plan"]})
+
+    def test_sans_option_la_commande_montre_le_workflow(self):
+        code, out, _ = run(commands.cmd_workflow, self.root, parse(["workflow"]))
+        self.assertEqual((code, "plan" in out), (0, True))
+
+    def test_sans_option_elle_nomme_ce_qui_n_est_pas_branche(self):
+        _, out, _ = run(commands.cmd_workflow, self.root, parse(["workflow"]))
+        self.assertIn("design", out)
+
+    def test_un_ajout_est_ecrit_et_confirme(self):
+        code, _, err = run(commands.cmd_workflow, self.root,
+                           parse(["workflow", "--add", "design"]))
+        self.assertEqual((code, "design" in err), (0, True))
+
+    def test_un_agent_inconnu_echoue_avec_un_message_humain(self):
+        code, _, err = run(commands.cmd_workflow, self.root,
+                           parse(["workflow", "--add", "fantome"]))
+        self.assertEqual((code, "fantome" in err), (1, True))
+
+    def test_un_agent_inconnu_n_ecrit_rien(self):
+        run(commands.cmd_workflow, self.root, parse(["workflow", "--add", "fantome"]))
+        self.assertEqual(self.read_json("aidlc.json")["agents"], ["plan"])
+
+    def test_sans_gouvernance_la_commande_renvoie_vers_init(self):
+        (self.root / "aidlc.json").unlink()
+        code, _, err = run(commands.cmd_workflow, self.root,
+                           parse(["workflow", "--add", "design"]))
+        self.assertEqual((code, "init" in err), (1, True))
+
+    def test_une_gouvernance_illisible_est_signalee_sans_trace(self):
+        self.write("aidlc.json", "{ pas du json")
+        code, _, err = run(commands.cmd_workflow, self.root,
+                           parse(["workflow", "--add", "design"]))
+        self.assertEqual((code, "illisible" in err), (1, True))
+
+    def test_l_option_json_force_la_forme_machine(self):
+        _, out, _ = run(commands.cmd_workflow, self.root,
+                        parse(["workflow", "--add", "design", "--json"]))
+        self.assertEqual(json.loads(out)["agents"], ["plan", "design"])
+
+    def test_nommer_l_initiative_passe_par_la_meme_commande(self):
+        run(commands.cmd_workflow, self.root,
+            parse(["workflow", "--initiative", "reco"]))
+        self.assertEqual(self.read_json("aidlc.json")["initiative"], "reco")
+
+
+class TestCmdFeedback(AidlcTestCase):
+    """`feedback` : ce que ce projet a mesure, a rendre a l'equipe qui maintient l'agent."""
+
+    def test_la_sortie_humaine_nomme_les_agents(self):
+        code, out, _ = run(commands.cmd_feedback, self.root, parse(["feedback"]))
+        self.assertEqual((code, "plan" in out), (0, True))
+
+    def test_l_option_json_rend_la_forme_machine(self):
+        _, out, _ = run(commands.cmd_feedback, self.root, parse(["feedback", "--json"]))
+        self.assertEqual(len(json.loads(out)["agents"]), 2)
+
+    def test_le_filtre_ne_garde_qu_un_agent(self):
+        _, out, _ = run(commands.cmd_feedback, self.root,
+                        parse(["feedback", "--agent", "plan", "--json"]))
+        self.assertEqual(len(json.loads(out)["agents"]), 1)
+
+
+class TestCmdStatusHistory(AidlcTestCase):
+    """`status --history` : le journal de passage, pas l'instantane."""
+
+    def test_sans_run_le_journal_le_dit(self):
+        code, out, _ = run(commands.cmd_status, self.root, parse(["status", "--history"]))
+        self.assertEqual((code, "Aucun run noté" in out), (0, True))
+
+    def test_un_run_note_apparait_au_journal(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": {"completeness": 4, "precision": 4,
+                                 "traceability": 4, "autonomy": 4}})
+        _, out, _ = run(commands.cmd_status, self.root, parse(["status", "--history"]))
+        self.assertIn("plan run 1", out)
+
+    def test_le_journal_a_sa_forme_machine(self):
+        _, out, _ = run(commands.cmd_status, self.root,
+                        parse(["status", "--history", "--json"]))
+        self.assertEqual(json.loads(out)["events"], [])
+
+    def test_sans_history_le_tableau_de_bord_reste_le_defaut(self):
+        _, out, _ = run(commands.cmd_status, self.root, parse(["status"]))
+        self.assertIn("tableau de bord", out)
+
+
+class TestSortieMachineDevantUnHumain(AidlcTestCase):
+    """Les commandes qui portent deja un resume sur stderr ne le noient plus."""
+
+    def _gate_dans_un_terminal(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        out.isatty = lambda: True
+        with redirect_stdout(out), redirect_stderr(err):
+            code = commands.cmd_gate(self.root, parse(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_dans_un_terminal_le_json_ne_double_pas_le_resume(self):
+        _, out, _ = self._gate_dans_un_terminal(["gate", "plan"])
+        self.assertEqual(out, "")
+
+    def test_le_resume_humain_reste_sur_stderr(self):
+        _, _, err = self._gate_dans_un_terminal(["gate", "plan"])
+        self.assertIn("[bloquant]", err)
+
+    def test_l_option_json_ramene_la_forme_machine_dans_un_terminal(self):
+        _, out, _ = self._gate_dans_un_terminal(["gate", "plan", "--json"])
+        self.assertFalse(json.loads(out)["passed"])
+
+    def test_hors_terminal_le_contrat_machine_ne_bouge_pas(self):
+        code, out, _ = run(commands.cmd_gate, self.root, parse(["gate", "plan"]))
+        self.assertEqual((code, json.loads(out)["stage"]), (2, "plan"))
+
+    def test_score_annonce_sa_note_a_l_humain(self):
+        self.plan_intent()
+        write_json(self.root / "review.json",
+                   {"scores": {"completeness": 4, "precision": 4,
+                               "traceability": 4, "autonomy": 4}})
+        _, _, err = run(commands.cmd_score, self.root,
+                        parse(["score", "plan", "--file", str(self.root / "review.json")]))
+        self.assertIn("note 4.0", err)
+
+
+class TestRendusDeCommande(AidlcTestCase):
+    """Les branches de rendu que seul un etat particulier fait apparaitre."""
+
+    def test_score_nomme_les_axes_sous_le_plancher(self):
+        self.plan_intent()
+        write_json(self.root / "review.json",
+                   {"scores": {"completeness": 5, "precision": 5,
+                               "traceability": 1, "autonomy": 5}})
+        _, _, err = run(commands.cmd_score, self.root,
+                        parse(["score", "plan", "--file", str(self.root / "review.json")]))
+        self.assertIn("traceability", err)
+
+    def test_le_workflow_signale_un_agent_declare_dont_le_plugin_manque(self):
+        write_json(self.root / "aidlc.json", {"agents": ["plan", "jamais-installe"]})
+        _, out, _ = run(commands.cmd_workflow, self.root, parse(["workflow"]))
+        self.assertIn("introuvable", out)

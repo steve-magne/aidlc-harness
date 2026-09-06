@@ -69,7 +69,11 @@ PROJECT_CONFIG = "aidlc.json"
 #: Cles qu'un projet peut redefinir. Volontairement restreint : un projet regle son
 #: exigence et declare son workflow, il ne redefinit pas le moteur.
 PROJECT_KEYS = ("maturity_threshold", "min_axis_score", "consecutive_runs_to_autonomy",
-                "watchdog", "planned_stages", "agents")
+                "watchdog", "planned_stages", "agents", "initiative")
+
+#: Racine des livrables. Un manifeste declare son `produces` sous cette racine ; c'est
+#: le seul segment que le moteur reconnait pour y glisser le nom de l'initiative.
+DELIVERABLES = "deliverables"
 
 
 def project_config_path(root: Path = None) -> Path:
@@ -109,8 +113,52 @@ def load_pipeline() -> dict:
     return pipe
 
 
+def initiative(root: Path = None) -> str:
+    """Nom de l'initiative en cours, '' si le projet n'en declare pas.
+
+    Un projet vit plus longtemps qu'une idee. Sans ce segment, la deuxieme evolution
+    ecrase les livrables, les scores et les signatures de la premiere : les chemins
+    sont fixes (`deliverables/plan/intent.md`) et l'etat runtime est global. La cle
+    `initiative` d'aidlc.json isole une idee de la suivante, dans les deux endroits qui
+    portent son histoire — `deliverables/` et `.aidlc/`.
+
+    Absente, on reste a plat : c'est le cas d'un projet qui n'en mene qu'une, et ne rien
+    changer pour lui est le comportement correct.
+    """
+    try:
+        value = (project_config(root).get("initiative") or "").strip()
+    except (OSError, json.JSONDecodeError):
+        # Une gouvernance illisible est signalee par config_problems et load_pipeline.
+        # Ici on ne fait que resoudre un chemin, sur le chemin chaud des hooks : la
+        # faire echouer casserait la session au lieu de la prevenir.
+        return ""
+    return re.sub(r"[^A-Za-z0-9_-]", "-", value)[:60] if value else ""
+
+
+def scoped(path: str, root: Path = None) -> str:
+    """Chemin de livrable rapporte a l'initiative courante.
+
+    `deliverables/plan/intent.md` devient `deliverables/<initiative>/plan/intent.md` :
+    le segment se glisse **apres** la racine des livrables, pour que le dossier reste
+    lisible par idee. Un chemin declare hors de cette racine est prefixe en tete.
+
+    # ponytail: insertion positionnelle sur un seul segment reconnu, pas de resolution
+    de motif. Plafond : un manifeste qui declarerait `docs/plan.md` verrait son livrable
+    sous `<initiative>/docs/plan.md`. Upgrade si un jour ca gene : un champ
+    `deliverables_root` dans le manifeste.
+    """
+    name = initiative(root)
+    if not name or not path:
+        return path
+    parts = Path(path).parts
+    if parts and parts[0] == DELIVERABLES:
+        return str(Path(parts[0], name, *parts[1:]))
+    return str(Path(name, *parts))
+
+
 def aidlc_dir(root: Path) -> Path:
-    return root / ".aidlc"
+    name = initiative(root)
+    return (root / ".aidlc" / name) if name else (root / ".aidlc")
 
 
 def ensure_dir(path: Path) -> Path:
@@ -143,6 +191,18 @@ def write_json(path: Path, data) -> None:
 
 def emit(data) -> None:
     sys.stdout.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def emit_machine(data, forced: bool = False) -> None:
+    """JSON sur stdout, sauf devant un humain.
+
+    Les commandes qui portent deja un resume lisible sur stderr (init, gate, score,
+    sign) le doublaient d'un dump JSON : dans un terminal, le tableau qu'on vient lire
+    disparait sous l'objet. Le contrat machine ne bouge pas — hors terminal (hook,
+    skill, CI, pipe) le JSON sort exactement comme avant, et `--json` le force partout.
+    """
+    if forced or not sys.stdout.isatty():
+        emit(data)
 
 
 def truncate(value, limit: int = MAX_FIELD):

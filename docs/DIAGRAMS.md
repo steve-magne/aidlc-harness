@@ -96,13 +96,14 @@ la séparation des droits est structurelle, pas une consigne de prompt.
 
 ---
 
-## 3. Les huit conditions de la porte
+## 3. Les neuf conditions de la porte
 
 **La question :** pourquoi mon étape ne passe-t-elle pas ?
 
 ```
-   entrées amont présentes         ─┐   ces deux-ci sont évaluées EN PREMIER
-   portes amont franchies           │   et listées en tête des blocages
+   contrat présent et cohérent     ─┐   ces trois-ci sont évaluées EN PREMIER
+   entrées amont présentes          │   et listées en tête des blocages
+   portes amont franchies           │
    validation déterministe passe    │
    verdict du reviewer = accepted   ├──  TOUTES vraies  ──►  exit 0   franchie
    moyenne ≥ 4.0                    │
@@ -112,8 +113,12 @@ la séparation des droits est structurelle, pas une consigne de prompt.
                                                                         des blocages
 ```
 
-Quatre pièges fréquents, dans l'ordre où on les rencontre :
+Cinq pièges fréquents, dans l'ordre où on les rencontre :
 
+- **`contrat présent et cohérent`** — l'agent produit un livrable qu'aucune règle ne validerait :
+  son plugin n'a pas de `checks.json`, ou celui-ci est incohérent à vide. Sans cette condition,
+  `validate` rendait « ok » avec zéro règle appliquée. Rien à corriger côté projet : le bloquant
+  nomme l'équipe qui publie l'agent, et le contrat se corrige dans son dépôt.
 - **`entrées amont présentes` / `portes amont franchies`** — l'étape n'est pas jouable : son
   entrée n'existe pas, ou l'agent qui la produit n'a pas franchi sa propre porte. C'est la chaîne
   producteur → consommateur, tenue par le moteur et non par un prompt : elle vaut donc aussi en
@@ -159,6 +164,24 @@ Quatre pièges fréquents, dans l'ordre où on les rencontre :
 **Le noyau ne tient aucune liste.** Publier un agent, c'est publier un plugin avec son manifeste —
 le noyau n'est jamais modifié. C'est la condition de la modularité : chaque équipe maintient son
 agent dans son dépôt, et `/aidlc-core:dispatch` mobilise les agents consultatifs par capacité.
+
+**Découvert n'est pas branché.** Le projet retient ce qu'il joue, dans la clé `agents` de son
+`aidlc.json`, et l'écart se dit dans les deux sens :
+
+```
+   registre (ce qui est découvert)        aidlc.json.agents (ce que le projet joue)
+              plan ──────────────────────────────► plan          branché
+              design ────────────────────────────► design        branché
+              build ──────────────✗                              découvert, non branché
+                                                   ✗──── test    déclaré, plugin absent
+                      │                                    │
+                      ▼                                    ▼
+        « aidlc.py workflow --add build »     « installez le plugin de l'équipe »
+```
+
+Les deux lignes remontent sous le tableau de bord. Taire l'une ou l'autre ferait rétrécir le
+pipeline en silence — une équipe publie son agent et ne voit rien, ou un id mal orthographié
+disparaît sans un mot. `aidlc.py workflow` est la seule commande qui écrit cette liste.
 
 ---
 

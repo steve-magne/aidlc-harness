@@ -81,7 +81,7 @@ def sync(root: Path, source: dict, refresh: bool = False) -> Path:
         elif refresh:
             res = _git(["pull", "--ff-only", "--depth", "1"], cwd=local)
             if res.returncode != 0:
-                raise RuntimeError("{} : mise a jour impossible - {}".format(
+                raise RuntimeError("{} : mise à jour impossible — {}".format(
                     source["name"], res.stderr.strip()[:300]))
     return (local / source["path"]).resolve() if source["path"] else local.resolve()
 

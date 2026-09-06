@@ -258,7 +258,7 @@ le seuil du harnais et le workflow que la machine avait installé — deux proje
 même poste héritaient forcément du même pipeline.
 
 `aidlc.json`, à la racine du **projet**, recouvre `pipeline.json` clé par clé
-(`util.load_pipeline`). Cinq clés reconnues, toute autre est ignorée et signalée par `status` :
+(`util.load_pipeline`). Six clés reconnues, toute autre est ignorée et signalée par `status` :
 
 | Clé | Ce qu'elle décide |
 | --- | --- |
@@ -266,12 +266,49 @@ même poste héritaient forcément du même pipeline.
 | `watchdog` | ses seuils de stagnation |
 | `planned_stages` | **sa** feuille de route : ce qu'il lui reste à installer |
 | `agents` | **son workflow** : la liste blanche des identifiants qui composent le pipeline |
+| `initiative` | **l'idée en cours** : le segment qui isole ses livrables et son état runtime |
 
 `agents` est la clé structurante. La découverte reste ouverte — on installe ce qu'on veut sur sa
 machine — mais le filtre s'applique dans `registry.discover`, donc partout : catalogue, ordre,
-tableau de bord, portes. Un identifiant déclaré qu'aucun manifeste ne porte remonte en
-**avertissement** plutôt que de rétrécir le pipeline en silence : c'est le plugin d'une équipe qui
-n'est pas encore installé. Omettre la clé revient à prendre tous les agents découverts.
+tableau de bord, portes. L'avertissement joue **dans les deux sens**, et c'est le point : un
+identifiant déclaré qu'aucun manifeste ne porte est le plugin d'une équipe qui n'est pas installé ;
+un agent découvert absent de la liste est une équipe qui a publié et que personne n'a branchée —
+`discover` le rend dans `undeclared`, `status` cesse de l'annoncer « à publier ». Omettre la clé
+revient à prendre tous les agents découverts.
+
+Ni un agent ni un humain n'édite ce fichier à la main : le hook `PreToolUse` refuse l'écriture d'un
+agent (il n'abaisse pas le mètre qui le juge, ni ne se retire du pipeline), et `aidlc.py workflow`
+est la seule commande qui écrit `agents` et `initiative`. Elle valide ce qu'elle écrit — refus d'un
+identifiant qu'aucun manifeste ne porte, préservation des clés étrangères du fichier, avertissement
+quand un retrait casse la chaîne producteur → consommateur, refus d'un nom d'initiative qui
+collisionnerait avec une entrée protégée de `.aidlc/`. C'est le raisonnement de `sign`, appliqué au
+geste d'entrée du harnais.
+
+#### `initiative` — un projet vit plus longtemps qu'une idée
+
+Sans cette clé, le harnais ne connaît qu'une idée par projet : `produces` est un chemin fixe
+(`deliverables/plan/intent.md`) et `.aidlc/` est global, donc la deuxième évolution d'un même
+produit écrase les livrables, les scores et les signatures de la première.
+
+`initiative: "reco-panier"` situe les livrables sous `deliverables/reco-panier/` et l'état runtime
+sous `.aidlc/reco-panier/`. Trois propriétés de conception :
+
+- **Un seul point d'insertion.** `util.scoped()` est appliqué dans `registry._normalize`, c'est-à-
+  dire là où un chemin de manifeste entre dans le moteur. La porte, le garde-fou, la validation, le
+  tableau de bord et la chaîne producteur → consommateur suivent sans le savoir, parce qu'ils
+  lisent tous `produces` et `consumes` depuis cette entrée de catalogue.
+- **Le contrat suit le manifeste.** Un `checks.json` déclare ses chemins nus ;
+  `checks.scoped_checks` les situe au chargement. Sans cela, nommer une initiative rendrait
+  incohérent le contrat de toute équipe qui cite une entrée amont — et fermerait sa porte alors
+  qu'elle n'a rien changé.
+- **La garde ne se déplace pas.** `hookslog` protège **tout** `.aidlc/`, en traversant le segment
+  d'initiative pour retrouver l'entrée protégée : sinon, déclarer une nouvelle idée déverrouillerait
+  les scores et les signatures de la précédente — précisément la fraude que la garde existe pour
+  empêcher. Un nom d'initiative qui collisionne avec une entrée connue de `.aidlc/` est refusé.
+
+Absente, rien ne change : un projet qui ne mène qu'une idée reste à plat, et ne rien lui imposer est
+le comportement correct. Changer d'initiative ne déplace aucun fichier : ceux de la précédente
+restent où ils sont, et `status --history` continue de les raconter.
 
 `aidlc.py init` pose ce fichier, ainsi que `deliverables/`, le bundle `knowledge/` et un concept
 `sources/projet-existant.md` — l'inventaire déterministe des README, manifestes de dépendances et
@@ -540,7 +577,8 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 .aidlc/logs/<session_id>.jsonl      journal des sessions
 .aidlc/maturity.json                historique des scores
 .aidlc/reviews/<stage>-<n>.json     revues humaines signées
-.aidlc/improvement-queue.jsonl      refus humains, haltes du watchdog et refus du gate OKF
+.aidlc/improvement-queue.jsonl      motifs humains (refus, et approbations motivées en
+                                    `kind: reserve`), haltes du watchdog, refus du gate OKF
 .aidlc/experiments.jsonl            corrections du harnais appliquées et effet mesuré (protégé)
 .aidlc/ratchet.json                 planchers de sévérité figés (protégé par le guard)
 .aidlc/tmp/                         scratch, ignoré par git
@@ -604,19 +642,27 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 
 ### Les conditions du passage
 
-`aidlc.py gate <stage>` ne renvoie `passed: true` que si les cinq conditions suivantes sont
+`aidlc.py gate <stage>` ne renvoie `passed: true` que si les six conditions suivantes sont
 réunies :
 
-0. **L'amont est en place** : chaque chemin du `consumes` existe sur disque, et l'agent qui le
+0. **Le contrat existe et il est cohérent** : `contract_problems` est vide. Un agent gouverné sans
+   `checks.json`, ou dont le contrat est incohérent à vide (règle inconnue, regex fautive, section
+   exigée hors de `required_sections`, `required_input_section` sur un chemin absent du `consumes`),
+   ne franchit rien. Le registre savait le dire depuis longtemps — `agents --strict` sort 1, le
+   tableau de bord l'affiche — mais rien ne bloquait : `validate` rendait alors `ok: true` avec
+   `checks_run: 0`, le vert le plus muet du harnais, et il portait précisément sur l'agent qu'une
+   équipe venait de brancher. Le bloquant nomme l'équipe propriétaire : le contrat se corrige dans
+   son dépôt.
+1. **L'amont est en place** : chaque chemin du `consumes` existe sur disque, et l'agent qui le
    produit a franchi sa propre porte (§2, « Chaîne livrable vers entrée »). Cette condition est
    évaluée en premier et ses bloquants sont listés en tête : une étape bâtie sur du vide n'a pas
    de qualité à mesurer, et le dire avant la note évite d'envoyer l'utilisateur relancer un
    reviewer pour rien.
-1. `validate <stage>` passe : le livrable respecte toutes les règles de son `checks.json`.
-2. Le dernier run enregistré porte le verdict `accepted` **et** une note globale supérieure ou
+2. `validate <stage>` passe : le livrable respecte toutes les règles de son `checks.json`.
+3. Le dernier run enregistré porte le verdict `accepted` **et** une note globale supérieure ou
    égale à `maturity_threshold`.
-3. La revue humaine est présente et approuvée — sauf si l'étape est passée en mode autonome.
-4. Ni les entrées amont ni le livrable lui-même n'ont été modifiés depuis que le dernier run a
+4. La revue humaine est présente et approuvée — sauf si l'étape est passée en mode autonome.
+5. Ni les entrées amont ni le livrable lui-même n'ont été modifiés depuis que le dernier run a
    été noté (voir « Péremption d'une note », §2) : `stale_inputs` doit être vide et
    `stale_deliverable` faux.
 
@@ -842,9 +888,10 @@ Le harness ne s'améliore pas en changeant de modèle : il s'améliore en change
 instructions, à partir de ce que ses journaux montrent.
 
 ```
- refus humain (approved: false)
-        |  justification
-        v
+ refus humain (approved: false)          approbation motivée (kind: reserve)
+        |  justification                        |  justification
+        +--------------------+-----------------+
+                             v
  .aidlc/improvement-queue.jsonl
         |                                      halte du watchdog (kind: watchdog)
         |                                              (acharnement, boucle d'ecriture,
@@ -862,6 +909,10 @@ instructions, à partir de ce que ses journaux montrent.
  SKILL.md de l'étape   (la procédure était ambiguë)
  templates/<livrable>  (la structure induisait l'oubli)
  checks.json           (le défaut est détectable de façon déterministe)
+ aidlc.json            (le problème n'est pas le plugin mais la chaîne : section `workflow`
+                        du diagnostic — maillon manquant, étape jamais jouée, agent publié
+                        et non branché, coût en tentatives. Écrit par `aidlc.py workflow`,
+                        et seulement sur décision de l'équipe projet)
         |
         v
  accord humain explicite  ->  application
@@ -972,7 +1023,8 @@ dépôt — la décision d'insister ou de revenir en arrière reste la sienne.
 
 - Un livrable = un fichier dans `deliverables/` du **projet consommateur**, au chemin exact déclaré
   par le champ `produces` de l'`agent.json` de son agent (§2.1) — jamais par `pipeline.json`, qui
-  ne porte que la gouvernance.
+  ne porte que la gouvernance. Ce chemin est décalé sous `deliverables/<initiative>/` quand le
+  projet nomme son idée en cours (§3.1).
 - Le harnais (pipeline, contrats, script) vit dans les plugins ; le projet (livrables, `.aidlc/`,
   `knowledge/`) vit chez le consommateur. Deux racines, résolues par le script.
 - Toute logique déterministe vit dans `aidlc.py`, jamais dans un nouveau script.
@@ -980,4 +1032,10 @@ dépôt — la décision d'insister ou de revenir en arrière reste la sienne.
   et Markdown.
 - `.aidlc/maturity.json` et `.aidlc/reviews/*.json` ne sont jamais édités à la main par un agent :
   seuls `aidlc.py score` et l'humain y écrivent, et le hook `guard` fait respecter la règle.
+- Un chemin de livrable ne se situe qu'à **un seul endroit** : `registry._normalize`, par
+  `util.scoped`. Tout le reste du moteur lit `produces` et `consumes` depuis l'entrée de catalogue,
+  et suit sans le savoir.
+- Ce qu'un humain lit est en français accentué ; les identifiants, chemins, clés JSON et le code
+  restent en anglais. Dans un terminal, une commande qui porte un résumé lisible ne le double pas
+  d'un dump JSON — hors terminal le contrat machine est inchangé, et `--json` le force partout.
 - Les raccourcis assumés sont marqués dans le code par un commentaire `# ponytail: ...`.

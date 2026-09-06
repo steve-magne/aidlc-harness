@@ -125,7 +125,11 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 
 1. **`plugins/aidlc-<stage>/checks.json`** — d'abord, car il fixe le contrat. N'utilisez que les
    règles reconnues par le moteur (voir la liste dans le `SKILL.md` de `new-stage`) : la forme se
-   vérifie ici, le **fond se juge au reviewer**, pas avec une expression régulière.
+   vérifie ici, le **fond se juge au reviewer**, pas avec une expression régulière. Ce fichier
+   n'est pas facultatif : une étape gouvernée sans contrat ne franchit pas sa porte, et le
+   bloquant nomme votre équipe. Déclarez-y vos chemins d'entrée **nus**
+   (`deliverables/plan/intent.md`), comme dans le manifeste : c'est le moteur qui les situe quand
+   le projet consommateur nomme son initiative.
 2. **`templates/<livrable>`** — le frontmatter avec les clés de `required_frontmatter`, puis les
    sections obligatoires dans l'ordre. Les marqueurs `<…>` y sont le **seul** remplissage autorisé
    du dépôt.
@@ -279,8 +283,16 @@ Une étape `implemented` ne se reconçoit pas via `new-stage` (la skill s'arrêt
 ```
 
 La boucle d'auto-amélioration agrège les signaux — journaux de sessions, historique de maturité,
-file des refus humains (`.aidlc/improvement-queue.jsonl`, alimentée à chaque revue humaine
-refusée) — et produit un diagnostic. La skill `/aidlc-core:improve` le lit et **propose** un diff
+file des motifs humains (`.aidlc/improvement-queue.jsonl`, alimentée par chaque revue humaine :
+un refus, mais aussi une **approbation motivée**, marquée `kind: reserve`) — et produit un
+diagnostic. Le diagnostic porte en plus une section `workflow` : maillons manquants, agents
+branchés jamais joués, agents publiés que personne n'a branchés, coût par étape en tentatives —
+de quoi proposer une évolution de la chaîne et pas seulement d'un plugin.
+
+Quand le signal vient d'un projet consommateur que vous ne maintenez pas, c'est
+`aidlc.py feedback --agent <votre-agent>` qui vous le rend : ses notes, ses axes faibles et les
+motifs écrits par ses relecteurs. Demandez-le à l'équipe projet — c'est le retour d'usage sur
+lequel une version suivante se conçoit. La skill `/aidlc-core:improve` le lit et **propose** un diff
 sur le `SKILL.md`, le template ou le `checks.json` de l'étape faible ; elle ne l'applique jamais
 sans accord humain explicite, et elle corrige la **source** (ce dépôt), jamais une copie installée.
 
@@ -294,6 +306,9 @@ Depuis la racine du dépôt :
 
 ```bash
 python3 plugins/aidlc-core/scripts/aidlc.py status                 # tableau de bord
+python3 plugins/aidlc-core/scripts/aidlc.py status --history       # journal de passage : qui a produit, noté et signé quoi
+python3 plugins/aidlc-core/scripts/aidlc.py workflow               # ce qui compose la chaîne, et ce qui est publié sans être branché
+python3 plugins/aidlc-core/scripts/aidlc.py feedback --agent <id>  # ce qu'un projet a mesuré sur un agent
 python3 plugins/aidlc-core/scripts/aidlc.py agents --strict        # manifestes + contrats du dépôt (exit 1 si incohérent)
 python3 plugins/aidlc-core/scripts/aidlc.py check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
 python3 plugins/aidlc-core/scripts/aidlc.py check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)

@@ -107,6 +107,8 @@ vivent hors du bundle :
 - le bundle [docs/](../docs/index.md) — architecture, guide consommateur, guide mainteneur ;
 - `plugins/aidlc-core/pipeline.json` — la gouvernance par défaut du harnais : seuils, `watchdog`,
   et `planned_stages` (feuille de route consultative) — installée avec le plugin ;
+- l'`aidlc.json` du projet — sa gouvernance à lui, qui recouvre la précédente : son exigence, son
+  workflow (`agents`) et le nom de son initiative, écrits par `aidlc.py workflow` ;
 - l'`agent.json` de chaque plugin d'étape — la définition de l'étape elle-même : son livrable
   (`produces`), ses entrées (`consumes`), son rôle humain, son contrat (`checks`) ;
 - les templates et checks des plugins d'étape, ex. `plugins/aidlc-plan/templates/intent.md`.

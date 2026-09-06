@@ -132,6 +132,7 @@ fichier, vous subiriez les seuils du harnais et le workflow que la machine a ins
   "maturity_threshold": 4.0,
   "min_axis_score": 3.0,
   "consecutive_runs_to_autonomy": 3,
+  "initiative": "reco-panier",
   "agents": ["plan", "design", "security-review"],
   "planned_stages": [
     { "id": "build", "name": "Build", "deliverable": "deliverables/build/plan.md",
@@ -142,9 +143,21 @@ fichier, vous subiriez les seuils du harnais et le workflow que la machine a ins
 
 - **`agents`** — la liste blanche des identifiants qui composent votre pipeline. Un plugin installé
   sur la machine pour une autre initiative mais absent de cette liste **n'existe pas** pour ce
-  projet. Un identifiant listé dont aucun plugin n'est installé remonte en avertissement sous le
-  tableau de bord : c'est un plugin d'équipe qu'il vous reste à installer, pas une faute de frappe
-  silencieuse. Omettez la clé et tous les agents découverts composent le workflow.
+  projet. L'avertissement joue dans les deux sens sous le tableau de bord : un identifiant listé
+  dont aucun plugin n'est installé vous est signalé (c'est un plugin d'équipe qu'il vous reste à
+  installer, pas une faute de frappe silencieuse), et un agent découvert que vous n'avez pas
+  branché aussi — sans quoi une équipe publie son plugin et vous ne voyez rien. Omettez la clé et
+  tous les agents découverts composent le workflow.
+  **N'éditez pas cette liste à la main** : `aidlc.py workflow --add <agent>` / `--remove <agent>`
+  valide ce qu'elle écrit, refuse un identifiant qu'aucun manifeste ne porte, et vous prévient
+  quand un retrait casse la chaîne producteur → consommateur.
+- **`initiative`** — le nom de l'idée en cours. Un projet vit plus longtemps qu'une idée : sans ce
+  nom, la deuxième évolution écrase les livrables, les scores et les signatures de la première,
+  parce que les chemins sont fixes. Avec lui, chaque idée a son dossier —
+  `deliverables/<initiative>/` et `.aidlc/<initiative>/` — et l'histoire de la précédente reste
+  lisible (`status --history`). Posez-le par `aidlc.py workflow --initiative "<nom-court>"`, en
+  minuscules et sans espace. Changer d'initiative **ne déplace rien** : les fichiers de la
+  précédente restent où ils sont. Omettez la clé si votre projet ne mène qu'une idée.
 - **`planned_stages`** — *votre* feuille de route : les étapes que vous attendez et dont le plugin
   n'est pas encore publié.
 - Les autres clés recouvrent celles du harnais, une par une. Ce que vous ne déclarez pas reste
@@ -153,6 +166,38 @@ fichier, vous subiriez les seuils du harnais et le workflow que la machine a ins
   '…'`) — plutôt que de vous laisser croire que votre seuil s'applique.
 
 Versionnez ce fichier : c'est une décision de projet, comme une dépendance.
+
+### `aidlc.py workflow` : composer la chaîne
+
+Ne l'éditez pas à la main. La sous-commande valide ce qu'elle écrit, et sans option elle répond à
+la question qu'on se pose vraiment — « qu'est-ce qu'on a, qu'est-ce qu'on joue ? » :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" workflow
+```
+
+```
+Workflow de l'initiative « reco-panier »
+
+  plan                 Produit        deliverables/reco-panier/plan/intent.md
+  security-review      AppSec         consultatif (pas de livrable)
+  design               Architecture   deliverables/reco-panier/design/spec.md
+
+Découverts, hors de ce workflow : build
+Les brancher : aidlc.py workflow --add build
+```
+
+Trois lignes, trois réponses différentes : un agent **branché** compose la chaîne ; un agent
+**découvert hors du workflow** a été publié par une équipe que personne n'a branchée — demandez-lui
+si elle intervient sur cette initiative ; un agent **introuvable** est déclaré mais son plugin
+n'est pas installé.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" workflow --add design --remove build
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" workflow --initiative "refonte-sso"
+```
+
+La skill `/aidlc-core:setup` mène ce dialogue pour vous, amorçage compris.
 
 ## 4. Premier run : produire le livrable Plan
 
@@ -284,7 +329,10 @@ Trois exigences que la commande tient et que le fichier ne savait pas tenir :
 
 - **un relecteur nommé** — une revue anonyme n'engage personne ;
 - **une justification, y compris pour approuver** — sans motif écrit, la signature ne dit pas ce
-  qui a été vérifié ;
+  qui a été vérifié. Et ce motif **sert** : une approbation motivée ne bloque rien, mais elle est
+  conservée dans `.aidlc/improvement-queue.jsonl` comme *réserve* et alimente la boucle
+  d'amélioration au même titre qu'un refus. Écrivez ce qui vous a gêné même quand vous laissez
+  passer — trois réserves sur le même motif valent un refus, et personne ne l'aurait vu venir ;
 - **pas de réécriture silencieuse** — un run déjà signé est refusé, avec le nom et la date de la
   signature en place. Pour revenir sur votre décision : `--force`, ou supprimez le fichier.
 
@@ -334,6 +382,20 @@ Deux garde-fous rendent ce relais sûr :
 - si l'amont est révisé **après** que l'aval a été noté, la porte de l'aval se rouvre
   automatiquement — la note portait sur une version disparue.
 
+Et pour répondre à « qui a validé quoi, et quand », que le tableau de bord ne dit pas (il ne montre
+que l'état courant) :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --history
+```
+
+```
+Journal de l'initiative « reco-panier »
+
+2026-09-06T09:12:44+00:00  plan run 1 — note 4.2 (accepted) — approuvé par Marie Dupont le 2026-09-06T09:31:02+00:00
+2026-09-06T14:03:18+00:00  design run 1 — note 3.8 (rejected) | axes sous plancher : traceability — refusé par Karim B. le 2026-09-06T14:20:55+00:00
+```
+
 ### Quand la revue humaine n'est-elle plus exigée ?
 
 Après **3 runs consécutifs** au-dessus du seuil (4.0) **et approuvés** par une revue humaine,
@@ -348,8 +410,12 @@ n'existe que dans la session) :
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" init              # amorce le projet (idempotent)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" workflow          # ce qui compose la chaîne, et ce qui ne la compose pas
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" workflow --add design --initiative reco-panier
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents            # catalogue des agents installés
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status            # tableau de bord
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --history  # qui a produit, noté et signé quoi
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" feedback          # ce que ce projet a mesuré sur chaque agent
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate plan         # porte : exit 0 = franchie, exit 2 = bloquée
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request plan   # prépare la revue humaine (gabarit + consignes)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" sign plan --approve --by "Nom" --why "..."  # signe et rejoue la porte (terminal humain)
@@ -390,6 +456,33 @@ AIDLC_AGENT_PATH=/chemin/vers/mes-agents \
 
 Un agent installé mais **désactivé** dans vos réglages Claude Code apparaît au catalogue et échoue
 à l'invocation : c'est un réglage de votre côté, pas un défaut du manifeste.
+
+Découvrir un agent ne le branche pas : ajoutez-le à votre workflow (`aidlc.py workflow --add
+<agent>`), sinon `status` vous signalera qu'il est découvert mais hors de votre chaîne.
+
+### Rendre à chaque équipe ce que vous avez mesuré sur son agent
+
+Les notes, les refus et les réserves que vos relecteurs écrivent restent dans **votre** projet.
+L'équipe qui publie l'agent ne les voit jamais — et c'est elle qui peut corriger son gabarit, son
+contrat ou sa consigne :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" feedback --agent design
+```
+
+```
+Retour d'usage — /home/marie/ecom-platform (initiative « reco-panier »)
+À transmettre à l'équipe qui maintient chaque agent.
+
+design (équipe Architecture, v0.2.0) — 3 run(s), tendance 3.2 3.5 3.8, 2 refusé(s)
+  moyennes : completeness 4.0, precision 3.7, traceability 2.7, autonomy 4.0
+  axes les plus faibles : traceability, precision
+  refus (Karim B.) : les options écartées ne citent pas l'intention produit.
+  réserve (Karim B.) : accepté, mais les exigences non fonctionnelles restent qualitatives.
+```
+
+Envoyez-le à l'équipe nommée. C'est un retour d'usage factuel — une série de notes et des motifs
+écrits par des humains — pas un jugement : à elle de décider ce qu'elle en fait dans son dépôt.
 
 ### Brancher un dépôt de savoir OKF
 
@@ -515,7 +608,10 @@ claude plugin marketplace remove aidlc
 | « Etape inconnue » ou comportement obsolète | Marketplace périmé en cache | `claude plugin marketplace update aidlc`. |
 | `CLAUDE_PLUGIN_ROOT` n'est pas défini | La commande est lancée hors session | Exécutez-la depuis le bash d'une session Claude Code ouverte dans le projet. |
 | Une étape affiche « En attente de l'amont : X » | Son entrée n'existe pas, ou l'agent X n'a pas franchi sa porte | Lancez `/aidlc-core:run X` et faites signer l'étape X. Une étape aval ne démarre jamais sur un amont absent — c'est voulu. |
-| Un agent installé n'apparaît pas au tableau de bord | Il n'est pas dans la clé `agents` de votre `aidlc.json` | Ajoutez son identifiant, ou retirez la clé `agents` pour prendre tous les agents découverts. |
+| Un agent installé n'apparaît pas au tableau de bord | Il n'est pas dans la clé `agents` de votre `aidlc.json` — `status` vous le dit désormais, en nommant l'agent et son équipe | `aidlc.py workflow --add <agent>`, ou retirez la clé `agents` pour prendre tous les agents découverts. |
+| « Contrat incohérent : … étape gouvernée sans contrat » et la porte reste fermée | L'agent produit un livrable qu'aucune règle ne validerait : son plugin n'a pas de `checks.json` | C'est à l'équipe qui publie l'agent de le corriger, dans son dépôt. Le bloquant la nomme. Rien à faire côté projet. |
+| Vous démarrez une deuxième évolution et les livrables de la première sont encore là | Le projet n'a pas d'initiative nommée : les chemins sont fixes | `aidlc.py workflow --initiative "<nom-court>"` avant de commencer. Les fichiers de l'idée précédente restent où ils sont, et `status --history` continue de les raconter. |
+| `status`/`gate` n'affichent plus le JSON dans votre terminal | C'est voulu : le résumé lisible ne se double plus d'un dump | Ajoutez `--json` si vous voulez la forme machine. Hors terminal (hook, CI, pipe), rien n'a changé. |
 | « Agent 'X' declare dans aidlc.json mais introuvable » | Vous avez déclaré un agent dont le plugin n'est pas installé | Installez le plugin de l'équipe qui le porte (section 8), ou retirez l'identifiant. |
 | « Signature refusee : `sign` est un geste humain » | La commande a été lancée hors d'un terminal (par un agent, ou en CI) | Relancez-la depuis votre terminal, ou remplissez le fichier de revue à la main (section 5). |
 | Votre seuil de maturité n'est pas appliqué | Clé mal orthographiée dans `aidlc.json` | `status` affiche « Gouvernance du projet : cle inconnue '…' ». Corrigez l'orthographe. |

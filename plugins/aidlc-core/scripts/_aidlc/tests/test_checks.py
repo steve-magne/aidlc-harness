@@ -12,7 +12,11 @@ from .harness import document
 from .harness import manifest
 from .harness import repo_root
 from .. import checks
+from ..checks import contract_problems
+from ..checks import scoped_checks
+from ..checks import validate_stage
 from .. import registry
+from ..util import write_json
 from ..util import read_text
 
 """Validation declarative des livrables (checks.py) : sections, frontmatter, mots
@@ -168,7 +172,7 @@ class TestProofOfRun(AidlcTestCase):
                             front={"stage": "design", "version": "1", "status": "draft",
                                    "author": "Steve", "date": "2026-09-03"}))
         res = checks.validate_stage(self.root, self.pipeline, "design")
-        self.assertTrue(any("Preuve d'execution absente" in e for e in res["errors"]))
+        self.assertTrue(any("Preuve d'exécution absente" in e for e in res["errors"]))
 
     def test_proof_of_run_doit_accepter_une_valeur_observee(self):
         self._write_proof_checks()
@@ -198,9 +202,9 @@ class TestProofOfRun(AidlcTestCase):
                             front={"stage": "design", "version": "1", "status": "draft",
                                    "author": "Steve", "date": "2026-09-03"}))
         res = checks.validate_stage(self.root, self.pipeline, "design")
-        self.assertTrue(any("Section obligatoire absente : '## Criteres d'acceptation'" in e
+        self.assertTrue(any("Section obligatoire absente : « ## Criteres d'acceptation »" in e
                             for e in res["errors"]))
-        self.assertFalse(any("Preuve d'execution absente" in e for e in res["errors"]))
+        self.assertFalse(any("Preuve d'exécution absente" in e for e in res["errors"]))
 
 
 class TestHoldout(AidlcTestCase):
@@ -347,7 +351,7 @@ class TestContratReelPlan(AidlcTestCase):
         weak_context["## Contexte"] = "La demande vient de plusieurs equipes, sans mesure ni source."
         self.plan_intent(weak_context, filler=8)
         res = checks.validate_stage(self.root, self.pipeline, "plan")
-        self.assertTrue(any("Preuve d'execution absente" in e and "## Contexte" in e
+        self.assertTrue(any("Preuve d'exécution absente" in e and "## Contexte" in e
                             for e in res["errors"]))
 
     def test_proof_of_run_doit_exiger_des_criteres_chiffres(self):
@@ -359,7 +363,7 @@ class TestContratReelPlan(AidlcTestCase):
             "- La documentation doit etre complete.")
         self.plan_intent(vague_criteria, filler=8)
         res = checks.validate_stage(self.root, self.pipeline, "plan")
-        self.assertTrue(any("Preuve d'execution absente" in e and "## Critères d'acceptation" in e
+        self.assertTrue(any("Preuve d'exécution absente" in e and "## Critères d'acceptation" in e
                             for e in res["errors"]))
 
     def test_checks_do_not_self_reference_doit_rejeter_un_intent_qui_cite_son_contrat(self):
@@ -428,7 +432,7 @@ class TestRunChecksCasLimites(AidlcTestCase):
         stage = {"id": "plan", "checks": None}
         res = checks.run_checks(self.root, stage, livrable)
         self.assertTrue(res["ok"])
-        self.assertIn("Aucun fichier de checks declare pour cette etape.", res["warnings"])
+        self.assertIn("Aucun fichier de checks déclaré pour cette étape.", res["warnings"])
 
     def test_fichier_de_checks_introuvable_produit_une_erreur(self):
         livrable = self.write("livrable.md", "contenu")
@@ -453,7 +457,7 @@ class TestRunChecksCasLimites(AidlcTestCase):
         stage = {"id": "plan", "checks": "checks.json", "root": str(checks_dir)}
         res = checks.run_checks(self.root, stage, livrable)
         self.assertTrue(res["ok"])
-        self.assertIn("Regle inconnue ignoree : bogus_rule", res["warnings"])
+        self.assertIn("Règle inconnue ignorée : bogus_rule", res["warnings"])
         self.assertEqual(res["checks_run"], 0)
 
     def test_max_words_produit_un_avertissement_pas_une_erreur(self):
@@ -509,7 +513,7 @@ class TestRequiredInputSection(AidlcTestCase):
         livrable = self.write("livrable.md", "## Contexte\nDes propos generaux sans citation.\n")
         res = checks.run_checks(self.root, self._stage(), livrable)
         self.assertFalse(res["ok"])
-        self.assertTrue(any("Input non reference dans '## Contexte'" in e
+        self.assertTrue(any("Entrée non citée dans « ## Contexte »" in e
                             for e in res["errors"]))
 
     def test_input_bien_cite_dans_la_section_dediee_passe(self):
@@ -684,7 +688,7 @@ class TestContractProblems(AidlcTestCase):
         found = self._lint({
             "required_sections": ["## Contexte"],
             "required_input_section": {"deliverables/jamais.md": "## Contexte"}})
-        self.assertTrue(any("'consumes'" in p for p in found), found)
+        self.assertTrue(any("« consumes »" in p for p in found), found)
 
     def test_must_reference_inputs_sans_entree_consommee_est_signale(self):
         agent = manifest("solo", "X", "deliverables/solo/doc.md")
@@ -692,7 +696,7 @@ class TestContractProblems(AidlcTestCase):
                          {"required_sections": ["## Contexte"],
                           "must_reference_inputs": True})
         found = checks.contract_problems(registry.find_agent("solo"))
-        self.assertTrue(any("ne verifie rien" in p for p in found), found)
+        self.assertTrue(any("ne vérifie rien" in p for p in found), found)
 
     def test_min_words_superieur_a_max_words_est_refuse(self):
         found = self._lint({"required_sections": ["## Contexte"],
@@ -840,3 +844,47 @@ class TestAmontAbsentAvertit(AidlcTestCase):
         self.plan_intent()
         res = checks.validate_stage(self.root, self.pipeline, "plan")
         self.assertEqual(res["warnings"], [])
+
+
+class TestContratEtInitiative(AidlcTestCase):
+    """Le contrat déclare des chemins nus, comme le manifeste : c'est le moteur qui les
+    situe. Sans cela, nommer une initiative rendrait incohérent le contrat de toute
+    équipe qui cite une entrée amont — et la porte se fermerait sur elle sans raison."""
+
+    def setUp(self):
+        super().setUp()
+        checks = {"required_sections": ["## Contexte"],
+                  "required_input_section": {"deliverables/plan/intent.md": "## Contexte"}}
+        write_json(self.root / "plugins" / "aidlc-design" / "checks.json", checks)
+        registry.reset_cache()
+
+    def test_sans_initiative_le_contrat_est_coherent(self):
+        self.assertEqual(contract_problems(registry.find_agent("design")), [])
+
+    def test_avec_initiative_le_contrat_reste_coherent(self):
+        self.write_json("aidlc.json", {"initiative": "reco"})
+        registry.reset_cache()
+        self.assertEqual(contract_problems(registry.find_agent("design")), [])
+
+    def test_le_chemin_du_contrat_suit_l_initiative(self):
+        self.write_json("aidlc.json", {"initiative": "reco"})
+        checks = scoped_checks({"required_input_section":
+                                {"deliverables/plan/intent.md": "## Contexte"}})
+        self.assertIn("deliverables/reco/plan/intent.md", checks["required_input_section"])
+
+    def test_un_contrat_sans_chemin_d_entree_traverse_intact(self):
+        checks = {"required_sections": ["## Contexte"]}
+        self.assertEqual(scoped_checks(checks), checks)
+
+    def test_une_regle_mal_formee_ne_fait_pas_lever(self):
+        self.assertEqual(scoped_checks({"required_input_section": "pas un dict"}),
+                         {"required_input_section": "pas un dict"})
+
+    def test_la_validation_exige_la_citation_du_chemin_deplace(self):
+        self.write_json("aidlc.json", {"initiative": "reco"})
+        registry.reset_cache()
+        self.write("deliverables/reco/design/spec.md",
+                   "## Contexte\nAucune citation d'amont ici.\n")
+        result = validate_stage(self.root, self.pipeline, "design")
+        self.assertIn("deliverables/reco/plan/intent.md", " ".join(result["errors"]))
+

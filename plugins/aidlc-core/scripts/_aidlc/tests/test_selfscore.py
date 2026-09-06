@@ -62,8 +62,8 @@ class TestAxeHygiene(AidlcTestCase):
     def test_le_detail_compte_les_deux_familles_de_fichiers(self):
         self.write("scripts/outil.py", "x = 1\n")
         detail = axis_hygiene(self.root)["detail"]
-        self.assertIn("fichiers Python compiles", detail)
-        self.assertIn("fichiers JSON parses", detail)
+        self.assertIn("fichiers Python compilés", detail)
+        self.assertIn("fichiers JSON parsés", detail)
 
 
 class TestAxeContracts(AidlcTestCase):

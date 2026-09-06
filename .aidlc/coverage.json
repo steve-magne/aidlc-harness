@@ -1,10 +1,10 @@
 {
-  "ts": "2026-09-06T19:57:38+00:00",
+  "ts": "2026-09-06T22:10:25+00:00",
   "baseline": false,
   "total": 99.7,
   "modules": {
     "checks": 100.0,
-    "cli": 95.1,
+    "cli": 95.7,
     "commands": 100.0,
     "coverage": 100.0,
     "hookslog": 100.0,

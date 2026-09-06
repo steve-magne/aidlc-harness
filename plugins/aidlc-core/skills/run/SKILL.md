@@ -52,9 +52,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json
 - `"invocable": false` -> l'agent ne déclare pas d'invocation pour cette plateforme : arrête-toi et
   nomme l'équipe propriétaire (`team`).
 - `contract_problems` mentionne cet agent -> son `checks.json` est incohérent (règle jamais
-  appliquée, section exigée que le contrat n'impose pas, gabarit qui a dérivé). **Arrête-toi** :
-  le livrable ne pourrait pas valider quoi que tu écrives. Relaie le message et nomme l'équipe
-  propriétaire — ce contrat se corrige dans son dépôt, pas ici.
+  appliquée, section exigée que le contrat n'impose pas, gabarit qui a dérivé), ou il n'en déclare
+  aucun. **Arrête-toi** : le livrable ne pourrait pas valider quoi que tu écrives. Relaie le
+  message et nomme l'équipe propriétaire — ce contrat se corrige dans son dépôt, pas ici. La porte
+  le refuse aussi, tu n'as donc rien à contourner : un contrat absent est un bloquant de `gate`,
+  au même titre qu'une entrée amont manquante.
 - Sinon, continue : retiens `invoke` (l'invocation exacte), `produces` et `consumes`.
 
 ## 3. Vérifier les entrées amont
@@ -66,9 +68,11 @@ propre porte — et les bloquants amont arrivent **en tête** du tableau `blocki
 Demande-la donc tout de suite, avant de faire écrire quoi que ce soit :
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage> --json
 ```
 
+- `Contrat incoherent : <manifeste> ...` → l'agent produit un livrable que rien ne validerait.
+  Arrête-toi et nomme l'équipe qui doit corriger son contrat.
 - `Entree amont absente : <chemin> — produire d'abord le livrable de l'agent '<amont>'` →
   arrête-toi et propose `/aidlc-core:run <amont>`.
 - `... aucun agent installe ne la produit, son plugin manque` → trou du registre : dis quel plugin
@@ -133,7 +137,7 @@ Elle délègue au sous-agent `reviewer`, qui note sur les 4 axes, écrit un `rev
 ## 8. Ouvrir la porte
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate <stage> --json
 ```
 
 Lis la sortie JSON : `passed`, `blocking`, `next_stage`, `human_review_required`.
@@ -152,11 +156,20 @@ Lis la sortie JSON : `passed`, `blocking`, `next_stage`, `human_review_required`
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request <stage>
 ```
 
-Le script écrit `.aidlc/reviews/<stage>-<run>.template.json` et affiche les consignes sur stderr.
-Relaie-les à l'utilisateur : quel fichier lire, où signer, comment justifier un refus.
+Le script affiche les consignes sur stderr : quel fichier relire, et **la commande à taper**.
+Relaie-les telles quelles. La voie normale est une seule commande, depuis le terminal de l'humain :
 
-**Arrête-toi ici.** C'est l'humain, pas toi, qui remplit et renomme le fichier de revue
-(`<stage>-<run>.json`). Quand il te dit que c'est signé, relance l'étape 8.
+```
+aidlc.py sign <stage> --approve --by "<son nom>" --why "<ce qu'il a vérifié>"
+```
+
+Elle rejoue la porte toute seule. Dis-lui que la justification est obligatoire **même pour une
+approbation** : une approbation motivée ne bloque rien, mais son motif est conservé et alimente la
+boucle d'amélioration — c'est le retour le plus utile que le harnais reçoive.
+
+**Arrête-toi ici.** Tu ne signes jamais : `sign` exige un terminal humain, et le refuser est le
+seul contrôle qui distingue « l'humain a signé » de « l'agent a écrit qu'il avait signé ». Quand
+l'utilisateur te dit que c'est fait, relance l'étape 8.
 
 ## Conditions d'arrêt (récapitulatif)
 

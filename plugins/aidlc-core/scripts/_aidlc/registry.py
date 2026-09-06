@@ -8,7 +8,9 @@ from pathlib import Path
 from .util import harness_root
 from .util import PROJECT_CONFIG
 from .util import project_config
+from .util import initiative
 from .util import read_text
+from .util import scoped
 from .util import workspace_root
 """Registre ouvert des agents : decouverte des manifestes agent.json, validation de
 forme, index des capacites et ordre d'invocation derive de la chaine producteur ->
@@ -171,8 +173,12 @@ def _normalize(data: dict, manifest: Path, project: Path) -> dict:
         "description": data.get("description"),
         "capabilities": list(data.get("capabilities") or []),
         "invocation": dict(data.get("invocation") or {}),
-        "produces": data.get("produces"),
-        "consumes": list(data.get("consumes") or []),
+        # Le manifeste declare un chemin nu ; l'initiative du projet le situe. C'est
+        # ici et nulle part ailleurs : tout le moteur lit `produces` depuis cette
+        # entree, donc la porte, le guard, la validation et le tableau de bord suivent
+        # sans le savoir.
+        "produces": scoped(data.get("produces")),
+        "consumes": [scoped(item) for item in (data.get("consumes") or [])],
         "requires": list(data.get("requires") or []),
         "checks": data.get("checks"),
         "review": data.get("review"),
@@ -194,13 +200,15 @@ def discover(refresh: bool = False) -> dict:
     Le projet consommateur peut restreindre ce registre a SON workflow en listant des
     ids dans la cle `agents` de son `aidlc.json` : la decouverte reste ouverte (on
     installe ce qu'on veut sur sa machine), mais l'initiative declare qui la compose.
-    Un id declare qu'aucun manifeste ne porte ressort en avertissement — c'est le
-    plugin d'une equipe qui n'est pas installe, et le taire ferait retrecir le pipeline
-    en silence.
+    L'avertissement joue dans les deux sens, et c'est le point : un id declare qu'aucun
+    manifeste ne porte est le plugin d'une equipe qui n'est pas installe ; un agent
+    decouvert mais absent de la liste est une equipe qui a publie et que personne n'a
+    branchee. Taire l'un ou l'autre fait retrecir le pipeline en silence.
     """
     allowed = tuple(project_config().get("agents") or ())
+    undeclared = []
     key = (os.environ.get("AIDLC_AGENT_PATH"), str(workspace_root()), str(harness_root()),
-           os.environ.get("CLAUDE_CONFIG_DIR"), allowed)
+           os.environ.get("CLAUDE_CONFIG_DIR"), allowed, initiative())
     if not refresh and key in _CACHE:
         return _CACHE[key]
 
@@ -256,10 +264,21 @@ def discover(refresh: bool = False) -> dict:
                     "l'equipe qui le porte n'est pas installe.".format(
                         agent_id, PROJECT_CONFIG))
         keep = set(allowed)
+        undeclared = [agent for agent in agents if agent["id"] not in keep]
+        for agent in undeclared:
+            warnings.append(
+                "Agent '{}' (equipe {}) decouvert mais absent de la cle 'agents' de {} : "
+                "il ne compose pas ce workflow. L'ajouter : aidlc.py workflow --add {}."
+                .format(agent["id"], agent.get("team") or "?", PROJECT_CONFIG,
+                        agent["id"]))
         agents = [agent for agent in agents if agent["id"] in keep]
 
     result = {"agents": agents, "problems": problems, "warnings": warnings,
-              "declared": list(allowed)}
+              "declared": list(allowed),
+              # Les ids ecartes par la liste blanche : le tableau de bord doit pouvoir
+              # les distinguer d'un plugin reellement absent, sans quoi il annonce « a
+              # publier par l'equipe X » un agent que l'equipe X a deja publie.
+              "undeclared": sorted(agent["id"] for agent in undeclared)}
     _CACHE[key] = result
     return result
 
@@ -341,6 +360,7 @@ def catalog(capability: str = None, platform: str = None, refresh: bool = False)
         "missing_producers": missing_producers(found["agents"]),
         "cycle": cycle,
         "declared": found.get("declared") or [],
+        "undeclared": found.get("undeclared") or [],
         "problems": found["problems"],
         "warnings": found["warnings"],
     }

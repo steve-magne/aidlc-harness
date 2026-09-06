@@ -5,7 +5,10 @@ import unittest.mock
 
 from pathlib import Path
 
+from .. import registry
 from .harness import AidlcTestCase
+from ..util import PROJECT_CONFIG
+from ..init import compose_workflow
 from ..init import GITIGNORE_LINES
 from ..init import _gitignore_additions
 from ..init import config_problems
@@ -75,7 +78,7 @@ class TestRenderConcept(AidlcTestCase):
     def test_les_trois_familles_ont_chacune_leur_titre(self):
         rendered = render_concept({"documentation": [], "manifests": [], "decisions": []},
                                   "2026-09-06T00:00:00+00:00")
-        for title in ("## Documentation du depot", "## Pile technique declaree",
+        for title in ("## Documentation du dépôt", "## Pile technique déclarée",
                       "## Documentation et decisions"):
             self.assertIn(title, rendered)
 
@@ -199,12 +202,12 @@ class TestRenderInit(AidlcTestCase):
     def test_le_rendu_distingue_ce_qui_est_cree_de_ce_qui_est_garde(self):
         self.write_json("aidlc.json", {})
         rendered = render_init(init_project(self.root, self.pipeline))
-        self.assertIn("cree   knowledge/index.md", rendered)
-        self.assertIn("garde  aidlc.json", rendered)
+        self.assertIn("créé   knowledge/index.md", rendered)
+        self.assertIn("gardé  aidlc.json", rendered)
 
     def test_le_rendu_annonce_le_workflow_declare(self):
         rendered = render_init(init_project(self.root, self.pipeline))
-        self.assertIn("Workflow declare dans aidlc.json : plan, design", rendered)
+        self.assertIn("Workflow déclaré dans aidlc.json : plan, design", rendered)
 
     def test_le_rendu_compte_les_sources_inventoriees(self):
         self.write("README.md", "# Projet")
@@ -264,8 +267,118 @@ class TestRenderInitSansAgent(AidlcTestCase):
 
     def test_sans_aucun_agent_le_rendu_dit_quoi_faire(self):
         rendered = render_init(init_project(self.root, self.pipeline))
-        self.assertIn("Aucun agent decouvert", rendered)
+        self.assertIn("Aucun agent découvert", rendered)
 
     def test_le_workflow_declare_reste_vide_plutot_qu_invente(self):
         init_project(self.root, self.pipeline)
         self.assertEqual(self.read_json("aidlc.json")["agents"], [])
+
+
+class TestCompositionDuWorkflow(AidlcTestCase):
+    """« Voici les agents de nos equipes, voici notre chaine » — le geste d'entree.
+
+    Il se faisait en editant aidlc.json a la main : le garde-fou l'interdit a un agent,
+    ce qui est juste, mais n'obligeait pas a le laisser sans outil."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_json(PROJECT_CONFIG,
+                        {"_comment": "garde-moi", "maturity_threshold": 4.0,
+                         "agents": ["plan"]})
+
+    def test_un_agent_decouvert_se_branche(self):
+        result = compose_workflow(self.root, add=["design"])
+        self.assertEqual(result["agents"], ["plan", "design"])
+
+    def test_l_ajout_est_ecrit_dans_la_gouvernance(self):
+        compose_workflow(self.root, add=["design"])
+        self.assertEqual(self.read_json(PROJECT_CONFIG)["agents"], ["plan", "design"])
+
+    def test_les_cles_etrangeres_du_fichier_sont_preservees(self):
+        # Relire par project_config (qui filtre sur PROJECT_KEYS) puis reecrire
+        # amputerait le fichier du commentaire et de toute cle propre a l'equipe.
+        compose_workflow(self.root, add=["design"])
+        self.assertEqual(self.read_json(PROJECT_CONFIG)["_comment"], "garde-moi")
+
+    def test_un_agent_se_retire(self):
+        result = compose_workflow(self.root, remove=["plan"])
+        self.assertEqual(result["agents"], [])
+
+    def test_retirer_un_producteur_avertit_ceux_qui_le_consomment(self):
+        compose_workflow(self.root, add=["design"])
+        result = compose_workflow(self.root, remove=["plan"])
+        self.assertIn("design", " ".join(result["warnings"]))
+
+    def test_un_agent_inconnu_du_registre_est_refuse(self):
+        with self.assertRaises(ValueError):
+            compose_workflow(self.root, add=["fantome"])
+
+    def test_le_refus_liste_ce_qui_est_disponible(self):
+        with self.assertRaises(ValueError) as caught:
+            compose_workflow(self.root, add=["fantome"])
+        self.assertIn("design", str(caught.exception))
+
+    def test_un_agent_deja_branche_ne_double_pas_la_liste(self):
+        result = compose_workflow(self.root, add=["plan"])
+        self.assertEqual(result["agents"], ["plan"])
+
+    def test_ajouter_un_agent_deja_branche_le_dit(self):
+        result = compose_workflow(self.root, add=["plan"])
+        self.assertIn("composait déjà", " ".join(result["warnings"]))
+
+    def test_retirer_un_agent_absent_le_dit(self):
+        result = compose_workflow(self.root, remove=["design"])
+        self.assertIn("ne composait pas", " ".join(result["warnings"]))
+
+    def test_sans_gouvernance_la_commande_renvoie_vers_init(self):
+        (self.root / PROJECT_CONFIG).unlink()
+        with self.assertRaises(ValueError) as caught:
+            compose_workflow(self.root, add=["design"])
+        self.assertIn("init", str(caught.exception))
+
+    def test_le_registre_est_relu_apres_ecriture(self):
+        # Sans invalidation du cache, `status` juste apres montrerait l'ancien workflow.
+        compose_workflow(self.root, add=["design"])
+        self.assertIn("design", [agent["id"] for agent in registry.agents_list()])
+
+
+class TestNommerLInitiative(AidlcTestCase):
+    """Un projet vit plus longtemps qu'une idee : la seconde n'ecrase pas la premiere."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan", "design"]})
+
+    def test_l_initiative_est_ecrite_dans_la_gouvernance(self):
+        compose_workflow(self.root, initiative="reco-panier")
+        self.assertEqual(self.read_json(PROJECT_CONFIG)["initiative"], "reco-panier")
+
+    def test_le_changement_annonce_ou_partent_les_livrables(self):
+        result = compose_workflow(self.root, initiative="reco-panier")
+        self.assertIn("deliverables/reco-panier/", " ".join(result["warnings"]))
+
+    def test_une_chaine_vide_revient_a_plat(self):
+        compose_workflow(self.root, initiative="reco-panier")
+        compose_workflow(self.root, initiative="")
+        self.assertNotIn("initiative", self.read_json(PROJECT_CONFIG))
+
+    def test_le_retour_a_plat_ne_promet_pas_un_chemin_vide(self):
+        compose_workflow(self.root, initiative="reco-panier")
+        result = compose_workflow(self.root, initiative="")
+        self.assertIn("retour à plat", " ".join(result["warnings"]))
+
+    def test_un_nom_reserve_sous_aidlc_est_refuse(self):
+        # « logs » rendrait l'etat runtime indiscernable de la garde qui le protege.
+        with self.assertRaises(ValueError):
+            compose_workflow(self.root, initiative="logs")
+
+    def test_renommer_a_l_identique_ne_change_rien(self):
+        compose_workflow(self.root, initiative="reco")
+        result = compose_workflow(self.root, initiative="reco")
+        self.assertEqual(result["changed"], [])
+
+    def test_les_livrables_suivent_l_initiative(self):
+        compose_workflow(self.root, initiative="reco")
+        self.assertEqual(registry.find_agent("plan")["produces"],
+                         "deliverables/reco/plan/intent.md")
+

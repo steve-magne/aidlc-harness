@@ -86,9 +86,14 @@ fichier.
 partir des concepts du bundle `knowledge/` (filtrés par leur extension `stages`), du glossaire et
 des livrables amont. Lecture seule en dehors de `knowledge/`.
 
+**Initiative** — L'idée que le projet mène en ce moment, nommée par la clé `initiative` de son
+`aidlc.json`. Elle isole les livrables (`deliverables/<initiative>/`) et l'état runtime
+(`.aidlc/<initiative>/`) pour qu'une deuxième évolution n'écrase pas les scores et les signatures
+de la première. Absente, tout reste à plat. Écrite par `aidlc.py workflow --initiative`.
+
 **Livrable** (*deliverable*) — Le fichier produit par une étape, rangé dans
-`deliverables/<stage>/`. Seul objet qui circule entre deux étapes : rien ne se transmet en dehors
-de lui.
+`deliverables/<stage>/` — sous `deliverables/<initiative>/<stage>/` quand le projet nomme son
+initiative. Seul objet qui circule entre deux étapes : rien ne se transmet en dehors de lui.
 
 **Marketplace** — `.claude-plugin/marketplace.json`, catalogue des plugins du dépôt. Chaque
 nouvelle étape générée par `scaffold` y ajoute son entrée.
@@ -157,8 +162,8 @@ le diagnostic, l'agent propose le correctif, l'humain l'accepte.
 minimale pour qu'un livrable soit accepté. Le seuil prime sur le verdict du reviewer.
 
 **Skill** — Procédure exécutable décrite dans `skills/<nom>/SKILL.md`. Une skill par étape décrit
-la recette du livrable ; `aidlc-core` en expose sept transverses (`run`, `status`, `review`,
-`new-stage`, `improve`, `dispatch`, `knowledge`).
+la recette du livrable ; `aidlc-core` en expose huit transverses (`setup`, `run`, `status`,
+`review`, `new-stage`, `improve`, `dispatch`, `knowledge`).
 
 **Source de vérité** — Fichier qui fait autorité sur un sujet et que l'on ne duplique jamais :
 `agent.json` pour la définition d'une étape (livrable, entrées, contrat), `checks.json` pour les
@@ -168,7 +173,14 @@ glossaire pour le vocabulaire.
 **Statut d'étape** — Dérivé par le registre, jamais déclaré : une étape est *implémentée* dès
 qu'un plugin installé porte un `agent.json` avec ce `produces` ; elle reste *prévue* — affichée
 « plugin non installé » par `status` — tant que seule une entrée `planned_stages` (gouvernance
-`pipeline.json` ou `aidlc.json`) l'annonce sans agent producteur.
+`pipeline.json` ou `aidlc.json`) l'annonce sans agent producteur. Un agent découvert mais absent
+de la clé `agents` du projet n'est ni l'un ni l'autre : il est *non branché*, et `status` le dit
+en nommant `aidlc.py workflow --add`.
+
+**Workflow de l'initiative** — La clé `agents` d'`aidlc.json` : la liste blanche des identifiants
+qui composent le pipeline de ce projet, même si d'autres plugins sont installés sur la machine.
+Elle ne s'édite qu'avec `aidlc.py workflow` — un agent ne peut pas l'écrire (le hook le refuse),
+et la commande valide ce qu'elle écrit.
 
 **Template** — Squelette d'un livrable, dans `templates/` du plugin d'étape. Seul endroit du dépôt
 où des marqueurs de remplissage entre chevrons sont autorisés, parce qu'ils sont destinés à être

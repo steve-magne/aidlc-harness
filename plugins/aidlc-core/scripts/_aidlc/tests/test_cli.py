@@ -603,7 +603,7 @@ class TestOptionsRecall(AidlcTestCase):
     def test_sans_run_annonce_qu_il_n_y_a_rien_a_reprendre(self):
         result = self.run_cli("recall", "plan")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("rien a reprendre", result.stdout)
+        self.assertIn("rien à reprendre", result.stdout)
 
     def test_etape_inconnue_echoue_avec_le_motif_sur_stderr(self):
         result = self.run_cli("recall", "inexistante")
@@ -845,7 +845,7 @@ class TestContratInit(AidlcTestCase):
 
     def test_le_compte_rendu_humain_part_sur_stderr(self):
         result = self.run_cli("init")
-        self.assertIn("Projet amorce", result.stderr)
+        self.assertIn("Projet amorcé", result.stderr)
 
     def test_le_projet_amorce_est_ensuite_lisible_par_status(self):
         self.run_cli("init")
@@ -872,7 +872,7 @@ class TestContratChainage(AidlcTestCase):
             "justification": "ok", "ts": "2026-09-06T10:00:00+00:00"})
         result = self.run_cli("gate", "design")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("Entree amont absente", self.assertJson(result)["blocking"][0])
+        self.assertIn("Entrée amont absente", self.assertJson(result)["blocking"][0])
 
     def test_le_tableau_de_bord_dit_que_l_aval_attend_son_amont(self):
         result = self.run_cli("status")
@@ -887,7 +887,7 @@ class TestGouvernanceProjet(AidlcTestCase):
     def test_le_seuil_du_projet_recouvre_celui_du_harnais(self):
         self.write_json("aidlc.json", {"maturity_threshold": 4.9})
         result = self.run_cli("status")
-        self.assertIn("Seuil de maturite : 4.9", result.stdout)
+        self.assertIn("Seuil de maturité : 4.9", result.stdout)
 
     def test_le_workflow_declare_restreint_le_tableau_de_bord(self):
         self.write_json("aidlc.json", {"agents": ["plan"]})
@@ -921,3 +921,86 @@ class TestAideDuParseur(AidlcTestCase):
         result = self.run_cli("--help")
         self.assertIn("Piloter un projet", result.stdout)
         self.assertIn("Maintenir le harnais", result.stdout)
+
+
+class TestContratWorkflow(AidlcTestCase):
+    """`workflow` en sous-processus : c'est le contexte d'un agent et d'une CI."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+
+    def test_la_vue_sort_sur_stdout(self):
+        done = self.run_cli("workflow")
+        self.assertEqual((done.returncode, "plan" in done.stdout), (0, True))
+
+    def test_un_ajout_ecrit_la_gouvernance(self):
+        self.run_cli("workflow", "--add", "design")
+        self.assertEqual(self.read_json("aidlc.json")["agents"], ["plan", "design"])
+
+    def test_un_agent_inconnu_sort_un(self):
+        self.assertEqual(self.run_cli("workflow", "--add", "fantome").returncode, 1)
+
+    def test_le_message_d_erreur_part_sur_stderr(self):
+        done = self.run_cli("workflow", "--add", "fantome")
+        self.assertEqual((done.stdout, "fantome" in done.stderr), ("", True))
+
+    def test_hors_terminal_la_forme_machine_sort_sur_stdout(self):
+        done = self.run_cli("workflow", "--add", "design")
+        self.assertEqual(self.assertJson(done)["agents"], ["plan", "design"])
+
+    def test_l_initiative_se_declare_par_la_meme_commande(self):
+        self.run_cli("workflow", "--initiative", "reco")
+        self.assertEqual(self.read_json("aidlc.json")["initiative"], "reco")
+
+    def test_l_initiative_deplace_le_livrable_attendu(self):
+        self.run_cli("workflow", "--initiative", "reco")
+        done = self.run_cli("validate", "plan", "--json")
+        self.assertIn("deliverables/reco/plan/intent.md", self.assertJson(done)["file"])
+
+
+class TestContratFeedback(AidlcTestCase):
+    def test_la_sortie_humaine_part_sur_stdout(self):
+        done = self.run_cli("feedback")
+        self.assertEqual((done.returncode, "plan" in done.stdout), (0, True))
+
+    def test_l_option_json_rend_un_flux_machine(self):
+        done = self.run_cli("feedback", "--json")
+        self.assertEqual(len(self.assertJson(done)["agents"]), 2)
+
+    def test_le_filtre_agent_est_accepte(self):
+        done = self.run_cli("feedback", "--agent", "plan", "--json")
+        self.assertEqual(self.assertJson(done)["agents"][0]["agent"], "plan")
+
+
+class TestContratStatusHistory(AidlcTestCase):
+    def test_le_journal_repond_sans_run(self):
+        done = self.run_cli("status", "--history")
+        self.assertEqual((done.returncode, "Aucun run noté" in done.stdout), (0, True))
+
+    def test_le_journal_a_sa_forme_machine(self):
+        done = self.run_cli("status", "--history", "--json")
+        self.assertEqual(self.assertJson(done)["events"], [])
+
+
+class TestContratPorteSurContratAbsent(AidlcTestCase):
+    """Une etape gouvernee sans checks.json ne franchit pas sa porte, exit 2."""
+
+    def setUp(self):
+        super().setUp()
+        # Le cas reel : l'agent maison d'une equipe, publie sans champ `checks`.
+        agent = manifest("solo", "Ingenierie", "deliverables/solo/plan.md")
+        agent.pop("checks")
+        self.write_agent("aidlc-solo", agent, checks=None)
+        self.write("deliverables/solo/plan.md", "trois mots seulement")
+
+    def test_la_porte_sort_deux(self):
+        self.assertEqual(self.run_cli("gate", "solo").returncode, 2)
+
+    def test_le_motif_nomme_le_contrat_manquant(self):
+        done = self.run_cli("gate", "solo")
+        self.assertIn("Contrat incohérent", done.stderr)
+
+    def test_la_validation_avertit_toujours_au_lieu_de_mentir(self):
+        done = self.run_cli("validate", "solo", "--json")
+        self.assertTrue(self.assertJson(done)["warnings"])
