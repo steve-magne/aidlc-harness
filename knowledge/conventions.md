@@ -4,7 +4,7 @@ title: Fonctionnement de la base de connaissance
 description: Comment le bundle knowledge/ est organisé au format OKF v0.2, comment le librarian le lit par étape et comment verser ou remplacer un concept.
 tags: [knowledge, conventions, okf]
 stages: [plan, design, build, test, deploy, maintain]
-generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+generated: { by: human:steve-magne, at: 2026-09-06T00:00:00Z }
 sources:
 - { id: claude-md, resource: ../CLAUDE.md, title: Conventions du dépôt aidlc-harness }
 ---
@@ -34,8 +34,9 @@ knowledge/
 - Les familles de métadonnées OKF (provenance, confiance, cycle de vie — `generated`, `verified`,
   `status`, `stale_after`, `sources`) sont facultatives ; leur absence est honnête et tolérée.
   La spec v0.2 fait foi (sections 4 et 5).
-- `stages` est une **extension maison** : la liste des étapes du pipeline auxquelles le concept
-  s'applique (`plan`, `design`, `build`, `test`, `deploy`, `maintain`, pris dans `pipeline.json`).
+- `stages` est une **extension maison** : la liste des étapes du cycle de vie auxquelles le
+  concept s'applique (`plan`, `design`, `build`, `test`, `deploy`, `maintain` — les étapes
+  implémentées se lisent dans les manifestes `agent.json`, les autres dans `planned_stages`).
   C'est le filtre principal du librarian. En cas d'hésitation, ne rattacher le concept qu'aux
   étapes où son absence ferait commettre une erreur : un concept rattaché aux six étapes ne
   filtre plus rien.
@@ -50,8 +51,8 @@ Pour répondre à « quel contexte pour l'étape X » :
 
 1. Lire `knowledge/index.md`, puis les concepts du bundle.
 2. Retenir les concepts dont `stages` contient `X`, plus `glossary.md` pour le vocabulaire.
-3. Y ajouter les entrées amont déclarées dans `pipeline.json` : les `inputs` de l'étape sont du
-   contexte **obligatoire**, qu'ils figurent ou non dans le bundle.
+3. Y ajouter les entrées amont déclarées dans le champ `consumes` de l'`agent.json` de l'étape :
+   ce sont du contexte **obligatoire**, qu'elles figurent ou non dans le bundle.
 4. Ouvrir réellement chaque concept retenu, citer des extraits littéraux, et signaler ce qui est
    annoncé mais introuvable plutôt que de combler le vide.
 
@@ -104,7 +105,12 @@ vivent hors du bundle :
 
 - [CLAUDE.md](../CLAUDE.md) — les conventions lues par tout agent du dépôt ;[^claude-md]
 - le bundle [docs/](../docs/index.md) — architecture, guide consommateur, guide mainteneur ;
-- `plugins/aidlc-core/pipeline.json` — la définition des étapes (installée avec le plugin) ;
+- `plugins/aidlc-core/pipeline.json` — la gouvernance par défaut du harnais : seuils, `watchdog`,
+  et `planned_stages` (feuille de route consultative) — installée avec le plugin ;
+- l'`aidlc.json` du projet — sa gouvernance à lui, qui recouvre la précédente : son exigence, son
+  workflow (`agents`) et le nom de son initiative, écrits par `aidlc.py workflow` ;
+- l'`agent.json` de chaque plugin d'étape — la définition de l'étape elle-même : son livrable
+  (`produces`), ses entrées (`consumes`), son rôle humain, son contrat (`checks`) ;
 - les templates et checks des plugins d'étape, ex. `plugins/aidlc-plan/templates/intent.md`.
 
 Un projet consommateur, lui, alimente son propre `knowledge/` avec les normes, ADR et retours

@@ -133,11 +133,14 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 | `validate <stage>` | applique le `checks.json` de l'étape au livrable (exit 0 = conforme, 1 = non) |
 | `validate --touched` | même contrôle en mode hook `PostToolUse`, non bloquant, retour de contexte immédiat |
 | `score <stage> --file review.json` | recalcule la note globale (moyenne des 4 axes) et l'enregistre dans `.aidlc/maturity.json` |
-| `gate <stage>` | décide si l'étape est franchie ; exit 2 si bloquante. **Vérifie l'amont d'abord** : chaque entrée `consumes` doit exister et son producteur avoir franchi sa porte |
+| `gate <stage>` | décide si l'étape est franchie ; exit 2 si bloquante. **Vérifie le contrat et l'amont d'abord** : un `checks.json` absent ou incohérent bloque, puis chaque entrée `consumes` doit exister et son producteur avoir franchi sa porte |
 | `review-request <stage>` | génère le formulaire de revue humaine `.aidlc/reviews/<stage>-<run>.template.json` |
 | `sign <stage> --approve\|--reject --by "Nom" --why "..."` | écrit la revue humaine et rejoue la porte ; **refuse de tourner sans terminal interactif** — un agent ne signe pas |
 | `init` | amorce un projet consommateur : `aidlc.json`, `deliverables/`, bundle `knowledge/`, inventaire des sources déjà présentes ; ne remplace jamais un fichier |
 | `status [--json]` | tableau de bord des étapes (dont la colonne « en attente de » et les blocages amont), des agents consultatifs et des trous du registre |
+| `status --history` | journal de passage de l'initiative : qui a produit, qui a noté, qui a signé, et quand |
+| `workflow [--add X] [--remove X] [--initiative N]` | compose le workflow du projet : seule écrivaine de la clé `agents` d'`aidlc.json` et du nom de l'initiative ; sans option, montre ce qui est branché, ce qui est publié sans l'être, et ce qui est déclaré sans plugin |
+| `feedback [--agent X] [--json]` | ce que ce projet a mesuré sur chaque agent — équipe, version, série de notes, axes faibles, refus et réserves — à rendre à l'équipe qui le maintient |
 | `agents [--capability X] [--platform P] [--json] [--strict]` | catalogue du registre : équipes, capacités, invocation ; contrôle chaque `checks.json` à vide (règle inconnue, regex fautive, section insatisfiable, dérive gabarit, rubrique de revue absente) ; `--strict` = porte CI sur les manifestes et contrats du dépôt |
 | `scaffold <stage>` | génère le plugin complet d'un agent (dont son `agent.json`) — n'écrit rien dans le noyau |
 | `improve [--stage X]` | agrège logs, scores et refus (humains + gate OKF) en un diagnostic JSON ; propose des correctifs de frontmatter et les concepts orphelins du sommaire `index.md` ; porte les expériences déjà mesurées |
@@ -157,6 +160,7 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 | `test` | suite de tests du moteur (`unittest`, stdlib) ; `-k <motif>` filtre, `-v` détaille, `--failfast` s'arrête au premier échec |
 | `coverage` | ratchet de couverture : la couverture ne descend jamais sous le plancher figé dans `.aidlc/coverage.json` ; exit 2 = régression |
 | `coverage --reset` | rebase le plancher sur l'état courant (geste humain, refusé si la suite est rouge) |
+| `selfscore` | note de maturité du dépôt : cinq axes déterministes (`hygiene`, `contracts`, `tests`, `coverage`, `knowledge`) agrégés sur le barème des livrables, seuil et plancher par axe de `pipeline.json` ; exit 2 si le seuil n'est pas tenu ou qu'un axe s'effondre — porte du hook pre-commit (`.githooks/pre-commit`) et de la CI |
 | `--selftest` | alias historique de `test` — ce que la CI, les hooks et les consommateurs appellent depuis toujours |
 
 ## Les hooks — branchement sur le cycle de vie des sessions
