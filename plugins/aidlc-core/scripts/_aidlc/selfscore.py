@@ -70,7 +70,7 @@ def axis_hygiene(root: Path) -> dict:
     py, js = python_report(root), json_report(root)
     findings = py["errors"] + js["errors"]
     return _axis("hygiene", 0.0 if findings else MAX,
-                 "{} fichiers Python compiles, {} fichiers JSON parses".format(
+                 "{} fichiers Python compilés, {} fichiers JSON parsés".format(
                      py["checked"], js["checked"]),
                  findings)
 
@@ -89,10 +89,10 @@ def axis_contracts(root: Path) -> dict:
     here = str(root.resolve())
     findings = [message for message in problems if here in message]
     if view["cycle"]:
-        findings.append("dependances circulaires entre agents : "
+        findings.append("dépendances circulaires entre agents : "
                         + ", ".join(view["cycle"]))
     return _axis("contracts", 0.0 if findings else MAX,
-                 "{} agents decouverts, contrats controles a vide".format(
+                 "{} agents découverts, contrats contrôlés à vide".format(
                      len(view["agents"])),
                  findings)
 

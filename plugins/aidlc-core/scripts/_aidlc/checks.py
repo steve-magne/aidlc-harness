@@ -8,6 +8,7 @@ from pathlib import Path
 from . import registry
 from .util import harness_root
 from .util import read_text
+from .util import scoped
 """Validation deterministe des livrables d'etape : regles declarees (checks.json), sections, frontmatter, mots interdits, preuve d'execution, holdout (le livrable ne cite pas ses propres regles)."""
 
 # ------------------------------------------------------------------ frontmatter/md
@@ -72,6 +73,24 @@ KNOWN_RULES = {
 }
 
 
+def scoped_checks(checks: dict) -> dict:
+    """Contrat dont les chemins d'entree sont situes dans l'initiative courante.
+
+    Un `checks.json` declare ses chemins comme le manifeste : nus
+    (`deliverables/plan/intent.md`). Sans cette passe, declarer une initiative decalerait
+    le `consumes` du manifeste et pas le contrat, et toutes les regles qui confrontent
+    les deux — a commencer par `required_input_section` — deviendraient incoherentes :
+    la porte se fermerait sur une equipe qui n'a rien change.
+    """
+    section = checks.get("required_input_section")
+    if not isinstance(section, dict):
+        return checks
+    out = dict(checks)
+    out["required_input_section"] = {scoped(path): value
+                                     for path, value in section.items()}
+    return out
+
+
 def resolve_checks_path(pipe_root: Path, stage: dict) -> Path:
     """Chemin du checks.json d'un agent : relatif a son manifeste, donc lu dans le
     plugin de l'equipe qui le maintient. Le noyau ne garde plus de miroir — c'etait la
@@ -114,7 +133,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         return result
 
     if not stage.get("checks"):
-        result["warnings"].append("Aucun fichier de checks declare pour cette etape.")
+        result["warnings"].append("Aucun fichier de checks déclaré pour cette étape.")
         result["ok"] = True
         return result
     # Le checks.json vit dans le harnais (a cote du pipeline.json), pas dans le projet.
@@ -123,7 +142,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         result["errors"].append(f"Fichier de checks introuvable : {stage.get('checks')}")
         return result
     try:
-        checks = json.loads(read_text(checks_path))
+        checks = scoped_checks(json.loads(read_text(checks_path)))
     except json.JSONDecodeError as exc:
         result["errors"].append(f"checks.json illisible ({checks_path}) : {exc}")
         return result
@@ -136,7 +155,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
 
     for key in checks:
         if key not in KNOWN_RULES and not key.startswith("_"):
-            warnings.append(f"Regle inconnue ignoree : {key}")
+            warnings.append(f"Règle inconnue ignorée : {key}")
 
     # Chainage : une entree amont absente n'invalide pas la FORME du livrable — c'est la
     # porte (gate) qui refuse une etape batie sur du vide, pas la validation. Mais les
@@ -154,7 +173,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
                 input_path,
                 f" (produite par l'agent '{producer}')" if producer else
                 " (aucun agent installe ne la produit)",
-                ", donc " + ", ".join(absent_rules) + " n'ont rien verifie"
+                ", donc " + ", ".join(absent_rules) + " n'ont rien vérifié"
                 if absent_rules else ""))
 
     if "required_frontmatter" in checks:
@@ -167,7 +186,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         ran += 1
         for section in checks["required_sections"]:
             if section.strip() not in present:
-                errors.append(f"Section obligatoire absente : '{section}'.")
+                errors.append(f"Section obligatoire absente : « {section} ».")
 
     words = len(body.split())
     if "min_words" in checks:
@@ -179,7 +198,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         # ponytail: depasser max_words est un avertissement, pas un blocage — trop long
         # n'a jamais casse une etape aval. Upgrade : rendre la severite configurable.
         if words > int(checks["max_words"]):
-            warnings.append(f"Livrable long : {words} mots (maximum conseille {checks['max_words']}).")
+            warnings.append(f"Livrable long : {words} mots (maximum conseillé {checks['max_words']}).")
 
     for rule, is_forbidden in (("forbidden_patterns", True), ("required_patterns", False)):
         if rule in checks:
@@ -191,9 +210,9 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
                     warnings.append(f"Regex invalide dans {rule} : {pattern} ({exc}).")
                     continue
                 if is_forbidden and found:
-                    errors.append(f"Motif interdit present : '{pattern}'.")
+                    errors.append(f"Motif interdit présent : « {pattern} ».")
                 elif not is_forbidden and not found:
-                    errors.append(f"Motif obligatoire absent : '{pattern}'.")
+                    errors.append(f"Motif obligatoire absent : « {pattern} ».")
 
     if checks.get("must_reference_inputs"):
         ran += 1
@@ -208,7 +227,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
             count = count_items(section_body(text, section))
             if count < int(minimum):
                 errors.append(
-                    f"Section '{section}' : {count} element(s) liste, minimum {minimum}."
+                    f"Section « {section} » : {count} élément(s) listé(s), minimum {minimum}."
                 )
 
     # Preuve d'execution (inspire du dark factory : evidence, not claims) — une section
@@ -217,14 +236,14 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         ran += 1
         for section in checks["proof_of_run"]:
             if section.strip() not in present:
-                errors.append(f"Section obligatoire absente : '{section}'.")
+                errors.append(f"Section obligatoire absente : « {section} ».")
                 continue
             evidence = find_evidence(section_body(text, section))
             if not evidence:
                 errors.append(
-                    f"Preuve d'execution absente dans '{section}' : aucune valeur observee "
-                    "concrete (chiffre, unite, chemin, id, date). Un rapport qui reformule "
-                    "l'attendu sans la valeur constatee n'est pas une preuve."
+                    f"Preuve d'exécution absente dans « {section} » : aucune valeur observée "
+                    "concrète (chiffre, unité, chemin, id, date). Un rapport qui "
+                    "reformule l'attendu sans la valeur constatée n'est pas une preuve."
                 )
 
     # Citation d'entree dans une section precise : plus fort que must_reference_inputs,
@@ -233,13 +252,13 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         ran += 1
         for input_path, section in checks["required_input_section"].items():
             if section.strip() not in present:
-                errors.append(f"Section obligatoire absente : '{section}'.")
+                errors.append(f"Section obligatoire absente : « {section} ».")
                 continue
             name = Path(input_path).name
             body = section_body(text, section)
             if input_path not in body and name not in body:
                 errors.append(
-                    f"Input non reference dans '{section}' : {input_path} doit etre cite "
+                    f"Entrée non citée dans « {section} » : {input_path} doit être cité "
                     "dans cette section, pas seulement ailleurs dans le livrable."
                 )
 
@@ -257,8 +276,8 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
                 continue
             if scope_section.strip() not in present:
                 errors.append(
-                    f"Perimetre : la section '{scope_section}' est obligatoire quand "
-                    f"l'entree {input_path} en declare une."
+                    f"Périmètre : la section « {scope_section} » est obligatoire quand "
+                    f"l'entrée {input_path} en déclare une."
                 )
                 continue
             for item in scope_items:
@@ -373,8 +392,8 @@ def contract_problems(stage: dict) -> list:
         return []  # agent consultatif : pas de metre, donc rien a verifier.
     manifest = stage.get("manifest") or stage.get("id")
     if not stage.get("checks"):
-        return [f"{manifest} : etape gouvernee sans contrat (champ 'checks' absent) — "
-                "son livrable ne serait valide par aucune regle."]
+        return [f"{manifest} : étape gouvernée sans contrat (champ « checks » absent) — "
+                "son livrable ne serait validé par aucune règle."]
     path = resolve_checks_path(harness_root(), stage)
     if path is None or not path.exists():
         return [f"{manifest} : contrat introuvable ({stage['checks']})."]
@@ -382,8 +401,10 @@ def contract_problems(stage: dict) -> list:
         checks = json.loads(read_text(path))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"{path} : contrat illisible ({exc})."]
+    if isinstance(checks, dict):
+        checks = scoped_checks(checks)
     if not isinstance(checks, dict):
-        return [f"{path} : le contrat doit etre un objet JSON."]
+        return [f"{path} : le contrat doit être un objet JSON."]
 
     problems = []
 
@@ -419,11 +440,11 @@ def contract_problems(stage: dict) -> list:
     consumes = set(stage.get("consumes") or [])
     for source in checks.get("required_input_section") or {}:
         if source not in consumes:
-            add(f"required_input_section porte sur '{source}', qui n'est pas une entree "
-                "de l'agent ('consumes' du manifeste).")
+            add(f"required_input_section porte sur « {source} », qui n'est pas une entrée "
+                "de l'agent (« consumes » du manifeste).")
     if checks.get("must_reference_inputs") and not consumes:
         add("must_reference_inputs est actif alors que l'agent ne consomme aucune "
-            "entree : la regle ne verifie rien.")
+            "entrée : la règle ne vérifie rien.")
     if "min_words" in checks and "max_words" in checks:
         try:
             if int(checks["min_words"]) > int(checks["max_words"]):

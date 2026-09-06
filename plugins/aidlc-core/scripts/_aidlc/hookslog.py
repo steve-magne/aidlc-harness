@@ -291,9 +291,9 @@ def _deliverable_protection_reason(root: Path, resolved: Path, data: dict):
                 continue
         except (OSError, ValueError):
             continue  # `produces` illegal dans un manifeste : il ne protege rien
-        return ("Ecriture refusee : {} est le livrable de l'agent '{}' (equipe {}), pas "
-                "celui de '{}'. Un agent n'ecrit que son propre `produces` ; une entree "
-                "amont qui ne convient pas se corrige en relancant l'agent qui la "
+        return ("Écriture refusée : {} est le livrable de l'agent « {} » (équipe {}), pas "
+                "celui de « {} ». Un agent n'écrit que son propre `produces` ; une entrée "
+                "amont qui ne convient pas se corrige en relançant l'agent qui la "
                 "produit.".format(produces, agent["id"], agent.get("team") or "inconnue",
                                   actor))
     return None
@@ -312,44 +312,59 @@ def _config_protection_reason(root: Path, resolved: Path):
     """
     if resolved != (root / PROJECT_CONFIG).resolve():
         return None
-    return ("Ecriture refusee : {} porte la gouvernance du projet — seuil de maturite, "
+    return ("Écriture refusée : {} porte la gouvernance du projet — seuil de maturité, "
             "plancher par axe, et la liste des agents qui composent le pipeline. Un agent "
-            "n'edite pas les regles qui le jugent. C'est une decision d'equipe : elle se "
-            "prend a la main, dans un terminal.".format(PROJECT_CONFIG))
+            "n'édite pas les règles qui le jugent. C'est une décision d'équipe : elle se "
+            "prend à la main, dans un terminal.".format(PROJECT_CONFIG))
+
+
+#: Noms de premier niveau sous .aidlc/ que la garde connait. Tout autre premier
+#: segment est un nom d'initiative : la protection le traverse pour retrouver le
+#: fichier qu'elle protege.
+AIDLC_ENTRIES = ("maturity.json", "reviews", "ratchet.json", "improvement-queue.jsonl",
+                 "experiments.jsonl", "logs")
 
 
 def _aidlc_protection_reason(root: Path, resolved: Path):
     """Protege l'etat runtime (.aidlc/) : integrite du score, revues signees, ratchet,
-    file d'amelioration, journaux — seuls les scripts ecrivent, jamais un agent."""
-    protected_root = aidlc_dir(root).resolve()
+    file d'amelioration, journaux — seuls les scripts ecrivent, jamais un agent.
+
+    La garde porte sur **tout** `.aidlc/`, pas sur le seul sous-dossier de l'initiative
+    courante : sinon, declarer une nouvelle initiative deverrouillerait les scores et les
+    signatures de la precedente — soit exactement la fraude que cette fonction existe
+    pour empecher.
+    """
+    protected_root = (root / ".aidlc").resolve()
     try:
         relative = resolved.relative_to(protected_root)
     except ValueError:
         return None
     parts = relative.parts
+    if parts and parts[0] not in AIDLC_ENTRIES and len(parts) > 1:
+        parts = parts[1:]
     if parts and parts[0] == "maturity.json":
-        return ("Ecriture refusee : .aidlc/maturity.json est l'integrite du score. "
+        return ("Écriture refusée : .aidlc/maturity.json est l'intégrité du score. "
                 "Passer par `aidlc.py score <stage> --file <review.json>`.")
     if len(parts) >= 2 and parts[0] == "reviews" and parts[1].endswith(".json") \
             and not parts[1].endswith(".template.json"):
-        return ("Ecriture refusee : les revues humaines .aidlc/reviews/*.json sont signees "
+        return ("Écriture refusée : les revues humaines .aidlc/reviews/*.json sont signées "
                 "par un humain. Utiliser `aidlc.py review-request <stage>` et laisser "
                 "l'humain remplir le fichier.")
     if parts and parts[0] == "ratchet.json":
-        return ("Ecriture refusee : .aidlc/ratchet.json fige les planchers de validation. "
-                "Seul `aidlc.py ratchet` ecrit ce fichier ; toute modification hors de "
-                "cette sous-commande est une fraude au metre.")
+        return ("Écriture refusée : .aidlc/ratchet.json fige les planchers de validation. "
+                "Seul `aidlc.py ratchet` écrit ce fichier ; toute modification hors de "
+                "cette sous-commande est une fraude au mètre.")
     if parts and parts[0] == "improvement-queue.jsonl":
-        return ("Ecriture refusee : la file d'amelioration est alimentee par les refus "
-                "(humains, gate OKF, watchdog), jamais editee a la main.")
+        return ("Écriture refusée : la file d'amélioration est alimentée par les refus "
+                "(humains, gate OKF, watchdog), jamais éditée à la main.")
     if parts and parts[0] == "experiments.jsonl":
-        return ("Ecriture refusee : .aidlc/experiments.jsonl est la memoire de la "
-                "boucle d'amelioration — ce qui a ete corrige, et l'effet mesure. "
-                "Passer par `aidlc.py experiment record` ; antidater une experience "
-                "reviendrait a se noter soi-meme.")
+        return ("Écriture refusée : .aidlc/experiments.jsonl est la mémoire de la "
+                "boucle d'amélioration — ce qui a été corrigé, et l'effet mesuré. "
+                "Passer par `aidlc.py experiment record` ; antidater une expérience "
+                "reviendrait à se noter soi-même.")
     if parts and parts[0] == "logs":
-        return ("Ecriture refusee : les journaux .aidlc/logs/*.jsonl sont la matiere "
-                "premiere du diagnostic (autonomie, watchdog). Ils ne sont editables "
+        return ("Écriture refusée : les journaux .aidlc/logs/*.jsonl sont la matière "
+                "première du diagnostic (autonomie, watchdog). Ils ne sont éditables "
                 "que par le hook de journalisation.")
     return None
 
@@ -370,7 +385,7 @@ def _harness_protection_reason(root: Path, resolved: Path):
         resolved.relative_to(harness)
     except (OSError, ValueError):
         return None  # hors harnais : jamais concerne
-    return ("Ecriture refusee : la copie installée du harnais (hors du projet) est sa "
+    return ("Écriture refusée : la copie installée du harnais (hors du projet) est sa "
             "liste protégée (pipeline.json, checks/, hooks/, script, agents, skills, "
             "templates). Un agent n'édite pas les règles qui le jugent ; faire évoluer "
             "le harnais dans son dépôt auteur, via /aidlc-core:improve ou "
@@ -390,7 +405,7 @@ def _agent_protection_reason(resolved: Path):
                 resolved.relative_to(Path(agent["root"]).resolve())
             except (OSError, ValueError):
                 continue
-            return ("Ecriture refusée : {} appartient au plugin de l'agent '{}' (équipe "
+            return ("Écriture refusée : {} appartient au plugin de l'agent « {} » (équipe "
                     "{}), installé hors de ce projet. Chaque équipe maintient son agent "
                     "dans son propre dépôt ; ici, seul son manifeste est lu."
                     .format(resolved.name, agent["id"], agent.get("team") or "inconnue"))

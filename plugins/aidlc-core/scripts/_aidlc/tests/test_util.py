@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 
@@ -8,7 +10,11 @@ from unittest import mock
 
 from .harness import AidlcTestCase
 from ..util import MAX_FIELD
+from ..util import aidlc_dir
 from ..util import digest
+from ..util import emit_machine
+from ..util import initiative
+from ..util import scoped
 from ..util import harness_root
 from ..util import PROJECT_CONFIG
 from ..util import load_pipeline
@@ -181,3 +187,84 @@ class TestPipelineRecouvert(AidlcTestCase):
         self.write_json(PROJECT_CONFIG,
                         {"planned_stages": [{"id": "deploy", "name": "Deploy"}]})
         self.assertEqual([s["id"] for s in load_pipeline()["planned_stages"]], ["deploy"])
+
+
+class TestInitiative(AidlcTestCase):
+    """La cle `initiative` isole une idee de la suivante dans un meme projet."""
+
+    def test_sans_cle_l_initiative_est_vide(self):
+        self.write_json(PROJECT_CONFIG, {"maturity_threshold": 4.0})
+        self.assertEqual(initiative(self.root), "")
+
+    def test_le_nom_declare_est_rendu(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco-panier"})
+        self.assertEqual(initiative(self.root), "reco-panier")
+
+    def test_les_caracteres_de_chemin_sont_neutralises(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "../etc/passwd"})
+        self.assertEqual(initiative(self.root), "---etc-passwd")
+
+    def test_le_nom_est_plafonne(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "i" * 200})
+        self.assertEqual(len(initiative(self.root)), 60)
+
+    def test_un_nom_vide_ne_scope_rien(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "   "})
+        self.assertEqual(initiative(self.root), "")
+
+    def test_une_gouvernance_illisible_ne_casse_pas_la_resolution_de_chemin(self):
+        # Le hook guard passe par la ; le faire echouer casserait la session au lieu
+        # de la prevenir, et config_problems signale deja le fichier fautif.
+        self.write(PROJECT_CONFIG, "{ pas du json")
+        self.assertEqual(initiative(self.root), "")
+
+
+class TestScoped(AidlcTestCase):
+    """Un chemin de livrable declare par un manifeste, situe dans l'initiative."""
+
+    def test_sans_initiative_le_chemin_ne_bouge_pas(self):
+        self.assertEqual(scoped("deliverables/plan/intent.md", self.root),
+                         "deliverables/plan/intent.md")
+
+    def test_le_segment_se_glisse_apres_la_racine_des_livrables(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        self.assertEqual(scoped("deliverables/plan/intent.md", self.root),
+                         "deliverables/reco/plan/intent.md")
+
+    def test_un_chemin_hors_des_livrables_est_prefixe_en_tete(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        self.assertEqual(scoped("docs/plan.md", self.root), "reco/docs/plan.md")
+
+    def test_un_chemin_absent_reste_absent(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        self.assertIsNone(scoped(None, self.root))
+
+
+class TestAidlcDir(AidlcTestCase):
+    def test_sans_initiative_l_etat_runtime_est_a_plat(self):
+        self.assertEqual(aidlc_dir(self.root), self.root / ".aidlc")
+
+    def test_avec_initiative_l_etat_runtime_est_isole(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        self.assertEqual(aidlc_dir(self.root), self.root / ".aidlc" / "reco")
+
+
+class TestEmitMachine(AidlcTestCase):
+    """Le JSON ne noie pas le resume humain dans un terminal, et ne bouge pas ailleurs."""
+
+    def _capture(self, isatty: bool, forced: bool = False) -> str:
+        buffer = io.StringIO()
+        buffer.isatty = lambda: isatty
+        with contextlib.redirect_stdout(buffer):
+            emit_machine({"ok": True}, forced)
+        return buffer.getvalue()
+
+    def test_hors_terminal_le_json_sort_comme_avant(self):
+        self.assertEqual(json.loads(self._capture(isatty=False)), {"ok": True})
+
+    def test_devant_un_humain_le_json_se_tait(self):
+        self.assertEqual(self._capture(isatty=True), "")
+
+    def test_l_option_json_le_force_meme_dans_un_terminal(self):
+        self.assertEqual(json.loads(self._capture(isatty=True, forced=True)),
+                         {"ok": True})

@@ -9,6 +9,7 @@ from unittest import mock
 from .harness import AidlcTestCase
 from .harness import manifest
 from .. import registry
+from ..util import PROJECT_CONFIG
 from ..util import ensure_dir
 
 """Registre ouvert des agents : decouverte par manifeste, validation de forme, ordre
@@ -671,3 +672,69 @@ class TestProducerOf(AidlcTestCase):
     def test_un_agent_consultatif_n_est_jamais_producteur(self):
         self.write_agent("aidlc-conseil", manifest("conseil", "Conseil"))
         self.assertIsNone(registry.producer_of(""))
+
+
+class TestPorteeParInitiative(AidlcTestCase):
+    """Les chemins declares par un manifeste sont situes dans l'initiative du projet."""
+
+    def test_le_livrable_produit_est_situe_dans_l_initiative(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        registry.reset_cache()
+        self.assertEqual(registry.find_agent("plan")["produces"],
+                         "deliverables/reco/plan/intent.md")
+
+    def test_l_entree_consommee_suit_le_meme_deplacement(self):
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        registry.reset_cache()
+        self.assertEqual(registry.find_agent("design")["consumes"],
+                         ["deliverables/reco/plan/intent.md"])
+
+    def test_la_chaine_producteur_consommateur_tient_toujours(self):
+        # Le maillon se lit sur des chemins deplaces des deux cotes : s'ils ne
+        # bougeaient pas ensemble, design ne saurait plus qui produit son entree.
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        registry.reset_cache()
+        self.assertEqual(registry.producer_of("deliverables/reco/plan/intent.md"),
+                         "plan")
+
+    def test_changer_d_initiative_invalide_le_catalogue_memorise(self):
+        self.assertEqual(registry.find_agent("plan")["produces"],
+                         "deliverables/plan/intent.md")
+        self.write_json(PROJECT_CONFIG, {"initiative": "reco"})
+        self.assertEqual(registry.find_agent("plan")["produces"],
+                         "deliverables/reco/plan/intent.md")
+
+
+class TestAgentDecouvertMaisNonDeclare(AidlcTestCase):
+    """Le filtre de la liste blanche parle, dans les deux sens."""
+
+    def test_un_agent_ecarte_est_signale(self):
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+        registry.reset_cache()
+        warnings = " ".join(registry.discover()["warnings"])
+        self.assertIn("'design'", warnings)
+        self.assertIn("absent de la cle 'agents'", warnings)
+
+    def test_l_avertissement_nomme_la_commande_qui_le_branche(self):
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertIn("aidlc.py workflow --add design",
+                      " ".join(registry.discover()["warnings"]))
+
+    def test_les_ids_ecartes_sont_rendus_a_part(self):
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertEqual(registry.discover()["undeclared"], ["design"])
+
+    def test_sans_liste_blanche_rien_n_est_ecarte(self):
+        self.assertEqual(registry.discover()["undeclared"], [])
+
+    def test_l_agent_ecarte_ne_compose_pas_le_pipeline(self):
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertEqual([agent["id"] for agent in registry.agents_list()], ["plan"])
+
+    def test_le_catalogue_expose_les_ids_ecartes(self):
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertEqual(registry.catalog()["undeclared"], ["design"])

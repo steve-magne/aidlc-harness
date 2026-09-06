@@ -3,18 +3,23 @@ from __future__ import annotations
 import json
 import os
 
+from unittest import mock
+
 from .harness import AidlcTestCase
 from .harness import GOOD_SECTIONS
 from .harness import document
 from .harness import manifest
+from .. import maturity as maturity_module
 from ..maturity import compute_autonomy
 from ..maturity import enqueue_improvement
 from ..maturity import gate_stage
+from ..maturity import history
 from ..maturity import human_review
 from ..maturity import load_maturity
 from ..maturity import maturity_path
 from ..maturity import recall
 from ..maturity import record_score
+from ..maturity import render_history
 from ..maturity import render_recall
 from ..maturity import render_status
 from ..maturity import authoring
@@ -26,6 +31,7 @@ from ..maturity import stale_deliverable
 from ..maturity import status_data
 from ..util import aidlc_dir
 from ..util import now_iso
+from ..util import read_text
 from ..util import write_json
 
 """Maturite : score recalcule, autonomie, porte (gate), revue humaine, tableau de bord."""
@@ -297,7 +303,7 @@ class TestGateStage(AidlcTestCase):
     def test_une_validation_deterministe_en_echec_bloque(self):
         self.plan_intent(sections={"## Contexte": "trop court"})
         decision = gate_stage(self.root, self.pipeline, "plan")
-        self.assertTrue(any("Validation deterministe en echec" in b
+        self.assertTrue(any("Validation déterministe en échec" in b
                             for b in decision["blocking"]))
 
     def test_aucun_score_enregistre_bloque_et_ne_calcule_pas_le_reste(self):
@@ -305,7 +311,7 @@ class TestGateStage(AidlcTestCase):
         decision = gate_stage(self.root, self.pipeline, "plan")
         self.assertFalse(decision["passed"])
         self.assertIsNone(decision["run"])
-        self.assertTrue(any("Aucun score de maturite" in b for b in decision["blocking"]))
+        self.assertTrue(any("Aucun score de maturité" in b for b in decision["blocking"]))
 
     def test_bloque_sans_revue_humaine(self):
         self.plan_intent()
@@ -344,7 +350,7 @@ class TestGateStage(AidlcTestCase):
         _review(self.root, "plan", 1, approved=False, justification="Criteres non chiffres.")
         decision = gate_stage(self.root, self.pipeline, "plan")
         self.assertFalse(decision["passed"])
-        self.assertTrue(any("Revue humaine refusee" in b for b in decision["blocking"]))
+        self.assertTrue(any("Revue humaine refusée" in b for b in decision["blocking"]))
         queue = self.read(".aidlc/improvement-queue.jsonl")
         self.assertIn("Criteres non chiffres.", queue)
 
@@ -377,12 +383,12 @@ class TestGateStage(AidlcTestCase):
         decision = gate_stage(self.root, self.pipeline, "design")
         self.assertFalse(decision["passed"])
         self.assertEqual(decision["stale_inputs"], ["deliverables/plan/intent.md"])
-        self.assertTrue(any("Entree amont modifiee" in b for b in decision["blocking"]))
+        self.assertTrue(any("Entrée amont modifiée" in b for b in decision["blocking"]))
 
         # Le tableau de bord doit remettre design a faire tant que la porte reste ouverte.
         row = next(r for r in status_data(self.root, self.pipeline)["stages"]
                   if r["stage"] == "design")
-        self.assertIn("Entree amont modifiee", row["next_action"])
+        self.assertIn("Entrée amont modifiée", row["next_action"])
 
         # Une nouvelle revue notee sur l'entree a jour referme la porte.
         record_score(self.root, self.pipeline, "design", {"scores": SCORES_HAUTS})
@@ -485,7 +491,7 @@ class TestStatusData(AidlcTestCase):
         _review(self.root, "plan", 1, approved=True)
         row = next(r for r in status_data(self.root, self.pipeline)["stages"]
                   if r["stage"] == "plan")
-        self.assertEqual(row["next_action"], "Etape franchie")
+        self.assertEqual(row["next_action"], "Étape franchie")
 
     def test_producteur_absent_signale_une_entree_sans_producteur_installe(self):
         self.write_agent("aidlc-orphelin",
@@ -519,7 +525,7 @@ class TestRenderStatus(AidlcTestCase):
 
     def test_le_rendu_nomme_les_equipes(self):
         data = status_data(self.root, self.pipeline)
-        self.assertIn("EQUIPE", render_status(data))
+        self.assertIn("ÉQUIPE", render_status(data))
 
     def test_la_colonne_d_attente_nomme_le_role_humain_de_l_etape_courante(self):
         data = status_data(self.root, self.pipeline)
@@ -546,7 +552,7 @@ class TestRenderStatus(AidlcTestCase):
 
     def test_un_blocage_amont_est_annonce_sous_le_tableau(self):
         rendered = render_status(status_data(self.root, self.pipeline))
-        self.assertIn("Bloque : design attend deliverables/plan/intent.md", rendered)
+        self.assertIn("Bloqué : design attend deliverables/plan/intent.md", rendered)
 
     def test_la_gouvernance_affichee_nomme_le_fichier_du_projet_quand_il_existe(self):
         self.write_json("aidlc.json", {"maturity_threshold": 3.5})
@@ -581,7 +587,7 @@ class TestRenderStatus(AidlcTestCase):
                                              ["deliverables/a/out.md"]))
         data = status_data(self.root, self.pipeline)
         self.assertEqual(sorted(data["cycle"]), ["a", "b"])
-        self.assertIn("Cycle de dependances entre agents", render_status(data))
+        self.assertIn("Cycle de dépendances entre agents", render_status(data))
 
     def test_un_avertissement_de_doublon_est_annonce_dans_le_rendu(self):
         external = self.root / "externe"
@@ -597,7 +603,7 @@ class TestRenderStatus(AidlcTestCase):
         self.write_json("plugins/aidlc-invalide/agent.json", {"manifest_version": 1})
         data = status_data(self.root, self.pipeline)
         self.assertTrue(data["problems"])
-        self.assertIn("Manifeste rejete :", render_status(data))
+        self.assertIn("Manifeste rejeté :", render_status(data))
 
 
 class TestPlancherParAxe(AidlcTestCase):
@@ -722,7 +728,7 @@ class TestPeremptionDuLivrableNote(AidlcTestCase):
         intent = self.plan_intent()
         self._score_and_sign(1)
         intent.write_text(document(GOOD_SECTIONS, filler=4), encoding="utf-8")
-        self.assertTrue(any("Livrable modifie" in b for b in
+        self.assertTrue(any("Livrable modifié" in b for b in
                             gate_stage(self.root, self.pipeline, "plan")["blocking"]))
 
     def test_le_tableau_de_bord_remet_l_etape_a_faire(self):
@@ -732,7 +738,7 @@ class TestPeremptionDuLivrableNote(AidlcTestCase):
         row = next(r for r in status_data(self.root, self.pipeline)["stages"]
                    if r["stage"] == "plan")
         self.assertTrue(row["stale_deliverable"])
-        self.assertIn("Livrable modifie", row["next_action"])
+        self.assertIn("Livrable modifié", row["next_action"])
 
     def test_une_nouvelle_revue_sur_la_version_courante_referme_la_porte(self):
         intent = self.plan_intent()
@@ -813,7 +819,7 @@ class TestRecall(AidlcTestCase):
         self.assertEqual(len(recall(self.root, "plan", limit=0)["runs"]), 1)
 
     def test_le_rendu_humain_annonce_l_absence_de_tentative(self):
-        self.assertIn("rien a reprendre", render_recall(recall(self.root, "plan")))
+        self.assertIn("rien à reprendre", render_recall(recall(self.root, "plan")))
 
     def test_le_rendu_humain_porte_le_reproche_et_le_refus(self):
         record_score(self.root, self.pipeline, "plan",
@@ -827,7 +833,7 @@ class TestRecall(AidlcTestCase):
     def test_le_rendu_humain_porte_les_recommandations(self):
         record_score(self.root, self.pipeline, "plan",
                      {"scores": SCORES_BAS, "recommendations": ["Chiffrer la cible."]})
-        self.assertIn("a faire  : Chiffrer la cible.",
+        self.assertIn("à faire  : Chiffrer la cible.",
                       render_recall(recall(self.root, "plan")))
 
     def test_un_refus_sans_justification_reste_lisible(self):
@@ -878,14 +884,14 @@ class TestPorteAmont(AidlcTestCase):
         _franchir(self, "design")
         decision = gate_stage(self.root, self.pipeline, "design")
         self.assertFalse(decision["passed"])
-        self.assertTrue(any("Entree amont absente" in b for b in decision["blocking"]),
+        self.assertTrue(any("Entrée amont absente" in b for b in decision["blocking"]),
                         decision["blocking"])
 
     def test_le_blocage_amont_nomme_l_agent_a_lancer_d_abord(self):
         _spec(self)
         _franchir(self, "design")
         decision = gate_stage(self.root, self.pipeline, "design")
-        self.assertTrue(any("l'agent 'plan'" in b for b in decision["blocking"]))
+        self.assertTrue(any("l'agent « plan »" in b for b in decision["blocking"]))
 
     def test_une_entree_que_personne_ne_produit_le_dit(self):
         self.write_agent("aidlc-orphelin",
@@ -902,7 +908,7 @@ class TestPorteAmont(AidlcTestCase):
         _franchir(self, "design")   # ...mais il n'a jamais ete note ni signe
         decision = gate_stage(self.root, self.pipeline, "design")
         self.assertFalse(decision["passed"])
-        self.assertTrue(any("Porte amont fermee" in b for b in decision["blocking"]),
+        self.assertTrue(any("Porte amont fermée" in b for b in decision["blocking"]),
                         decision["blocking"])
 
     def test_le_blocage_amont_relaie_le_motif_de_l_amont(self):
@@ -910,7 +916,7 @@ class TestPorteAmont(AidlcTestCase):
         _spec(self)
         _franchir(self, "design")
         decision = gate_stage(self.root, self.pipeline, "design")
-        self.assertTrue(any("Aucun score de maturite" in b for b in decision["blocking"]),
+        self.assertTrue(any("Aucun score de maturité" in b for b in decision["blocking"]),
                         decision["blocking"])
 
     def test_une_chaine_complete_franchit_la_porte_aval(self):
@@ -925,7 +931,7 @@ class TestPorteAmont(AidlcTestCase):
     def test_le_bloquant_amont_precede_les_autres_motifs(self):
         _spec(self)
         decision = gate_stage(self.root, self.pipeline, "design")
-        self.assertIn("Entree amont absente", decision["blocking"][0])
+        self.assertIn("Entrée amont absente", decision["blocking"][0])
 
     def test_les_bloquants_amont_sont_rendus_a_part(self):
         _spec(self)
@@ -1002,7 +1008,7 @@ class TestStatusChainage(AidlcTestCase):
         row = next(r for r in status_data(self.root, self.pipeline)["stages"]
                    if r["stage"] == "orphelin")
         self.assertEqual(row["blocked_by"][0]["reason"],
-                         "aucun agent installe ne le produit")
+                         "aucun agent installé ne le produit")
         self.assertIn("amont.md", row["next_action"])
 
     def test_l_etape_courante_reste_l_amont_quand_l_aval_est_bloque(self):
@@ -1049,7 +1055,7 @@ class TestAuthoring(AidlcTestCase):
     def test_le_consommateur_se_voit_proposer_d_attendre_la_publication(self):
         data = status_data(self.root, self.pipeline)
         data["authoring"] = False
-        self.assertIn("a publier par l'equipe Ingenierie", render_status(data))
+        self.assertIn("à publier par l'équipe Ingenierie", render_status(data))
 
 
 class TestSignReview(AidlcTestCase):
@@ -1121,7 +1127,7 @@ class TestSignReview(AidlcTestCase):
         sign_review(self.root, self.pipeline, "plan", True, "Steve", "Conforme.")
         with self.assertRaises(ValueError) as raised:
             sign_review(self.root, self.pipeline, "plan", False, "Autre", "Non.")
-        self.assertIn("deja signe par Steve", str(raised.exception))
+        self.assertIn("déjà signé par Steve", str(raised.exception))
 
     def test_force_permet_de_revenir_sur_une_signature(self):
         self._pret()
@@ -1137,3 +1143,217 @@ class TestSignReview(AidlcTestCase):
         self.assertEqual(signed["reviewer"], "Steve")
         self.assertEqual(self.read_json(".aidlc/reviews/plan-1.json")["justification"],
                          "Conforme.")
+
+
+class TestContratIncoherentFermeLaPorte(AidlcTestCase):
+    """Une etape gouvernee sans contrat ne franchit rien.
+
+    Sans cette regle, `validate` rendait « ok » avec zero regle appliquee sur un
+    livrable que personne n'avait lu : le vert le plus muet du harnais, et il portait
+    justement sur l'agent qu'une equipe vient de brancher."""
+
+    def _agent_sans_contrat(self):
+        # Le cas reel : l'agent maison d'une equipe, publie sans champ `checks`.
+        agent = manifest("solo", "Ingenierie", "deliverables/solo/plan.md")
+        agent.pop("checks")
+        self.write_agent("aidlc-solo", agent, checks=None)
+        self.write("deliverables/solo/plan.md", "trois mots seulement")
+
+    def test_la_porte_bloque_sur_le_contrat_absent(self):
+        self._agent_sans_contrat()
+        with self.muted():
+            decision = gate_stage(self.root, self.pipeline, "solo")
+        self.assertFalse(decision["passed"])
+
+    def test_le_bloquant_nomme_l_equipe_qui_doit_corriger(self):
+        self._agent_sans_contrat()
+        with self.muted():
+            decision = gate_stage(self.root, self.pipeline, "solo")
+        self.assertIn("Ingenierie", " ".join(decision["blocking"]))
+
+    def test_le_contrat_est_rendu_a_part_pour_la_skill(self):
+        self._agent_sans_contrat()
+        with self.muted():
+            decision = gate_stage(self.root, self.pipeline, "solo")
+        self.assertTrue(decision["contract_problems"])
+
+    def test_un_score_flatteur_ne_rachete_pas_le_contrat_absent(self):
+        # C'est le scenario reel : le reviewer note ce qu'il veut sur un livrable que
+        # rien n'a valide, et la porte s'ouvrait.
+        self._agent_sans_contrat()
+        record_score(self.root, self.pipeline, "solo", {"scores": SCORES_HAUTS})
+        _review(self.root, "solo", 1, approved=True)
+        with self.muted():
+            decision = gate_stage(self.root, self.pipeline, "solo")
+        self.assertFalse(decision["passed"])
+
+    def test_un_agent_dote_de_son_contrat_n_est_pas_gene(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        _review(self.root, "plan", 1, approved=True)
+        with self.muted():
+            decision = gate_stage(self.root, self.pipeline, "plan")
+        self.assertNotIn("contract_problems", decision)
+
+
+class TestApprobationMotiveeAlimenteLaBoucle(AidlcTestCase):
+    """`sign` exige un motif dans les deux sens ; celui de l'approbation etait jete."""
+
+    def _porte_apres_approbation(self, justification):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        _review(self.root, "plan", 1, approved=True, justification=justification)
+        with self.muted():
+            gate_stage(self.root, self.pipeline, "plan")
+        path = aidlc_dir(self.root) / "improvement-queue.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in read_text(path).splitlines() if line]
+
+    def test_l_approbation_motivee_entre_dans_la_file(self):
+        items = self._porte_apres_approbation("D'accord, mais les KPI restent mous.")
+        self.assertEqual(len(items), 1)
+
+    def test_elle_est_marquee_comme_reserve_et_non_comme_refus(self):
+        items = self._porte_apres_approbation("D'accord, mais les KPI restent mous.")
+        self.assertEqual(items[0]["kind"], "reserve")
+
+    def test_le_motif_est_conserve_mot_pour_mot(self):
+        items = self._porte_apres_approbation("D'accord, mais les KPI restent mous.")
+        self.assertEqual(items[0]["justification"], "D'accord, mais les KPI restent mous.")
+
+    def test_une_reserve_ne_bloque_pas_la_porte(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        _review(self.root, "plan", 1, approved=True, justification="Reserve mineure.")
+        with self.muted():
+            decision = gate_stage(self.root, self.pipeline, "plan")
+        self.assertTrue(decision["passed"])
+
+    def test_une_approbation_sans_motif_n_encombre_pas_la_file(self):
+        self.assertEqual(self._porte_apres_approbation("   "), [])
+
+    def test_un_refus_reste_un_refus_sans_marqueur_de_reserve(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        _review(self.root, "plan", 1, approved=False, justification="Perimetre flou.")
+        with self.muted():
+            gate_stage(self.root, self.pipeline, "plan")
+        items = [json.loads(line) for line
+                 in read_text(aidlc_dir(self.root) / "improvement-queue.jsonl").splitlines()
+                 if line]
+        self.assertNotIn("kind", items[0])
+
+
+class TestConsignesDeRevue(AidlcTestCase):
+    """La revue humaine se signe par une commande, pas par une copie de gabarit."""
+
+    def test_les_consignes_donnent_la_commande_sign(self):
+        self.plan_intent()
+        with self.muted() as err:
+            review_request(self.root, self.pipeline, "plan")
+        self.assertIn("aidlc.py sign plan --approve", err.getvalue())
+
+    def test_les_consignes_gardent_la_voie_manuelle_pour_la_ci(self):
+        self.plan_intent()
+        with self.muted() as err:
+            review_request(self.root, self.pipeline, "plan")
+        self.assertIn(".template.json", err.getvalue())
+
+    def test_les_consignes_disent_que_l_approbation_aussi_est_conservee(self):
+        self.plan_intent()
+        with self.muted() as err:
+            review_request(self.root, self.pipeline, "plan")
+        self.assertIn("approbation motivée", err.getvalue())
+
+
+class TestJournalDeLInitiative(AidlcTestCase):
+    """Qui a produit, qui a note, qui a signe — la question d'une chaine multi-equipes."""
+
+    def test_sans_run_le_journal_le_dit_au_lieu_de_rendre_un_vide(self):
+        self.assertIn("Aucun run noté", render_history(history(self.root)))
+
+    def test_chaque_run_note_devient_un_evenement(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        self.assertEqual(len(history(self.root)["events"]), 1)
+
+    def test_la_signature_humaine_est_rendue_avec_son_auteur(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        _review(self.root, "plan", 1, approved=True, reviewer="Marie")
+        with self.muted():
+            gate_stage(self.root, self.pipeline, "plan")
+        self.assertIn("Marie", render_history(history(self.root)))
+
+    def test_un_run_non_signe_est_annonce_comme_tel(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        self.assertIn("non signé", render_history(history(self.root)))
+
+    def test_les_evenements_sont_ordonnes_dans_le_temps(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_BAS})
+        runs = [event["run"] for event in history(self.root)["events"]]
+        self.assertEqual(runs, sorted(runs))
+
+    def test_le_journal_nomme_l_initiative_quand_elle_existe(self):
+        self.write_json("aidlc.json", {"initiative": "reco"})
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        self.assertIn("reco", render_history(history(self.root)))
+
+
+class TestTableauDeBordEtAgentsNonDeclares(AidlcTestCase):
+    """Un agent ecarte par la liste blanche est installe : ne pas le dire « a publier »."""
+
+    def test_un_agent_ecarte_ne_figure_pas_en_plugin_a_publier(self):
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        data = status_data(self.root, self.pipeline)
+        self.assertNotIn("design", [stage["id"] for stage in data["planned"]])
+
+    def test_les_ids_ecartes_sont_exposes_au_tableau_de_bord(self):
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        self.assertEqual(status_data(self.root, self.pipeline)["undeclared"], ["design"])
+
+    def test_une_etape_vraiment_absente_reste_annoncee_comme_a_publier(self):
+        self.write_json("aidlc.json", {"agents": ["plan", "design"]})
+        data = status_data(self.root, self.pipeline)
+        self.assertIn("build", [stage["id"] for stage in data["planned"]])
+
+
+class TestRenduDuJournalEtDuTableau(AidlcTestCase):
+    """Les branches du rendu que seul un etat particulier fait apparaitre."""
+
+    def test_une_etape_autonome_non_signee_est_annoncee_comme_telle(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        maturity = load_maturity(self.root)
+        maturity["stages"]["plan"]["autonomous"] = True
+        write_json(maturity_path(self.root), maturity)
+        self.assertIn("signature non exigée", render_history(history(self.root)))
+
+    def test_un_axe_sous_le_plancher_est_nomme_au_journal(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": {"completeness": 5, "precision": 5,
+                                 "traceability": 1, "autonomy": 5}})
+        self.assertIn("traceability", render_history(history(self.root)))
+
+    def test_une_cle_de_gouvernance_inconnue_est_signalee_au_tableau_de_bord(self):
+        self.write_json("aidlc.json", {"maturity_treshold": 3.0})
+        rendu = render_status(status_data(self.root, self.pipeline))
+        self.assertIn("Gouvernance du projet", rendu)
+
+    def test_une_porte_amont_fermee_sans_motif_ne_casse_pas_le_message(self):
+        # Chemin defensif : `blocking` vide alors que la porte est fermee ne peut pas
+        # arriver aujourd'hui, mais l'index [0] serait fatal si ca changeait.
+        self.plan_intent()
+        self.write("deliverables/design/spec.md", document(front={"stage": "design"}))
+        with mock.patch.object(maturity_module, "gate_stage",
+                               return_value={"passed": False, "blocking": []}):
+            blockers = upstream_blockers(
+                self.root, self.pipeline,
+                {"id": "design", "consumes": ["deliverables/plan/intent.md"]}, set())
+        self.assertIn("motif indisponible", " ".join(blockers))

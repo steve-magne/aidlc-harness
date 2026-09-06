@@ -223,7 +223,7 @@ def okf_frontmatter_fix(bundle: Path, rel: str, errors: list) -> dict | None:
         return None
     return {"file": rel, "kind": "frontmatter", "problem": errors[0],
             "edits": edits,
-            "note": "type par defaut Reference et titre derive du premier titre H1 "
+            "note": "type par défaut Reference et titre dérivé du premier titre H1 "
                      "(sinon du nom de fichier) : a confirmer avant application.",
             "preview": "\n".join(repaired).splitlines()[:6]}
 

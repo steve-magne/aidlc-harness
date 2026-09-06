@@ -164,7 +164,7 @@ def coverage_reset(root: Path, select: str = None) -> dict:
     """Rebase explicite : le plancher repart de l'etat courant. Geste humain, trace."""
     fresh = measure(select)
     if not fresh["suite_passed"]:
-        raise ValueError("Suite rouge : on ne rebase pas un plancher sur un echec.")
+        raise ValueError("Suite rouge : on ne rebase pas un plancher sur un échec.")
     stamp = now_iso()
     write_json(coverage_path(root),
                {"ts": stamp, "baseline": True, "reset_at": stamp,

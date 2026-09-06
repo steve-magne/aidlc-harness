@@ -8,6 +8,7 @@ from pathlib import Path
 from .util import aidlc_dir
 from .util import digest
 from .util import harness_root
+from .util import initiative
 from .util import project_config_path
 from .util import ensure_dir
 from . import registry
@@ -132,14 +133,14 @@ def record_score(root: Path, pipe: dict, stage_id: str, review: dict) -> dict:
     for axis in AXES:
         value = float(scores[axis])
         if not 0 <= value <= 5:
-            raise ValueError(f"Score hors bornes pour '{axis}' : {value} (attendu 0-5).")
+            raise ValueError(f"Score hors bornes pour « {axis} » : {value} (attendu 0-5).")
         # La grille n'a que six niveaux ancres (0 absent ... 5 exemplaire) : une demi-note
         # ne correspond a aucun. La regle etait ecrite dans la skill de revue, donc
         # dependante du modele qui la lit ; sans elle, un 2,9 juste sous le plancher ou un
         # 3,0 juste dessus se negocient, et l'echelle ordinale cesse d'etre comparable.
         if value != int(value):
-            raise ValueError(f"Score non entier pour '{axis}' : {value} — la grille de "
-                             "maturite n'a que six niveaux (0 a 5).")
+            raise ValueError(f"Score non entier pour « {axis} » : {value} — la grille de "
+                             "maturité n'a que six niveaux (0 à 5).")
         values.append(value)
     overall = round(sum(values) / len(values), 1)
     threshold = float(pipe.get("maturity_threshold", 4.0))
@@ -229,15 +230,15 @@ def upstream_blockers(root: Path, pipe: dict, stage: dict, seen: set) -> list:
         producer = registry.producer_of(path)
         if not (root / path).exists():
             blockers.append(
-                "Entree amont absente : {} — {}.".format(
+                "Entrée amont absente : {} — {}.".format(
                     path,
-                    f"produire d'abord le livrable de l'agent '{producer}'" if producer
-                    else "aucun agent installe ne la produit, son plugin manque"))
+                    f"produire d'abord le livrable de l'agent « {producer} »" if producer
+                    else "aucun agent installé ne la produit, son plugin manque"))
         elif producer and producer not in seen:
             upstream = gate_stage(root, pipe, producer, _seen=seen)
             if not upstream["passed"]:
                 blockers.append(
-                    "Porte amont fermee : l'agent '{}' n'a pas franchi la sienne ({}).".format(
+                    "Porte amont fermée : l'agent « {} » n'a pas franchi la sienne ({}).".format(
                         producer, upstream["blocking"][0] if upstream["blocking"]
                         else "motif indisponible"))
     return blockers
@@ -254,11 +255,24 @@ def gate_stage(root: Path, pipe: dict, stage_id: str, _seen: set = None) -> dict
         # Un agent consultatif n'a pas de livrable, donc pas de metre : il n'y a rien a
         # noter et rien a franchir. Ce n'est pas un echec, c'est une absence de porte.
         out["blocking"].append(
-            f"L'agent '{stage_id}' est consultatif (pas de 'produces') : aucune porte "
-            "de qualite ne s'y applique.")
+            f"L'agent « {stage_id} » est consultatif (pas de « produces ») : aucune "
+            "porte de qualité ne s'y applique.")
         return out
 
-    # L'amont d'abord : une etape batie sur du vide n'a pas de qualite a mesurer, et le
+    # Le contrat avant tout le reste : sans lui, `validate` rend « ok » sur un livrable
+    # que rien n'a lu (checks_run: 0), le reviewer note ce qu'il veut et la porte
+    # s'ouvre sur du vide. Le registre savait deja le dire — `agents --strict` sort 1,
+    # le tableau de bord l'affiche — mais rien ne bloquait : un vert muet est un
+    # mensonge, et celui-la portait sur l'agent qu'une equipe vient de brancher.
+    contract = contract_problems(stage)
+    if contract:
+        out["contract_problems"] = contract
+        out["blocking"].extend(
+            "Contrat incohérent : {} Ce contrat se corrige dans le dépôt de l'équipe "
+            "{}.".format(problem, stage.get("team") or "propriétaire")
+            for problem in contract)
+
+    # L'amont ensuite : une etape batie sur du vide n'a pas de qualite a mesurer, et le
     # dire avant la note evite d'envoyer l'utilisateur relancer un reviewer pour rien.
     seen = set(_seen or ())
     seen.add(stage_id)
@@ -272,7 +286,7 @@ def gate_stage(root: Path, pipe: dict, stage_id: str, _seen: set = None) -> dict
     out["validation_ok"] = validation["ok"]
     if not validation["ok"]:
         out["blocking"].append(
-            "Validation deterministe en echec : " + " | ".join(validation["errors"][:5])
+            "Validation déterministe en échec : " + " | ".join(validation["errors"][:5])
         )
 
     maturity = load_maturity(root)
@@ -283,7 +297,7 @@ def gate_stage(root: Path, pipe: dict, stage_id: str, _seen: set = None) -> dict
     out["human_review_required"] = not autonomous
 
     if not runs:
-        out["blocking"].append("Aucun score de maturite enregistre : lancer le reviewer.")
+        out["blocking"].append("Aucun score de maturité enregistré : lancer le reviewer.")
         out["run"] = None
         return out
 
@@ -295,29 +309,29 @@ def gate_stage(root: Path, pipe: dict, stage_id: str, _seen: set = None) -> dict
         out["blocking"].append(f"Verdict du reviewer : {last.get('verdict')}.")
     if float(last.get("overall", 0)) < threshold:
         out["blocking"].append(
-            f"Maturite {last.get('overall')} sous le seuil {threshold}."
+            f"Maturité {last.get('overall')} sous le seuil {threshold}."
         )
     weak = last.get("weak_axes") or []
     if weak:
         floor = float(pipe.get("min_axis_score", 3.0))
         out["weak_axes"] = weak
         out["blocking"].append(
-            "Axe sous le plancher {} : {} — une moyenne suffisante ne rachete pas un "
-            "axe effondre.".format(floor, ", ".join(
+            "Axe sous le plancher {} : {} — une moyenne suffisante ne rachète pas un "
+            "axe effondré.".format(floor, ", ".join(
                 f"{axis}={last['scores'][axis]}" for axis in weak)))
 
     stale = stale_inputs(root, stage, last)
     if stale:
         out["stale_inputs"] = stale
         out["blocking"].append(
-            "Entree amont modifiee depuis la revue : " + ", ".join(stale)
+            "Entrée amont modifiée depuis la revue : " + ", ".join(stale)
             + " — relancer le reviewer."
         )
 
     if stale_deliverable(root, stage, last):
         out["stale_deliverable"] = True
         out["blocking"].append(
-            "Livrable modifie depuis la revue : la note du run {} porte sur une version "
+            "Livrable modifié depuis la revue : la note du run {} porte sur une version "
             "qui n'est plus sur disque — relancer le reviewer.".format(last.get("run")))
 
     review = human_review(root, stage_id, last.get("run", 0))
@@ -327,15 +341,28 @@ def gate_stage(root: Path, pipe: dict, stage_id: str, _seen: set = None) -> dict
             "reviewer": review.get("reviewer"),
             "ts": review.get("ts"),
         }
+        justification = str(review.get("justification", "") or "").strip()
         if not review.get("approved"):
             out["blocking"].append(
-                "Revue humaine refusee : " + str(review.get("justification", "sans justification"))
+                "Revue humaine refusée : " + (justification or "sans justification")
             )
             enqueue_improvement(root, {
                 "ts": now_iso(), "stage": stage_id, "run": last.get("run"),
                 "reviewer": review.get("reviewer"),
-                "justification": review.get("justification", ""),
+                "justification": justification,
                 "source": "human_review",
+            }, ("stage", "run"))
+        elif justification:
+            # Une approbation motivee est un avis, pas un incident : elle ne bloque
+            # rien. Mais `sign` exige un motif dans les deux sens, et jusqu'ici celui
+            # de l'approbation etait ecrit puis jete. En regime etabli c'est le signal
+            # majoritaire — « d'accord, mais les KPI restent mous » — et il n'atteignait
+            # jamais la boucle, qui n'apprenait que des refus.
+            enqueue_improvement(root, {
+                "ts": now_iso(), "stage": stage_id, "run": last.get("run"),
+                "reviewer": review.get("reviewer"),
+                "justification": justification,
+                "source": "human_review", "kind": "reserve",
             }, ("stage", "run"))
     elif not autonomous:
         out["blocking"].append(
@@ -392,9 +419,9 @@ def recall(root: Path, stage_id: str, limit: int = 3) -> dict:
 def render_recall(data: dict) -> str:
     """Rendu humain : le plus recent en premier, c'est celui qu'on doit corriger."""
     if not data["runs"]:
-        return ("Etape '{}' : aucune tentative anterieure — rien a reprendre."
+        return ("Étape « {} » : aucune tentative antérieure — rien à reprendre."
                 .format(data["stage"]))
-    lines = ["Etape '{}' — {} run(s), {} rappele(s){}".format(
+    lines = ["Étape « {} » — {} run(s), {} rappelé(s){}".format(
         data["stage"], data["total_runs"], len(data["runs"]),
         ", autonome" if data["autonomous"] else "")]
     for run in reversed(data["runs"]):
@@ -409,29 +436,35 @@ def render_recall(data: dict) -> str:
         for finding in run["findings"]:
             lines.append("  - reproche : " + str(finding))
         for reco in run["recommendations"]:
-            lines.append("  - a faire  : " + str(reco))
+            lines.append("  - à faire  : " + str(reco))
     return "\n".join(lines)
 
 
 # ------------------------------------------------------------------ review-request
 
-REVIEW_INSTRUCTIONS = """Revue humaine — etape '{stage}' (run {run})
+REVIEW_INSTRUCTIONS = """Revue humaine — étape « {stage} » (run {run})
 
-Livrable a relire : {deliverable}
-Role attendu      : {role}
+Livrable à relire : {deliverable}
+Rôle attendu      : {role}
 
-A verifier :
-  1. Le livrable repond au besoin reel, pas seulement au gabarit.
-  2. Les criteres d'acceptation sont testables et chiffres.
-  3. Les inputs amont sont cites et correctement interpretes.
-  4. Aucun engagement implicite non assume (delai, cout, perimetre).
+À vérifier :
+  1. Le livrable répond au besoin réel, pas seulement au gabarit.
+  2. Les critères d'acceptation sont testables et chiffrés.
+  3. Les entrées amont sont citées et correctement interprétées.
+  4. Aucun engagement implicite non assumé (délai, coût, périmètre).
 
-Ou signer : {target}
+Signer, depuis votre terminal — une seule commande, elle rejoue la porte :
+
+  aidlc.py sign {stage} --approve --by "<votre nom>" --why "<ce que vous avez vérifié>"
+  aidlc.py sign {stage} --reject  --by "<votre nom>" --why "<ce qui manque>"
+
+Sans terminal (CI, session headless), la voie manuelle reste ouverte : {target}
   - copier le fichier .template.json en {basename}
   - renseigner "approved" (true/false), "reviewer", "justification"
 
-En cas de refus (approved=false) : la justification est obligatoire, elle est copiee
-automatiquement dans .aidlc/improvement-queue.jsonl et alimente la skill improve.
+La justification est obligatoire dans les deux sens. Un refus bloque la porte ; une
+approbation motivée ne bloque rien mais elle est conservée. Les deux sont copiées
+dans .aidlc/improvement-queue.jsonl et alimentent la skill improve.
 """
 
 
@@ -440,8 +473,8 @@ def review_request(root: Path, pipe: dict, stage_id: str) -> dict:
     if stage is None:
         raise ValueError(f"Agent inconnu du registre : {stage_id}")
     if not stage.get("produces"):
-        raise ValueError(f"L'agent '{stage_id}' ne produit pas de livrable : "
-                         "il n'y a rien a faire relire.")
+        raise ValueError(f"L'agent « {stage_id} » ne produit pas de livrable : "
+                         "il n'y a rien à faire relire.")
     maturity = load_maturity(root)
     runs = stage_maturity(maturity, stage_id)["runs"]
     run = runs[-1]["run"] if runs else 1
@@ -492,8 +525,8 @@ def sign_review(root: Path, pipe: dict, stage_id: str, approved: bool, reviewer:
     if stage is None:
         raise ValueError(f"Agent inconnu du registre : {stage_id}")
     if not stage.get("produces"):
-        raise ValueError(f"L'agent '{stage_id}' ne produit pas de livrable : "
-                         "il n'y a rien a signer.")
+        raise ValueError(f"L'agent « {stage_id} » ne produit pas de livrable : "
+                         "il n'y a rien à signer.")
     reviewer = (reviewer or "").strip()
     justification = (justification or "").strip()
     if not reviewer:
@@ -501,19 +534,19 @@ def sign_review(root: Path, pipe: dict, stage_id: str, approved: bool, reviewer:
                          "n'engage personne.")
     if not justification:
         raise ValueError("La justification est obligatoire, approbation comprise : "
-                         "sans motif ecrit, la signature ne dit pas ce qui a ete verifie.")
+                         "sans motif écrit, la signature ne dit pas ce qui a été vérifié.")
     runs = stage_maturity(load_maturity(root), stage_id)["runs"]
     if not runs:
-        raise ValueError(f"Aucun score enregistre pour '{stage_id}' : faites noter le "
-                         "livrable par le reviewer avant de le signer.")
+        raise ValueError(f"Aucun score enregistré pour « {stage_id} » : faites noter "
+                         "le livrable par le reviewer avant de le signer.")
     run = runs[-1]["run"]
     path = aidlc_dir(root) / "reviews" / f"{stage_id}-{run}.json"
     if path.exists() and not force:
         existing = human_review(root, stage_id, run) or {}
         raise ValueError(
-            "Le run {} de '{}' est deja signe par {} ({}) : une signature ne se reecrit "
-            "pas. Faites renoter le livrable, ou supprimez {} pour revenir sur votre "
-            "decision.".format(run, stage_id, existing.get("reviewer", "?"),
+            "Le run {} de « {} » est déjà signé par {} ({}) : une signature ne se "
+            "réécrit pas. Faites renoter le livrable, ou supprimez {} pour revenir "
+            "sur votre décision.".format(run, stage_id, existing.get("reviewer", "?"),
                                existing.get("ts", "?"), os.path.relpath(path, root)))
     review = {"stage": stage_id, "run": run, "approved": bool(approved),
               "reviewer": reviewer, "justification": justification, "ts": now_iso()}
@@ -596,14 +629,14 @@ def status_data(root: Path, pipe: dict) -> dict:
                 blocked_by.append({
                     "input": path, "producer": producer,
                     "reason": "livrable pas encore produit" if producer
-                    else "aucun agent installe ne le produit"})
+                    else "aucun agent installé ne le produit"})
             elif producer and not cleared.get(producer, False):
                 blocked_by.append({"input": path, "producer": producer,
                                    "reason": "porte amont non franchie"})
         row["blocked_by"] = blocked_by
         if not row["invocable"]:
             row["next_action"] = (f"Agent non invocable sur {view['platform']} : "
-                                  "completer 'invocation' dans son agent.json")
+                                  "compléter « invocation » dans son agent.json")
         elif blocked_by:
             row["next_action"] = "En attente de l'amont : " + ", ".join(
                 item["producer"] or Path(item["input"]).name for item in blocked_by)
@@ -612,29 +645,31 @@ def status_data(root: Path, pipe: dict) -> dict:
         elif not row["validate_ok"]:
             row["next_action"] = f"Corriger {len(row['errors'])} erreur(s) de validation"
         elif stale:
-            row["next_action"] = ("Entree amont modifiee ("
+            row["next_action"] = ("Entrée amont modifiée ("
                                   + ", ".join(Path(p).name for p in stale)
                                   + ") : reprendre puis relancer le reviewer")
         elif last is None:
             row["next_action"] = "Lancer le reviewer (agent aidlc-core:reviewer)"
         elif row["stale_deliverable"]:
-            row["next_action"] = ("Livrable modifie depuis la revue : relancer le "
+            row["next_action"] = ("Livrable modifié depuis la revue : relancer le "
                                   "reviewer")
         elif last.get("verdict") != "accepted" or float(last.get("overall", 0)) < threshold:
             row["next_action"] = "Reprendre le livrable puis relancer le reviewer"
         elif not row["autonomous"] and not human_review(root, stage_id, last.get("run", 0)):
             row["next_action"] = f"Revue humaine : aidlc.py review-request {stage_id}"
         else:
-            row["next_action"] = "Etape franchie"
-        cleared[stage_id] = row["next_action"] == "Etape franchie"
+            row["next_action"] = "Étape franchie"
+        cleared[stage_id] = row["next_action"] == "Étape franchie"
         # Qui doit agir maintenant. Une etape franchie n'attend personne ; une etape
         # bloquee par son amont non plus — l'action est sur la ligne du dessus, et
         # afficher deux noms a la fois est la meilleure facon que personne ne bouge.
         row["waiting_for"] = (None if cleared[stage_id] or blocked_by
                               else stage.get("human_role"))
         rows.append(row)
-    current = next((r["stage"] for r in rows if r["next_action"] != "Etape franchie"), None)
-    known = {agent["id"] for agent in view["agents"]}
+    current = next((r["stage"] for r in rows if r["next_action"] != "Étape franchie"), None)
+    # Un agent ecarte par la liste blanche EST installe : l'annoncer « a publier par
+    # l'equipe X » envoie chercher un plugin que l'equipe X a deja livre.
+    known = {agent["id"] for agent in view["agents"]} | set(view.get("undeclared") or [])
     planned = [stage for stage in pipe.get("planned_stages", [])
                if stage.get("id") not in known]
     return {
@@ -649,6 +684,7 @@ def status_data(root: Path, pipe: dict) -> dict:
         "advisors": [agent for agent in view["agents"] if not agent.get("produces")],
         "missing_producers": view["missing_producers"],
         "planned": planned,
+        "undeclared": view.get("undeclared") or [],
         "cycle": view["cycle"],
         "problems": view["problems"],
         "contract_problems": [problem for agent in view["agents"]
@@ -656,6 +692,60 @@ def status_data(root: Path, pipe: dict) -> dict:
         "config_problems": config_problems(root),
         "warnings": view["warnings"],
     }
+
+
+def history(root: Path) -> dict:
+    """Journal de passage de l'initiative : qui a produit, qui a note, qui a signe.
+
+    `status` donne l'instantane et `maturity.json` la serie brute ; entre les deux,
+    personne ne pouvait repondre a « ou en est-on, et qui a valide quoi ». Sur une
+    chaine ou chaque etape appartient a une equipe differente, c'est la question la
+    plus posee — et la reponse existait deja, elle n'etait simplement rendue nulle part.
+    """
+    maturity = load_maturity(root)
+    events = []
+    for stage_id, entry in (maturity.get("stages") or {}).items():
+        for run in entry.get("runs") or []:
+            review = run.get("human_review") or {}
+            events.append({
+                "ts": run.get("ts"),
+                "stage": stage_id,
+                "run": run.get("run"),
+                "overall": run.get("overall"),
+                "verdict": run.get("verdict"),
+                "weak_axes": run.get("weak_axes") or [],
+                "signed_by": review.get("reviewer"),
+                "signed_at": review.get("ts"),
+                "approved": review.get("approved"),
+                "autonomous": bool(entry.get("autonomous")),
+            })
+    events.sort(key=lambda event: (str(event["ts"]), str(event["stage"])))
+    return {"initiative": initiative(root) or None, "events": events}
+
+
+def render_history(data: dict) -> str:
+    if not data["events"]:
+        return ("Aucun run noté : l'histoire de l'initiative commence au premier "
+                "passage du reviewer.")
+    title = "Journal de l'initiative"
+    if data.get("initiative"):
+        title += " « {} »".format(data["initiative"])
+    lines = [title, ""]
+    for event in data["events"]:
+        signature = "non signé"
+        if event["signed_by"]:
+            signature = "{} par {} le {}".format(
+                "approuvé" if event["approved"] else "refusé",
+                event["signed_by"], event["signed_at"])
+        elif event["autonomous"]:
+            signature = "étape autonome, signature non exigée"
+        lines.append("{}  {} run {} — note {} ({}){} — {}".format(
+            event["ts"], event["stage"], event["run"], event["overall"],
+            event["verdict"],
+            " | axes sous plancher : " + ", ".join(event["weak_axes"])
+            if event["weak_axes"] else "",
+            signature))
+    return "\n".join(lines)
 
 
 #: Largeur maximale de la colonne des roles humains. Un role d'entreprise est long
@@ -670,7 +760,7 @@ def _short(value: str, width: int = ROLE_WIDTH) -> str:
 
 
 def render_status(data: dict) -> str:
-    headers = ["AGENT", "EQUIPE", "LIVRABLE", "VALIDE", "SCORE", "AUTO",
+    headers = ["AGENT", "ÉQUIPE", "LIVRABLE", "VALIDÉ", "SCORE", "AUTO",
                "EN ATTENTE DE", "PROCHAINE ACTION"]
     rows = []
     for row in data["stages"]:
@@ -688,10 +778,10 @@ def render_status(data: dict) -> str:
               for i in range(len(headers))]
     lines = [
         f"AI-DLC — tableau de bord ({data['root']})",
-        f"Seuil de maturite : {data['maturity_threshold']} | "
+        f"Seuil de maturité : {data['maturity_threshold']} | "
         f"Plateforme : {data.get('platform')} | "
         f"Gouvernance : {data.get('project_config') or 'harnais (pipeline.json)'} | "
-        f"Etape courante : {data['current_stage'] or 'chaine complete'}",
+        f"Étape courante : {data['current_stage'] or 'chaîne complète'}",
         "",
         "  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)),
         "  ".join("-" * widths[i] for i in range(len(headers))),
@@ -701,28 +791,28 @@ def render_status(data: dict) -> str:
     lines.append("")
     for row in data["stages"]:
         for item in row.get("blocked_by") or []:
-            lines.append("Bloque : {} attend {} — {}.".format(
+            lines.append("Bloqué : {} attend {} — {}.".format(
                 row["stage"], item["input"], item["reason"]))
     for advisor in data.get("advisors", []):
-        lines.append("Agent consultatif : {} (equipe {}) — {}".format(
+        lines.append("Agent consultatif : {} (équipe {}) — {}".format(
             advisor["id"], advisor.get("team") or "?",
-            ", ".join(advisor.get("capabilities", [])) or "aucune capacite declaree"))
+            ", ".join(advisor.get("capabilities", [])) or "aucune capacité déclarée"))
     for hole in data.get("missing_producers", []):
-        lines.append("Producteur absent : '{}' attend {} — aucun agent installe ne le "
-                     "produit.".format(hole["agent"], hole["input"]))
+        lines.append("Producteur absent : « {} » attend {} — aucun agent installé ne "
+                     "le produit.".format(hole["agent"], hole["input"]))
     for stage in data.get("planned", []):
-        lines.append("Prevu, plugin non installe : {} ({}) — {}".format(
+        lines.append("Prévu, plugin non installé : {} ({}) — {}".format(
             stage.get("id"), stage.get("name", ""),
             "aidlc.py scaffold {}".format(stage.get("id")) if data.get("authoring")
-            else "a publier par l'equipe {}".format(stage.get("team") or "proprietaire")))
+            else "à publier par l'équipe {}".format(stage.get("team") or "propriétaire")))
     if data.get("cycle"):
-        lines.append("Cycle de dependances entre agents : " + ", ".join(data["cycle"]))
+        lines.append("Cycle de dépendances entre agents : " + ", ".join(data["cycle"]))
     for message in data.get("warnings", []):
         lines.append("Avertissement : " + message)
     for message in data.get("problems", []):
-        lines.append("Manifeste rejete : " + message)
+        lines.append("Manifeste rejeté : " + message)
     for message in data.get("contract_problems", []):
-        lines.append("Contrat incoherent : " + message)
+        lines.append("Contrat incohérent : " + message)
     for message in data.get("config_problems", []):
         lines.append("Gouvernance du projet : " + message)
     return "\n".join(lines)

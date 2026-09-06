@@ -55,7 +55,24 @@ Sous le tableau, ajoute au maximum cinq lignes de commentaire en français :
    - étape listée en « prévu, plugin non installé » -> `/aidlc-core:new-stage <stage>`
    - « producteur absent » -> le plugin qui produit cette entrée n'est pas installé : dis lequel
    - « manifeste rejeté » -> nomme l'équipe propriétaire, c'est à elle de corriger son `agent.json`
+   - « contrat incohérent » -> l'agent produit un livrable que rien ne validerait ; sa porte est
+     fermée tant que son équipe n'a pas corrigé son `checks.json`. Nomme-la
+   - « découvert mais absent de la clé agents » -> une équipe a publié son agent, personne ne l'a
+     branché. Demande si elle intervient sur cette initiative, puis
+     `/aidlc-core:setup` (ou `aidlc.py workflow --add <agent>`)
    - scores faibles et répétés -> `/aidlc-core:improve <stage>`
+
+## 2 bis. Si on demande l'histoire, pas l'instantané
+
+« Qui a validé quoi, et quand ? » ne se lit pas dans le tableau — il ne montre que l'état courant :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status --history
+```
+
+Un événement par run noté, dans l'ordre : l'étape, sa note, son verdict, et la signature humaine
+avec son auteur. C'est la réponse à donner dès qu'on demande où en est l'initiative, qui l'a
+approuvée, ou pourquoi une étape a été refaite.
 
 ## 3. Si un argument d'étape est fourni
 

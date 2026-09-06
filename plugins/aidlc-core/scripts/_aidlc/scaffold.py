@@ -17,7 +17,7 @@ pour qu'une equipe publie son agent sans toucher a l'orchestrateur."""
 
 PLUGIN_JSON = """{{
   "name": "aidlc-{stage}",
-  "description": "Etape {name} du pipeline AI-DLC : produit {deliverable}.",
+  "description": "Étape {name} du pipeline AI-DLC : produit {deliverable}.",
   "version": "0.1.0",
   "author": {{ "name": "Steve" }}
 }}
@@ -25,7 +25,7 @@ PLUGIN_JSON = """{{
 
 AGENT_MD = """---
 name: {stage}-analyst
-description: Analyste de l'étape {name}. Dialogue avec le role {role} pour produire {deliverable}.
+description: Analyste de l'étape {name}. Dialogue avec le rôle {role} pour produire {deliverable}.
 model: sonnet
 tools: Read, Write, Edit, Glob, Grep, Bash
 ---
@@ -67,17 +67,17 @@ par ce plugin (`${{CLAUDE_PLUGIN_ROOT}}/checks.json`).
 {inputs_list}
 
 ## Procédure
-1. Lire chaque input ci-dessus. S'il en manque un, arrêter et le signaler : l'étape amont
+1. Lire chaque entrée ci-dessus. S'il en manque un, arrêter et le signaler : l'étape amont
    n'est pas franchie.
 2. Demander au `librarian` le contexte pertinent (bundle OKF `${{CLAUDE_PROJECT_DIR}}/knowledge/`).
 3. Copier `${{CLAUDE_PLUGIN_ROOT}}/templates/{template}` vers `{deliverable}`.
-4. Interroger le role **{role}** sur les points non tranchés. Une question à la fois,
+4. Interroger le rôle **{role}** sur les points non tranchés. Une question à la fois,
    fermée quand c'est possible.
-5. Remplir toutes les sections. Citer explicitement les inputs (la validation l'exige).
+5. Remplir toutes les sections. Citer explicitement les entrées amont (la validation l'exige).
 6. Ne pas appeler le script du harnais soi-même : la validation déterministe est déclenchée
    par le hook du plugin aidlc-core à chaque écriture et rejouée par l'orchestrateur
    (`/aidlc-core:run {stage}`). Corriger jusqu'à ne plus avoir d'erreur signalée.
-7. Rendre la main a l'orchestrateur pour la validation, la revue de maturite et la porte.
+7. Rendre la main à l'orchestrateur pour la validation, la revue de maturité et la porte.
 
 ## Interdits
 - Rendre un livrable non valide.
@@ -213,10 +213,10 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
     deliverable = stage.get("deliverable", f"deliverables/{stage_id}/{stage_id}.md")
     template_name = Path(deliverable).name
     inputs = stage.get("inputs", [])
-    team = stage.get("team", "<equipe proprietaire de cet agent>")
+    team = stage.get("team", "<équipe propriétaire de cet agent>")
     inputs_txt = ", ".join(inputs) if inputs else "aucun"
-    inputs_list = "\n".join(f"- `{i}`" for i in inputs) if inputs else "- Aucun input amont."
-    role = stage.get("human_role", "role metier a preciser")
+    inputs_list = "\n".join(f"- `{i}`" for i in inputs) if inputs else "- Aucune entrée amont."
+    role = stage.get("human_role", "rôle métier à préciser")
     fmt = dict(stage=stage_id, name=name, deliverable=deliverable, role=role,
                inputs=inputs_txt, inputs_list=inputs_list, template=template_name,
                team=team)

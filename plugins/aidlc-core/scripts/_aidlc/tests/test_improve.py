@@ -4,7 +4,10 @@ import json
 
 from .harness import AidlcTestCase
 from .harness import document
+from .harness import manifest
+from ..improve import feedback
 from ..improve import improve
+from ..improve import render_feedback
 from ..improve import iter_log_events
 from ..maturity import record_score
 from ..util import now_iso
@@ -335,3 +338,173 @@ class TestScenario19MigreDuSelftest(AidlcTestCase):
 
     def test_improve_doit_classer_les_axes_faibles(self):
         self.assertTrue(self.diag["maturity"]["plan"]["weakest_axes"])
+
+
+SCORES = {"completeness": 4, "precision": 4, "traceability": 4, "autonomy": 4}
+
+
+class TestSignauxDeWorkflow(AidlcTestCase):
+    """Ce qui se juge au niveau de la chaine, et qu'aucun correctif de plugin ne repare."""
+
+    def test_une_etape_jamais_jouee_est_nommee(self):
+        diag = improve(self.root, self.pipeline)
+        self.assertIn("plan", diag["workflow"]["never_ran"])
+
+    def test_une_etape_jouee_sort_de_cette_liste(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES})
+        diag = improve(self.root, self.pipeline)
+        self.assertNotIn("plan", diag["workflow"]["never_ran"])
+
+    def test_le_cout_de_l_etape_compte_ses_tentatives(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES})
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES})
+        diag = improve(self.root, self.pipeline)
+        self.assertEqual(diag["workflow"]["cost_per_stage"]["plan"]["runs"], 2)
+
+    def test_le_cout_retient_le_run_qui_a_ete_accepte(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": {"completeness": 2, "precision": 2,
+                                 "traceability": 2, "autonomy": 2}})
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES})
+        diag = improve(self.root, self.pipeline)
+        self.assertEqual(diag["workflow"]["cost_per_stage"]["plan"]["runs_to_accept"], 2)
+
+    def test_un_maillon_manquant_de_la_chaine_remonte(self):
+        self.write_agent("aidlc-orphelin",
+                         manifest("orphelin", "Qualite", "deliverables/qa/plan.md",
+                                  ["deliverables/inexistant/rien.md"]),
+                         {"required_sections": ["## Contexte"]})
+        diag = improve(self.root, self.pipeline)
+        self.assertTrue(diag["workflow"]["missing_producers"])
+
+    def test_un_agent_publie_mais_non_branche_remonte(self):
+        self.write_json("aidlc.json", {"agents": ["plan"]})
+        diag = improve(self.root, self.pipeline)
+        self.assertEqual(diag["workflow"]["undeclared"], ["design"])
+
+
+class TestReservesSeparees(AidlcTestCase):
+    """Une approbation motivee n'est pas un refus : elle ne se lit pas comme tel."""
+
+    def _file(self, kind=None):
+        item = {"ts": now_iso(), "stage": "plan", "run": 1, "reviewer": "Marie",
+                "justification": "Les KPI restent mous.", "source": "human_review"}
+        if kind:
+            item["kind"] = kind
+        self.write(".aidlc/improvement-queue.jsonl", json.dumps(item) + "\n")
+
+    def test_une_reserve_ne_compte_pas_comme_un_refus(self):
+        self._file(kind="reserve")
+        self.assertEqual(improve(self.root, self.pipeline)["human_rejections"], [])
+
+    def test_une_reserve_a_sa_propre_section(self):
+        self._file(kind="reserve")
+        self.assertEqual(len(improve(self.root, self.pipeline)["human_reserves"]), 1)
+
+    def test_un_refus_reste_dans_les_refus(self):
+        self._file()
+        self.assertEqual(len(improve(self.root, self.pipeline)["human_rejections"]), 1)
+
+
+class TestRetourDUsage(AidlcTestCase):
+    """Ce que le projet a mesure sur un agent, a rendre a l'equipe qui le maintient."""
+
+    def test_chaque_agent_du_registre_a_sa_ligne(self):
+        ids = [report["agent"] for report in feedback(self.root)["agents"]]
+        self.assertEqual(sorted(ids), ["design", "plan"])
+
+    def test_le_rapport_nomme_l_equipe_proprietaire(self):
+        report = next(r for r in feedback(self.root)["agents"] if r["agent"] == "plan")
+        self.assertEqual(report["team"], "Produit")
+
+    def test_le_filtre_ne_garde_qu_un_agent(self):
+        self.assertEqual(len(feedback(self.root, "plan")["agents"]), 1)
+
+    def test_la_serie_de_notes_est_rendue(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES})
+        report = next(r for r in feedback(self.root)["agents"] if r["agent"] == "plan")
+        self.assertEqual(report["trend"], [4.0])
+
+    def test_l_axe_faible_est_nomme_quand_les_notes_different(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan",
+                     {"scores": {"completeness": 5, "precision": 5,
+                                 "traceability": 2, "autonomy": 5}})
+        report = next(r for r in feedback(self.root)["agents"] if r["agent"] == "plan")
+        self.assertEqual(report["weakest_axes"][0], "traceability")
+
+    def test_des_notes_toutes_egales_n_ont_pas_d_axe_faible(self):
+        # Nommer deux axes « les plus faibles » quand tout est a 4 envoie l'equipe
+        # corriger ce qui va bien.
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES})
+        report = next(r for r in feedback(self.root)["agents"] if r["agent"] == "plan")
+        self.assertEqual(report["weakest_axes"], [])
+
+    def test_le_motif_ecrit_par_l_humain_est_transmis(self):
+        self.write(".aidlc/improvement-queue.jsonl", json.dumps({
+            "ts": now_iso(), "stage": "plan", "run": 1, "reviewer": "Marie",
+            "justification": "Perimetre flou.", "source": "human_review"}) + "\n")
+        report = next(r for r in feedback(self.root)["agents"] if r["agent"] == "plan")
+        self.assertEqual(report["human_rejections"][0]["justification"], "Perimetre flou.")
+
+    def test_le_rendu_humain_annonce_un_agent_jamais_note(self):
+        self.assertIn("aucun run noté", render_feedback(feedback(self.root)))
+
+    def test_le_rendu_humain_porte_la_version_de_l_agent(self):
+        self.plan_intent()
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES})
+        self.assertIn("v0.1.0", render_feedback(feedback(self.root)))
+
+
+class TestRetourDUsageSansAgent(AidlcTestCase):
+    seed_agents = False
+
+    def test_un_registre_vide_le_dit(self):
+        self.assertIn("Aucun agent", render_feedback(feedback(self.root)))
+
+
+class TestRenduDuRetourDUsage(AidlcTestCase):
+    """Les branches du rapport que seul un projet deja passe par la boucle fait sortir."""
+
+    def _note(self, scores, verdict=None):
+        self.plan_intent()
+        review = {"scores": scores}
+        if verdict:
+            review["verdict"] = verdict
+        record_score(self.root, self.pipeline, "plan", review)
+
+    def test_un_run_refuse_est_compte_dans_le_rendu(self):
+        self._note({"completeness": 2, "precision": 2,
+                    "traceability": 2, "autonomy": 2})
+        self.assertIn("refusé(s)", render_feedback(feedback(self.root)))
+
+    def test_l_axe_faible_apparait_dans_le_rendu(self):
+        self._note({"completeness": 5, "precision": 5,
+                    "traceability": 2, "autonomy": 5})
+        self.assertIn("axes les plus faibles", render_feedback(feedback(self.root)))
+
+    def test_un_refus_humain_est_cite_avec_son_auteur(self):
+        self._note({"completeness": 4, "precision": 4,
+                    "traceability": 4, "autonomy": 4})
+        self.write(".aidlc/improvement-queue.jsonl", json.dumps({
+            "ts": now_iso(), "stage": "plan", "run": 1, "reviewer": "Marie",
+            "justification": "Perimetre flou.", "source": "human_review"}) + "\n")
+        self.assertIn("refus (Marie)", render_feedback(feedback(self.root)))
+
+    def test_une_reserve_est_citee_a_part(self):
+        self._note({"completeness": 4, "precision": 4,
+                    "traceability": 4, "autonomy": 4})
+        self.write(".aidlc/improvement-queue.jsonl", json.dumps({
+            "ts": now_iso(), "stage": "plan", "run": 1, "reviewer": "Marie",
+            "justification": "Les KPI restent mous.", "source": "human_review",
+            "kind": "reserve"}) + "\n")
+        self.assertIn("réserve (Marie)", render_feedback(feedback(self.root)))
+
+    def test_une_ligne_illisible_de_la_file_est_ignoree_sans_casser(self):
+        self.write(".aidlc/improvement-queue.jsonl", "{ pas du json\n")
+        self.assertEqual(feedback(self.root)["agents"][0]["human_rejections"], [])

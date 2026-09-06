@@ -21,6 +21,8 @@ concrets, et la réponse du harnais :
 | Une étape démarre sur un livrable amont absent, ou pas encore validé | La porte exige que chaque entrée `consumes` **existe** et que son producteur ait franchi la sienne — dans le moteur, donc en CI aussi |
 | L'IA avance seule là où l'humain devait décider | Revue humaine **obligatoire** tant que l'étape n'est pas autonome ; `sign` exige un terminal, un agent ne peut pas signer à votre place |
 | Chaque projet a son exigence et son périmètre d'agents | `aidlc.json` à la racine du projet : seuils, feuille de route, et la liste blanche des agents qui composent **son** workflow |
+| Un projet mène plusieurs idées, la seconde écrase la première | La clé `initiative` isole livrables, scores et signatures par idée : `deliverables/<idée>/`, `.aidlc/<idée>/` |
+| Ce que les relecteurs constatent reste enfermé dans un projet | `feedback` rend à chaque équipe ce que les projets ont mesuré sur son agent : notes, axes faibles, refus **et** approbations motivées |
 | Chaque équipe veut son agent, personne ne veut d'un noyau à modifier | Chaque équipe publie son plugin avec un manifeste `agent.json` ; l'orchestrateur **découvre** les agents, il n'en tient aucune liste |
 
 À qui ça s'adresse : une **équipe projet** qui veut produire ses livrables avec des agents sous
@@ -57,7 +59,15 @@ Il pose `aidlc.json` (votre seuil, votre workflow), `deliverables/`, le bundle `
 part de ce que le projet dit de lui-même, pas d'un entretien à froid. Il ne remplace jamais un
 fichier existant.
 
+Puis composez **votre** chaîne — quels agents d'équipe la traversent, et sous quel nom :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" workflow    # ce qui est branché, et ce qui ne l'est pas
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" workflow --initiative reco-panier --add design
 ```
+
+```
+/aidlc-core:setup      # amorcer et composer le workflow, en dialogue
 /aidlc-core:status     # où en est le pipeline, qui est attendu, qu'est-ce qui bloque
 /aidlc-core:run plan   # produire le livrable de cadrage, de bout en bout
 ```
@@ -163,6 +173,7 @@ Puis, dans la session, pour concevoir un nouvel agent avec son référent métie
 
 | Skill | Quand |
 | --- | --- |
+| `/aidlc-core:setup [initiative]` | amorcer le projet et composer le workflow avec les agents des équipes |
 | `/aidlc-core:run [stage]` | faire tourner une étape de bout en bout |
 | `/aidlc-core:status [stage]` | où on en est, **qui est attendu**, ce qui bloque |
 | `/aidlc-core:review [stage]` | faire noter un livrable qu'on vient d'écrire |
@@ -181,7 +192,10 @@ Toute la logique déterministe passe par **un seul point d'entrée**. Depuis ce 
 
 ```bash
 python3 $S init                        # amorce un projet consommateur (idempotent)
+python3 $S workflow                    # ce qui compose la chaîne, et ce qui est publié sans être branché
+python3 $S workflow --add design --initiative reco-panier   # composer, et nommer l'idée en cours
 python3 $S status                      # tableau de bord des étapes, et qui est attendu
+python3 $S status --history            # journal de passage : qui a produit, noté et signé quoi
 python3 $S agents --capability security:review --json
 python3 $S validate plan               # le livrable respecte-t-il son contrat
 python3 $S score plan --file review.json
@@ -190,6 +204,7 @@ python3 $S review-request plan         # gabarit + consignes de revue humaine
 python3 $S sign plan --approve --by "Nom" --why "..."   # signe et rejoue la porte (terminal humain)
 python3 $S recall plan                 # ce qui a été reproché aux runs précédents
 python3 $S improve --stage plan        # diagnostic d'auto-amélioration (JSON)
+python3 $S feedback --agent plan       # ce que ce projet a mesuré sur un agent, à rendre à son équipe
 python3 $S experiment effect           # ce qu'ont donné les correctifs déjà appliqués
 python3 $S knowledge search marge brute
 python3 $S scaffold design             # génère le plugin d'un agent (n'écrit pas dans le noyau)
@@ -200,7 +215,7 @@ Les portes exploitables en CI (le code de sortie *est* le verdict) :
 | Commande | Ce qu'elle refuse | Exit |
 | --- | --- | --- |
 | `selfscore` | une évolution du **harnais** qui fait baisser sa note de maturité | 2 |
-| `gate <stage>` | une étape non mûre, **ou bâtie sur un amont absent ou non franchi** | 2 |
+| `gate <stage>` | une étape non mûre, bâtie sur un amont absent ou non franchi, **ou dont le contrat est incohérent ou absent** | 2 |
 | `ratchet` | une régression de sévérité d'un `checks.json` | 2 |
 | `watchdog` | une boucle de stagnation détectée dans les journaux | 2 |
 | `coverage` | une baisse de la couverture de tests | 2 |
@@ -209,7 +224,10 @@ Les portes exploitables en CI (le code de sortie *est* le verdict) :
 | `agents --strict` | un manifeste invalide **de ce dépôt** | 1 |
 | `test` | un test en échec | ≠0 |
 
-Sorties machine sur **stdout** (JSON), messages humains sur **stderr**.
+Sorties machine sur **stdout** (JSON), messages humains sur **stderr**. Dans un terminal, les
+commandes qui portent déjà un résumé lisible (`init`, `workflow`, `gate`, `score`, `sign`) ne le
+doublent pas d'un dump JSON ; hors terminal — hook, skill, CI, pipe — le JSON sort comme toujours,
+et `--json` le force partout.
 
 `selfscore` est la porte de tête : elle agrège en une note sur 5 les cinq axes déterministes du
 dépôt — hygiène (`check-python`, `check-json`), contrats d'agents (`agents --strict`), suite de
@@ -242,6 +260,10 @@ La confiance ne repose pas sur les prompts. Quatre mécanismes structurels :
   installée du harnais, et dans le plugin d'une **autre équipe** : un agent n'édite ni les règles qui le jugent, ni sa propre note, ni le code d'une
   direction voisine. `sign` complète le dispositif là où le hook ne va pas : elle **exige un
   terminal**, donc un agent qui la lancerait par un outil Bash reçoit un refus, pas une signature.
+- **Contrat obligatoire** — une étape gouvernée dont le `checks.json` est absent ou incohérent ne
+  franchit pas sa porte, et le bloquant nomme l'équipe qui doit le corriger. Sans cette règle,
+  `validate` rendait « ok » avec zéro règle appliquée : le contrat est le prix d'entrée dans une
+  chaîne gouvernée.
 - **Ratchet** — `ratchet` fige les planchers de sévérité des contrats et refuse toute régression ;
   desserrer un contrat est un **geste humain explicite** (`ratchet --reset <stage>`), visible au diff.
 - **Watchdog** — détecte dans les journaux l'acharnement sur un livrable en échec, les boucles
@@ -265,8 +287,11 @@ consomme et son contrat.
 **Le projet, lui, choisit lesquels il retient.** La découverte est ouverte — on installe ce qu'on
 veut sur sa machine —, mais la clé `agents` de l'`aidlc.json` du projet est une **liste blanche** :
 un plugin installé pour une autre initiative et absent de cette liste n'existe pas pour ce projet.
-Un identifiant listé dont aucun plugin n'est installé remonte en avertissement sous le tableau de
-bord, au lieu de rétrécir le pipeline en silence.
+L'avertissement joue **dans les deux sens** : un identifiant listé dont aucun plugin n'est installé
+remonte sous le tableau de bord, et un agent découvert que personne n'a branché aussi — sans quoi
+une équipe publie son plugin et ne voit rien. `aidlc.py workflow` est la seule commande qui écrit
+cette liste : elle refuse un identifiant qu'aucun manifeste ne porte, et prévient quand un retrait
+casse la chaîne producteur → consommateur.
 
 **Publier un agent ne modifie jamais le noyau.** Un agent développé hors de ce dépôt se déclare par
 `AIDLC_AGENT_PATH` (répertoires séparés par `:`), qui prime sur toute autre source de découverte :
@@ -356,6 +381,10 @@ C'est **la** subtilité du dépôt :
   **la gouvernance de l'initiative**, qui recouvre celle du harnais clé par clé. C'est le seul
   endroit où une équipe projet règle son seuil et déclare le workflow qu'elle retient : le
   `pipeline.json` du harnais vit dans une copie installée que le garde-fou protège.
+- **L'initiative** — un projet vit plus longtemps qu'une idée. La clé `initiative` d'`aidlc.json`
+  décale les livrables sous `deliverables/<idée>/` et l'état runtime sous `.aidlc/<idée>/`, pour
+  que la deuxième évolution n'écrase ni les livrables ni les signatures de la première. Absente,
+  tout reste à plat : c'est le cas d'un projet qui n'en mène qu'une, et rien ne change pour lui.
 
 `aidlc.py` résout les deux racines tout seul. Quand ce dépôt sert de projet d'essai (session ouverte
 ici), les deux racines se confondent — d'où la présence de `deliverables/` et `.aidlc/` à la racine.
@@ -396,6 +425,7 @@ plugins/aidlc-security/            un agent consultatif d'équipe (AppSec) — l
 .githooks/pre-commit               la porte locale : `selfscore` avant chaque commit
 
 deliverables/<stage>/…             les livrables            (projet consommateur)
+deliverables/<initiative>/<stage>/ … quand le projet nomme son initiative dans aidlc.json
 .aidlc/logs/<session>.jsonl        le journal des sessions  (projet consommateur)
 .aidlc/maturity.json               l'historique des scores  (projet consommateur, protégé)
 .aidlc/reviews/<stage>-<n>.json    les revues humaines signées (protégé)

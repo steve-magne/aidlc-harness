@@ -7,7 +7,7 @@
     {
       "name": "aidlc-core",
       "source": "./plugins/aidlc-core",
-      "description": "Noyau du harness AI-DLC : orchestrateur, reviewer, librarian, script deterministe aidlc.py, hooks de journalisation et de garde-fous."
+      "description": "Noyau du harness AI-DLC : orchestrateur, reviewer, librarian, script deterministe aidlc.py, composition du workflow par initiative, hooks de journalisation et de garde-fous."
     },
     {
       "name": "aidlc-plan",

@@ -372,7 +372,7 @@ class TestGuardDecision(AidlcTestCase):
     def test_refuse_l_edition_de_la_file_d_amelioration(self):
         reason = self._reason("Edit", aidlc_dir(self.root) / "improvement-queue.jsonl")
         self.assertIsNotNone(reason)
-        self.assertIn("amelioration", reason)
+        self.assertIn("amélioration", reason)
 
     def test_refuse_l_edition_du_registre_des_experiences(self):
         reason = self._reason("Write", aidlc_dir(self.root) / "experiments.jsonl")
@@ -537,3 +537,40 @@ class TestDeliverableProtectionReason(AidlcTestCase):
     def test_absorbe_une_exception_du_registre_a_l_identification(self):
         with mock.patch.object(registry, "agents_list", side_effect=RuntimeError("boom")):
             self.assertIsNone(hookslog._actor_agent_id({"agent_type": "design"}))
+
+
+class TestGardeEtInitiatives(AidlcTestCase):
+    """La garde porte sur tout .aidlc/, pas sur le seul dossier de l'initiative en cours.
+
+    Sinon, declarer une nouvelle initiative deverrouillerait les scores et les
+    signatures de la precedente — la fraude que cette garde existe pour empecher."""
+
+    def _reason(self, relpath):
+        return hookslog.guard_decision(self.root, json.dumps(
+            {"tool_name": "Write",
+             "tool_input": {"file_path": str(self.root / relpath)}}))
+
+    def setUp(self):
+        super().setUp()
+        self.write_json("aidlc.json", {"initiative": "reco"})
+
+    def test_le_score_de_l_initiative_courante_est_protege(self):
+        self.assertIsNotNone(self._reason(".aidlc/reco/maturity.json"))
+
+    def test_le_score_d_une_initiative_precedente_reste_protege(self):
+        self.assertIsNotNone(self._reason(".aidlc/ancienne-idee/maturity.json"))
+
+    def test_le_score_a_plat_reste_protege(self):
+        self.assertIsNotNone(self._reason(".aidlc/maturity.json"))
+
+    def test_une_revue_signee_sous_initiative_est_protegee(self):
+        self.assertIsNotNone(self._reason(".aidlc/reco/reviews/plan-1.json"))
+
+    def test_le_gabarit_de_revue_reste_editable(self):
+        self.assertIsNone(self._reason(".aidlc/reco/reviews/plan-1.template.json"))
+
+    def test_le_bac_a_sable_du_reviewer_reste_editable(self):
+        self.assertIsNone(self._reason(".aidlc/reco/tmp/brouillon.json"))
+
+    def test_le_livrable_de_l_initiative_reste_editable(self):
+        self.assertIsNone(self._reason("deliverables/reco/plan/intent.md"))

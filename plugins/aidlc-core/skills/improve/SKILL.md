@@ -51,8 +51,12 @@ pour ce que tu peux lire dans le JSON.
 Le JSON agrégé oriente ; il ne remplace pas la lecture. Ouvre :
 
 - `.aidlc/maturity.json` — la série des runs de l'étape : quel axe stagne, lequel se dégrade.
-- `.aidlc/improvement-queue.jsonl` — les justifications de refus humain, mot pour mot. C'est la
-  source la plus riche du dépôt : un humain a pris le temps d'écrire pourquoi il refusait.
+- `.aidlc/improvement-queue.jsonl` — les motifs écrits par les humains, mot pour mot. C'est la
+  source la plus riche du dépôt. Deux familles s'y côtoient et ne se lisent pas pareil : une
+  entrée sans `kind` est un **refus** (la porte est restée fermée) ; une entrée `kind: reserve`
+  est une **approbation motivée** — l'humain a laissé passer *et* dit ce qui clochait. Une réserve
+  ne prouve aucun échec, mais en régime établi c'est le signal le plus régulier : trois réserves
+  sur le même motif valent un refus, et personne ne l'avait vu venir.
 - `.aidlc/logs/<session_id>.jsonl` — le déroulé des sessions faibles : combien de tours,
   combien d'allers-retours avec l'humain, quels outils, où ça a patiné.
 - `.aidlc/experiments.jsonl` — ce que la boucle a déjà tenté, et pourquoi. Une cause racine déjà
@@ -71,6 +75,7 @@ Pour chaque axe faible, remonte à la cause dans les logs et les refus. Grille d
 | `autonomy` bas, beaucoup de tours dans les logs | l'agent pose les questions dans le désordre, ou une par une alors qu'elles sont liées | `agents/<stage>-analyst.md`, `skills/<stage>/SKILL.md` |
 | même erreur de `validate` à chaque run | le template ne guide pas vers ce que le check exige | `templates/` |
 | refus humain répété sur le même motif | le critère du relecteur n'est ni dans les checks ni dans le SKILL.md | selon le motif |
+| même réserve écrite à plusieurs approbations | un critère que l'humain corrige lui-même à chaque fois, faute d'être exigé | `checks.json`, `templates/` |
 
 Énonce la cause racine en une phrase, avec sa preuve : « la section *Contraintes* est vide dans les
 3 derniers runs (maturity.json), le template ne propose aucun exemple, et `min_items_per_section`
@@ -126,6 +131,37 @@ fichier, rafale de relances sur une même étape. Chaque halte est enregistrée 
    une justification, et à re-figer via `aidlc.py ratchet --reset <stage>` après décision humaine.
 4. La reprise d'une halte est un acte humain : propose le diagnostic, jamais un contournement du
    seuil — le ratchet et le garde-fou protègent les planchers.
+
+## 3 quater. Quand le problème n'est pas le plugin mais la chaîne
+
+Le diagnostic porte une section `workflow` : elle ne juge aucun plugin, elle décrit la chaîne.
+Quatre signaux, et aucun ne se corrige dans un `checks.json` :
+
+| Signal | Ce que ça veut dire | Ce que tu proposes |
+|---|---|---|
+| `missing_producers` | une étape consomme une entrée que **personne** ne produit | l'étape manquante est à publier (`/aidlc-core:new-stage`), ou l'entrée à retirer du `consumes` de l'agent — c'est son équipe qui tranche |
+| `undeclared` | une équipe a publié son agent, le projet ne l'a pas branché | demande si elle intervient sur l'initiative, puis `aidlc.py workflow --add <agent>` |
+| `never_ran` | une étape branchée n'a jamais tourné | ne conclus rien seul : soit l'initiative n'y est pas encore, soit l'étape est de trop. **Pose la question**, ne retire jamais un agent de ta propre initiative |
+| `cost_per_stage` | `runs_to_accept` élevé, beaucoup d'`events` | l'étape coûte cher en allers-retours ; c'est un axe de correction du plugin (bloc 3), pas du workflow — sauf si le coût vient d'une entrée amont trop pauvre, auquel cas la cause est en amont |
+
+Le workflow appartient à l'équipe projet, pas à toi : ces propositions se formulent, se discutent,
+et s'appliquent par `aidlc.py workflow`. Tu n'écris jamais `aidlc.json` toi-même — un hook
+`PreToolUse` le refuse, et pour la même raison que `.aidlc/` : un agent n'édite pas la liste qui
+décide s'il est jugé.
+
+## 3 quinquies. Rendre le retour à l'équipe qui maintient l'agent
+
+Les scores et les motifs restent dans ce projet : l'équipe qui publie l'agent ne les voit jamais.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" feedback --agent <agent>
+```
+
+Par agent : son équipe, son manifeste, sa version, sa série de notes, ses axes les plus faibles,
+et les motifs écrits par les humains — refus et réserves. C'est le rapport à transmettre quand la
+cause racine est dans un plugin **que ce projet ne maintient pas** : tu ne corriges pas le dépôt
+d'une autre direction, tu lui donnes de quoi le faire. Cite l'équipe (`team`) et le chemin du
+manifeste dans ta réponse.
 
 ## 4. Proposer un diff — précis, minimal, unique
 
