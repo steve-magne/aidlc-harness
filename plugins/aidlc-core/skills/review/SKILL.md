@@ -72,7 +72,7 @@ Le reviewer écrit `.aidlc/tmp/review-<stage>.json`. Avant d'aller plus loin, co
  "overall":0.0,"verdict":"accepted","findings":[],"recommendations":[]}
 ```
 
-- Les quatre axes sont présents et entiers entre 0 et 5.
+- Les quatre axes sont présents et entiers entre 0 et 5 — `score` refuse une demi-note.
 - `verdict` vaut exactement `accepted` ou `rejected`.
 - Chaque entrée de `findings` cite un extrait du livrable. Une note basse sans citation est une
   note non justifiée : renvoie le reviewer la compléter.
@@ -88,10 +88,14 @@ Le script **recalcule** `overall` comme la moyenne des quatre axes (arrondie à 
 valeur fournie par le reviewer : c'est normal, ne t'en étonne pas et ne cherche pas à la corriger en
 amont. Il ajoute le run à `.aidlc/maturity.json`.
 
-Il applique aussi le **plancher par axe** (`min_axis_score` de `pipeline.json`, 3 par défaut) : si
-un axe passe dessous, le verdict enregistré est `rejected` même si le reviewer a rendu `accepted`,
-et `weak_axes` nomme les axes fautifs. C'est le moteur qui tient cette règle, pas la consigne du
+Il applique aussi le **plancher par axe** (`min_axis_score` de `pipeline.json`, 3 par défaut) sur
+les trois axes qui jugent le livrable — `completeness`, `precision`, `traceability` : si l'un passe
+dessous, le verdict enregistré est `rejected` même si le reviewer a rendu `accepted`, et
+`weak_axes` nomme les axes fautifs. C'est le moteur qui tient cette règle, pas la consigne du
 reviewer — ne relance pas la revue pour contourner le plancher, reprends le livrable.
+
+`autonomy` n'a pas de plancher : elle mesure un coût de production déjà payé, que reprendre le
+livrable ne peut pas rattraper. Elle continue de peser un quart de la moyenne.
 
 ## 6. Restituer et conclure
 

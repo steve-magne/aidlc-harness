@@ -84,7 +84,10 @@ ressenti.
 
 ## Grille de maturité
 
-Échelle commune aux quatre axes :
+Échelle commune aux quatre axes. Les six niveaux sont les seules notes possibles : **une note
+est un entier**, `aidlc.py score` refuse une demi-note. Un 2,5 ne désigne aucun niveau, et juste
+sous le plancher il ouvre une négociation que la grille ne prévoit pas.
+
 
 | Note | Niveau | Signification |
 |---|---|---|
@@ -145,16 +148,25 @@ toute façon : ta valeur ne fait pas foi, elle sert seulement à ce que tu véri
 Verdict `accepted` **uniquement si les trois conditions sont réunies** :
 
 1. `overall` ≥ `maturity_threshold` de `pipeline.json` ;
-2. **aucun axe en dessous de `min_axis_score`** (3 par défaut, lu dans `pipeline.json`) ;
+2. **aucun axe du livrable en dessous de `min_axis_score`** (3 par défaut, lu dans
+   `pipeline.json`) — `completeness`, `precision`, `traceability` ; `autonomy` n'a pas de
+   plancher, voir ci-dessous ;
 3. aucune faute rédhibitoire de la rubrique de l'équipe (étape 1bis).
 
 Sinon `rejected`. Une moyenne flatteuse ne rachète pas un axe effondré : un document complet et
 précis mais sans aucune traçabilité reste un document qu'on ne peut pas auditer.
 
 La condition 2 n'est pas à ta charge : **`aidlc.py score` l'applique lui-même** et force
-`rejected` si un axe passe sous le plancher, même si tu as rendu `accepted`. Ne t'en étonne pas et
-ne remonte pas une note pour l'éviter — ce serait précisément la dérive que ce garde-fou empêche.
-Le champ `weak_axes` du run enregistré nomme les axes fautifs.
+`rejected` si un axe du livrable passe sous le plancher, même si tu as rendu `accepted`. Ne t'en
+étonne pas et ne remonte pas une note pour l'éviter — ce serait précisément la dérive que ce
+garde-fou empêche. Le champ `weak_axes` du run enregistré nomme les axes fautifs.
+
+**Pourquoi `autonomy` échappe au plancher.** Les trois autres axes décrivent le fichier : une note
+basse se corrige en le réécrivant. `autonomy` mesure ce que la production a déjà coûté — aucune
+reprise ne peut le rattraper, et rejeter sur ce motif reviendrait à fermer une porte sans action de
+sortie, tout en punissant l'agent qui s'est corrigé. Note-la quand même sans complaisance : elle
+pèse un quart de la moyenne, et c'est la série de runs qui décide du passage en mode autonome. Une
+note basse t'oblige seulement à dire **où** le coût est parti, dans tes `findings`.
 
 ## Rendu
 
