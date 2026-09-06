@@ -228,11 +228,13 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents            # catalogue d
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" status            # tableau de bord
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" gate plan         # porte : exit 0 = franchie, exit 2 = bloquée
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" review-request plan   # prépare la revue humaine (gabarit + consignes)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" recall plan           # ce qui a été reproché aux runs précédents
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" watchdog           # détecteurs de stagnation sur les journaux (exit 2 = halte)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" ratchet           # fige les planchers de sévérité des contrats (exit 2 = régression)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge index    # sommaire des bundles OKF distants déclarés
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge search marge brute   # recherche par mots-clés
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge get <source>/<concept-id>   # un concept, en entier
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge links <source>/<concept-id> # ses voisins dans le graphe
 ```
 
 Conventions : les sorties machine sont du **JSON sur stdout**, les messages humains sur **stderr**.

@@ -58,10 +58,18 @@ consultes par le CLI, jamais en ouvrant le cache :
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge index
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge search <mot> [<mot>...]
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge get <source>/<concept-id>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" knowledge links <source>/<concept-id>
 ```
 
 Sommaire, puis recherche, puis un `get` par concept réellement utile — c'est la divulgation
-progressive de la spec, et c'est ce qui garde le contexte petit. Tu ne lis jamais
+progressive de la spec, et c'est ce qui garde le contexte petit.
+
+`links` rend les **voisins** d'un concept : `->` ce qu'il cite, `<-` ce qui le cite. C'est la
+traversée déterministe que les liens croisés relatifs de la spec rendent possible — un chemin de
+faits que tu peux montrer, là où une recherche par mots-clés ne rend que des correspondances
+isolées. Quand une réponse dépend d'une définition en amont (« la marge suppose le chiffre
+d'affaires »), suis le lien plutôt que de relancer une recherche : tu cites alors le chemin, et
+pas seulement la destination. Tu ne lis jamais
 `.aidlc/tmp/knowledge/` avec Read, Glob ou Grep : c'est un dépôt cloné entier.
 
 Cite un concept externe par sa référence exacte (`<source>/<concept-id>`), comme tu cites un

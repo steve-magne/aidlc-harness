@@ -417,8 +417,11 @@ class TestOptionsKnowledge(AidlcTestCase):
     """Une source locale (repo = dossier existant) evite tout appel reseau."""
 
     def _declarer_source(self, name="acme"):
-        source_dir = self.root.parent / "source-okf"
-        (source_dir).mkdir(parents=True, exist_ok=True)
+        # Sous self.root : un bundle pose dans self.root.parent survit au tempdir et
+        # fuit d'un test a l'autre — le fichier d'un test precedent se compte dans le
+        # catalogue du suivant.
+        source_dir = self.root / "source-okf"
+        source_dir.mkdir(parents=True, exist_ok=True)
         (source_dir / "marge-brute.md").write_text(
             "---\ntitle: Marge brute\ntype: concept\n---\n\nCorps du concept.\n",
             encoding="utf-8")
@@ -488,6 +491,107 @@ class TestOptionsKnowledge(AidlcTestCase):
         result = self.run_cli("knowledge", "index")
         self.assertEqual(result.returncode, 1)
         self.assertIn("knowledge-sources.json", result.stderr)
+
+    def _declarer_source_liee(self):
+        """Deux concepts d'une meme source, le premier citant le second."""
+        source_dir = self._declarer_source()
+        (source_dir / "marge-brute.md").write_text(
+            "---\ntitle: Marge brute\ntype: concept\n---\n\n"
+            "Depend du [chiffre d'affaires](ca.md).\n", encoding="utf-8")
+        (source_dir / "ca.md").write_text(
+            "---\ntitle: Chiffre d'affaires\ntype: concept\n---\n\nCorps.\n",
+            encoding="utf-8")
+        return source_dir
+
+    def test_links_rend_le_lien_sortant_flechte(self):
+        self._declarer_source_liee()
+        result = self.run_cli("knowledge", "links", "acme/marge-brute")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("-> acme/ca", result.stdout)
+
+    def test_links_rend_le_retrolien_flechte(self):
+        self._declarer_source_liee()
+        result = self.run_cli("knowledge", "links", "acme/ca")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("<- acme/marge-brute", result.stdout)
+
+    def test_links_json_rend_les_deux_sens_separes(self):
+        self._declarer_source_liee()
+        result = self.run_cli("knowledge", "links", "acme/marge-brute", "--json")
+        data = self.assertJson(result)
+        self.assertEqual([e["ref"] for e in data["out"]], ["acme/ca"])
+        self.assertEqual(data["in"], [])
+
+    def test_links_json_ne_fuit_pas_le_chemin_local(self):
+        self._declarer_source_liee()
+        data = self.assertJson(
+            self.run_cli("knowledge", "links", "acme/marge-brute", "--json"))
+        self.assertNotIn("path", data["out"][0])
+
+    def test_links_compte_les_voisins_sur_stderr(self):
+        self._declarer_source_liee()
+        result = self.run_cli("knowledge", "links", "acme/marge-brute")
+        self.assertIn("1 lien(s) sortant(s), 0 retrolien(s)", result.stderr)
+
+    def test_links_sans_terme_est_un_usage_errone(self):
+        self._declarer_source()
+        result = self.run_cli("knowledge", "links")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("usage", result.stderr.lower())
+
+    def test_links_introuvable_echoue(self):
+        self._declarer_source()
+        result = self.run_cli("knowledge", "links", "acme/n-existe-pas")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("introuvable", result.stderr.lower())
+
+    def test_links_d_un_concept_isole_n_ecrit_rien_sur_stdout(self):
+        self._declarer_source()
+        result = self.run_cli("knowledge", "links", "acme/marge-brute")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+
+class TestOptionsRecall(AidlcTestCase):
+    """Contrat de `recall` : consigne de reprise sur stdout, diagnostic sur stderr."""
+
+    def _noter(self, findings=None, scores=None):
+        review = {"scores": scores or {"completeness": 2, "precision": 2,
+                                       "traceability": 2, "autonomy": 2},
+                  "findings": findings or []}
+        self.write_json("review.json", review)
+        self.plan_intent()
+        return self.run_cli("score", "plan", "--file", "review.json")
+
+    def test_sans_run_annonce_qu_il_n_y_a_rien_a_reprendre(self):
+        result = self.run_cli("recall", "plan")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("rien a reprendre", result.stdout)
+
+    def test_etape_inconnue_echoue_avec_le_motif_sur_stderr(self):
+        result = self.run_cli("recall", "inexistante")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("inexistante", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_rend_le_reproche_du_reviewer_sur_stdout(self):
+        self._noter(findings=["Criteres non chiffres."])
+        result = self.run_cli("recall", "plan")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Criteres non chiffres.", result.stdout)
+
+    def test_json_rend_la_forme_machine(self):
+        self._noter(findings=["Criteres non chiffres."])
+        data = self.assertJson(self.run_cli("recall", "plan", "--json"))
+        self.assertEqual(data["stage"], "plan")
+        self.assertEqual(data["runs"][0]["findings"], ["Criteres non chiffres."])
+
+    def test_limit_plafonne_les_runs_rappeles(self):
+        self._noter()
+        self._noter()
+        data = self.assertJson(self.run_cli("recall", "plan", "--limit", "1", "--json"))
+        self.assertEqual(len(data["runs"]), 1)
+        self.assertEqual(data["total_runs"], 2)
 
 
 class TestOptionsRatchet(AidlcTestCase):

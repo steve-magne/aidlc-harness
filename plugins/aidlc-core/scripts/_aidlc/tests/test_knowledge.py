@@ -13,6 +13,7 @@ from ..knowledge import cache_root
 from ..knowledge import catalog
 from ..knowledge import concepts
 from ..knowledge import front_values
+from ..knowledge import links
 from ..knowledge import load_sources
 from ..knowledge import render
 from ..knowledge import resolve
@@ -347,3 +348,86 @@ class TestResolve(AidlcTestCase):
 
     def test_reference_inconnue_rend_none(self):
         self.assertIsNone(resolve(self.entries, "metrics/absent"))
+
+
+def _make_linked_bundle(root: Path) -> Path:
+    """Bundle a trois concepts : a cite b, b cite c, plus un lien externe et une ancre.
+
+    C'est la forme minimale qui distingue un lien sortant d'un retrolien — un bundle a
+    deux concepts ne le ferait pas, les deux sens y coincident.
+    """
+    bundle = root / "graphe"
+    ensure_dir(bundle)
+    (bundle / "index.md").write_text("# Sommaire\n\n* [A](a.md)\n", encoding="utf-8")
+    (bundle / "a.md").write_text(
+        "---\ntype: Concept\ntitle: A\ndescription: Premier.\n---\n\n"
+        "Voir [B](b.md), la [spec](https://example.org/spec.md) et [ici](#section).\n",
+        encoding="utf-8")
+    (bundle / "b.md").write_text(
+        "---\ntype: Concept\ntitle: B\ndescription: Deuxieme.\n---\n\n"
+        "S'appuie sur [C](c.md#partie) et redit [C](c.md).\n", encoding="utf-8")
+    (bundle / "c.md").write_text(
+        "---\ntype: Concept\ntitle: C\ndescription: Troisieme.\n---\n\nFeuille.\n",
+        encoding="utf-8")
+    return bundle
+
+
+class TestLinks(AidlcTestCase):
+    """Traversee deterministe du graphe OKF : liens sortants et retroliens."""
+
+    def setUp(self):
+        super().setUp()
+        self.entries = concepts(_make_linked_bundle(self.root), "graphe")
+        self.by_ref = {e["ref"]: e for e in self.entries}
+
+    def _links(self, ref):
+        return links(self.entries, self.by_ref[ref])
+
+    def test_lien_sortant_designe_le_concept_cite(self):
+        self.assertEqual([e["ref"] for e in self._links("graphe/a")["out"]],
+                         ["graphe/b"])
+
+    def test_retrolien_designe_le_concept_qui_cite(self):
+        self.assertEqual([e["ref"] for e in self._links("graphe/b")["in"]],
+                         ["graphe/a"])
+
+    def test_les_deux_sens_ne_sont_pas_confondus(self):
+        voisins = self._links("graphe/b")
+        self.assertEqual([e["ref"] for e in voisins["out"]], ["graphe/c"])
+        self.assertEqual([e["ref"] for e in voisins["in"]], ["graphe/a"])
+
+    def test_un_lien_externe_n_est_pas_un_voisin(self):
+        # a.md cite https://example.org/spec.md : une URL ne designe aucun concept.
+        self.assertNotIn("spec", " ".join(e["ref"] for e in self._links("graphe/a")["out"]))
+
+    def test_une_ancre_pure_n_est_pas_un_voisin(self):
+        self.assertEqual(len(self._links("graphe/a")["out"]), 1)
+
+    def test_un_concept_cite_deux_fois_n_apparait_qu_une_fois(self):
+        # b.md cite c.md avec puis sans ancre : c'est le meme voisin.
+        self.assertEqual([e["ref"] for e in self._links("graphe/b")["out"]], ["graphe/c"])
+
+    def test_une_feuille_n_a_aucun_lien_sortant(self):
+        self.assertEqual(self._links("graphe/c")["out"], [])
+
+    def test_la_traversee_ne_sort_pas_du_bundle_d_origine(self):
+        autres = concepts(_make_bundle(self.root / "ailleurs"), "ailleurs")
+        voisins = links(self.entries + autres, self.by_ref["graphe/a"])
+        self.assertTrue(all(e["source"] == "graphe" for e in voisins["out"] + voisins["in"]))
+
+    def test_un_lien_au_chemin_illegal_est_ignore_sans_lever(self):
+        # Un corps markdown n'est pas valide : un href qui ne peut pas etre resolu ne
+        # doit pas faire tomber la traversee de tout le bundle.
+        self.write("graphe/e.md", "---\ntype: Concept\ntitle: E\ndescription: .\n---\n\n"
+                                  "[casse](a\x00b.md) et [B](b.md)\n")
+        entries = concepts(self.root / "graphe", "graphe")
+        cible = [e for e in entries if e["ref"] == "graphe/e"][0]
+        self.assertEqual([e["ref"] for e in links(entries, cible)["out"]], ["graphe/b"])
+
+    def test_un_lien_vers_un_fichier_reserve_n_est_pas_un_voisin(self):
+        # index.md et log.md ne sont pas des concepts : rien ne doit pointer vers eux.
+        self.write("graphe/d.md",
+                   "---\ntype: Concept\ntitle: D\ndescription: .\n---\n\n[S](index.md)\n")
+        entries = concepts(self.root / "graphe", "graphe")
+        cible = [e for e in entries if e["ref"] == "graphe/d"][0]
+        self.assertEqual(links(entries, cible)["out"], [])

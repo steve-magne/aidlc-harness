@@ -26,6 +26,13 @@ Trois pas, dans cet ordre, et **jamais plus que nécessaire** :
    frontmatter ou dans le corps. Rend des références, pas du texte.
 3. `knowledge get <source>/<concept-id>` — le markdown d'un seul concept, en entier.
 
+Un quatrième pas, quand la réponse dépend d'un concept en amont :
+
+4. `knowledge links <source>/<concept-id>` — les voisins du concept dans le graphe : `->` ce
+   qu'il cite, `<-` ce qui le cite. C'est une **traversée déterministe** : tu suis les liens que
+   l'auteur a posés, pas une ressemblance de mots. Préfère-la à une seconde recherche quand tu
+   tiens déjà un concept pertinent — elle rend le chemin, et un chemin se cite.
+
 Tu ne lis **jamais** le cache directement (`.aidlc/tmp/knowledge/`) avec Read, Glob ou Grep :
 c'est un dépôt cloné entier, l'ouvrir annule l'économie de contexte que cette commande existe
 pour produire. Deux ou trois `get` bien choisis valent mieux qu'un parcours de dossier.

@@ -14,6 +14,7 @@ from .commands import cmd_gate
 from .commands import cmd_guard
 from .commands import cmd_improve
 from .commands import cmd_knowledge
+from .commands import cmd_recall
 from .commands import cmd_log
 from .commands import cmd_review_request
 from .commands import cmd_ratchet
@@ -57,6 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
     request = sub.add_parser("review-request", help="Prepare la revue humaine d'une etape.")
     request.add_argument("stage")
 
+    recall_cmd = sub.add_parser(
+        "recall", help="Reproches des tentatives precedentes d'une etape (reprise).")
+    recall_cmd.add_argument("stage")
+    recall_cmd.add_argument("--limit", type=int, default=3,
+                            help="Nombre de runs rappeles (defaut : 3).")
+    recall_cmd.add_argument("--json", action="store_true", help="Forme machine.")
+
     agents_cmd = sub.add_parser(
         "agents", help="Catalogue du registre d'agents (manifestes agent.json).")
     agents_cmd.add_argument("--capability", help="Ne garder que les agents qui portent "
@@ -78,10 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge = sub.add_parser(
         "knowledge",
         help="Savoir OKF des depots declares (knowledge-sources.json) : sommaire, "
-             "recherche, lecture d'un concept.")
-    knowledge.add_argument("action", choices=["index", "search", "get"])
+             "recherche, lecture d'un concept, traversee des liens croises.")
+    knowledge.add_argument("action", choices=["index", "search", "get", "links"])
     knowledge.add_argument("terms", nargs="*",
-                           help="search : mots-cles ; get : <source>/<concept-id>.")
+                           help="search : mots-cles ; get et links : "
+                                "<source>/<concept-id>.")
     knowledge.add_argument("--source", help="Restreindre a une source declaree.")
     knowledge.add_argument("--refresh", action="store_true",
                            help="Met a jour le cache local (git pull) avant de repondre.")
@@ -184,7 +193,8 @@ def main(argv=None) -> int:
     handlers = {
         "validate": cmd_validate, "score": cmd_score, "gate": cmd_gate,
         "agents": cmd_agents,
-        "review-request": cmd_review_request, "status": cmd_status,
+        "review-request": cmd_review_request, "recall": cmd_recall,
+        "status": cmd_status,
         "scaffold": cmd_scaffold, "improve": cmd_improve,
         "experiment": cmd_experiment,
         "knowledge": cmd_knowledge,

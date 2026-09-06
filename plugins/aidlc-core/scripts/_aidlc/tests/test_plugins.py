@@ -164,6 +164,49 @@ class TestHooksJson(unittest.TestCase):
                 self.assertEqual(script_path.resolve(),
                                  (self.plugin_root / "scripts" / "aidlc.py").resolve())
 
+    def _events_appelant(self, subcommand):
+        """Evenements de hooks.json dont un bloc appelle cette sous-commande."""
+        out = set()
+        for event, blocks in self.hooks_data["hooks"].items():
+            for block in blocks:
+                for hook in block.get("hooks", []):
+                    tail = hook.get("command", "").split('aidlc.py" ')[-1]
+                    if tail.split()[:1] == [subcommand]:
+                        out.add(event)
+        return out
+
+    def test_le_journal_couvre_les_evenements_lus_par_les_diagnostics(self):
+        """Le watchdog compte les ecritures (`payload.tool_name`, `tool_input.file_path`)
+        et `improve` compte les outils : cette matiere n'existe que si `log` est branche
+        sur un evenement d'outil. Elle a manque, et deux des trois detecteurs du watchdog
+        etaient inatteignables sans qu'aucun test ne le voie — chacun fabriquait son
+        journal a la main. C'est le cablage que ce test tient, pas la detection."""
+        evenements = self._events_appelant("log")
+        self.assertIn("PostToolUse", evenements,
+                      "aucun evenement d'outil n'alimente .aidlc/logs/ : le detecteur "
+                      "d'ecritures du watchdog ne peut jamais se declencher.")
+        self.assertIn("UserPromptSubmit", evenements,
+                      "sans UserPromptSubmit journalise, le detecteur de relances "
+                      "(rerun_storm) ne compte rien.")
+
+    def test_le_journal_couvre_les_evenements_qui_disent_le_cout_du_procede(self):
+        """L'axe *autonomy* mesure ce que le procédé a coûté : un outil qui échoue, une
+        permission demandée, un refus humain, un contexte qui déborde. Ces événements
+        n'existent pour le diagnostic que s'ils sont journalisés — non branchés, ils ne
+        laissent aucune trace et l'axe se note à l'impression."""
+        attendus = {"PostToolUseFailure", "Notification", "PermissionDenied",
+                    "PreCompact", "SessionEnd"}
+        manquants = attendus - self._events_appelant("log")
+        self.assertFalse(manquants, f"evenements non journalises : {sorted(manquants)}")
+
+    def test_le_journal_precede_les_verifications_du_meme_evenement(self):
+        """Dans PostToolUse, `log` passe en premier : le journal doit exister meme quand
+        une validation echoue ensuite, et la dedup de journal_bundle_write s'appuie sur
+        cette entree deja ecrite pour ne pas compter l'ecriture deux fois."""
+        blocks = self.hooks_data["hooks"]["PostToolUse"]
+        tails = [b["hooks"][0]["command"].split('aidlc.py" ')[-1] for b in blocks]
+        self.assertEqual(tails[0], "log", f"ordre des hooks PostToolUse : {tails}")
+
     def test_chaque_sous_commande_existe_dans_le_parseur(self):
         for command in self.commands:
             tokens = shlex.split(command)

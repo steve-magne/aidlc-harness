@@ -22,9 +22,21 @@ LOG_TAIL_BYTES = 64 * 1024
 """Queue de journal relue pour retrouver la derniere etape d'une session."""
 
 PAYLOAD_KEYS = [
-    "hook_event_name", "tool_name", "tool_input", "tool_response", "prompt",
-    "source", "message", "reason", "trigger", "stop_hook_active", "permission_mode",
+    "hook_event_name", "tool_name", "tool_input", "tool_error", "prompt",
+    "notification_type", "source", "message", "reason", "trigger", "stop_hook_active",
+    "permission_mode",
 ]
+# `tool_output` est volontairement absent : la sortie d'un outil (un Read entier) est le
+# plus gros champ du payload et aucun diagnostic ne la relit. `tool_error`, lui, dit
+# pourquoi un outil a echoue — c'est la matiere de PostToolUseFailure.
+
+# ponytail: du `tool_input` d'une ecriture, seuls les chemins sont relus dans le journal
+# (attribution d'etape, comptage du watchdog). Journaliser le reste ferait entrer le
+# contenu des fichiers ecrits dans .aidlc/logs/ — deux kilo-octets par ecriture, qui
+# consommeraient la fenetre de LOG_TAIL_BYTES en une trentaine d'evenements et y
+# recopieraient le travail en clair. Plafond : un consommateur futur qui aurait besoin
+# d'un autre champ d'entree l'ajoute ici.
+TOOL_INPUT_KEYS = ("file_path", "notebook_path")
 """Journalisation JSONL des sessions et garde-fou d'ecriture sur les artefacts de score (.aidlc/)."""
 
 # ----------------------------------------------------------------------- log/guard
@@ -129,6 +141,10 @@ def handle_log(root: Path, raw: str) -> dict:
     except Exception:
         pipe = {"stages": []}
     payload = {k: truncate(data[k]) for k in PAYLOAD_KEYS if k in data}
+    tool_input = payload.get("tool_input")
+    if isinstance(tool_input, dict):
+        payload["tool_input"] = {k: v for k, v in tool_input.items()
+                                 if k in TOOL_INPUT_KEYS}
     entry = {
         "ts": now_iso(),
         "event": data.get("hook_event_name", "unknown"),
@@ -152,6 +168,12 @@ def journal_bundle_write(root: Path, session_id: str | None, file_path: Path,
     d'improve : event=PostToolUse, payload.tool_name et tool_input.file_path. Dedupe :
     une meme session n'enregistre qu'une fois un meme fichier — la correlation cherche
     qui a ecrit le fichier fautif, pas combien de fois il a ete retouche.
+
+    Depuis que le hook `log` est branche sur PostToolUse, il ecrit cette entree en
+    premier et la dedup la trouve : cette fonction ne fait alors rien. Elle reste le
+    filet du cas ou la journalisation generale n'a pas eu lieu (hook en timeout,
+    plateforme qui ne cable que check-okf), et c'est cette dedup qui empeche l'ecriture
+    d'etre comptee deux fois par le watchdog.
     """
     if not session_id:
         return
@@ -200,9 +222,14 @@ def guard_decision(root: Path, raw: str):
     reason = _aidlc_protection_reason(root, resolved)
     if reason:
         return reason
+    reason = _deliverable_protection_reason(root, resolved, data)
+    if reason:
+        return reason
     # Ordre impératif : test de chemin pur d'abord. Ce hook tourne à chaque Write avec
     # un timeout de 5 s ; la découverte des manifestes (I/O) n'a lieu que pour une cible
-    # déjà connue comme extérieure au projet, donc jamais sur le chemin chaud courant.
+    # déjà connue comme extérieure au projet — ou, juste au-dessus, pour une écriture que
+    # le payload attribue à un sous-agent nommé. Le Write courant d'une session, lui, ne
+    # la déclenche jamais.
     try:
         resolved.relative_to(root.resolve())
         return None
@@ -212,6 +239,60 @@ def guard_decision(root: Path, raw: str):
     if reason:
         return reason
     return _agent_protection_reason(resolved)
+
+
+def _actor_agent_id(data: dict):
+    """Id de registre du sous-agent qui declenche le hook, ou None s'il n'est pas nomme.
+
+    Claude Code designe un sous-agent par son invocation (`aidlc-plan:plan`) ; c'est
+    exactement ce que porte le bloc `invocation` du manifeste. L'id nu est accepte aussi,
+    pour une plateforme qui nommerait autrement.
+    """
+    name = str(data.get("agent_type") or data.get("agent_id") or "").strip()
+    if not name:
+        return None
+    try:
+        for agent in registry.agents_list():
+            if name == agent["id"] or name in (agent.get("invocation") or {}).values():
+                return agent["id"]
+    except Exception:
+        return None
+    return None
+
+
+def _deliverable_protection_reason(root: Path, resolved: Path, data: dict):
+    """Le livrable d'un agent appartient a cet agent : personne d'autre ne l'ecrit.
+
+    La chaine producteur -> consommateur n'ordonne plus rien si n'importe quel agent peut
+    ecrire n'importe quel maillon : l'agent aval qui « corrige » son entree amont se
+    fabrique le contrat sur lequel il sera juge, et la porte de l'etape amont note un
+    texte que son propre agent n'a pas ecrit. Le refus est nominatif — il ne mord que sur
+    le `produces` exact d'un autre agent, jamais sur une annexe ou une note de travail.
+
+    # ponytail: ne mord que si le payload nomme l'agent courant. Sans identite (session
+    # principale, plateforme qui ne transmet rien), aucun refus : un garde-fou qui devine
+    # bloquerait du travail legitime, et la porte dure reste `validate` + le reviewer.
+    # Le test d'identite est un pur test de dict, donc le chemin chaud (Write ordinaire)
+    # ne declenche aucune I/O de decouverte.
+    """
+    actor = _actor_agent_id(data)
+    if actor is None:
+        return None
+    for agent in registry.agents_list():
+        produces = agent.get("produces")
+        if not produces or agent["id"] == actor:
+            continue
+        try:
+            if resolved != (root / produces).resolve():
+                continue
+        except (OSError, ValueError):
+            continue  # `produces` illegal dans un manifeste : il ne protege rien
+        return ("Ecriture refusee : {} est le livrable de l'agent '{}' (equipe {}), pas "
+                "celui de '{}'. Un agent n'ecrit que son propre `produces` ; une entree "
+                "amont qui ne convient pas se corrige en relancant l'agent qui la "
+                "produit.".format(produces, agent["id"], agent.get("team") or "inconnue",
+                                  actor))
+    return None
 
 
 def _aidlc_protection_reason(root: Path, resolved: Path):

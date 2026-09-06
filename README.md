@@ -168,6 +168,7 @@ python3 $S validate plan               # le livrable respecte-t-il son contrat
 python3 $S score plan --file review.json
 python3 $S gate plan                   # porte de qualité          — exit 2 = bloquant
 python3 $S review-request plan         # gabarit + consignes de revue humaine
+python3 $S recall plan                 # ce qui a été reproché aux runs précédents
 python3 $S improve --stage plan        # diagnostic d'auto-amélioration (JSON)
 python3 $S experiment effect           # ce qu'ont donné les correctifs déjà appliqués
 python3 $S knowledge search marge brute
@@ -271,6 +272,7 @@ bundles **Open Knowledge Format v0.2** publiés dans d'autres dépôts ; le mote
 python3 $S knowledge index                     # une ligne par concept
 python3 $S knowledge search marge brute        # les concepts qui portent tous les mots
 python3 $S knowledge get <source>/<concept-id> # un concept, en entier
+python3 $S knowledge links <source>/<concept-id> # ses voisins dans le graphe OKF
 ```
 
 Sommaire → recherche → un seul `get` : la divulgation progressive appliquée au budget de contexte.
