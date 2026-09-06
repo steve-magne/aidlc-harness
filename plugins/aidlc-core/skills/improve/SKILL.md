@@ -1,6 +1,6 @@
 ---
 name: improve
-description: Analyser les logs de sessions, l'historique de maturité et les refus humains pour diagnostiquer pourquoi une étape produit des livrables faibles, puis proposer un diff précis sur son SKILL.md, son template ou son checks.json. À utiliser quand une étape est refusée plusieurs fois, quand les scores stagnent, ou quand on demande d'améliorer le harness lui-même.
+description: Analyser les logs de sessions, l'historique de maturité et les refus humains pour diagnostiquer pourquoi une étape produit des livrables faibles, puis proposer un diff précis sur son SKILL.md, son template ou son checks.json — et mesurer l'effet des correctifs déjà appliqués sur les runs suivants. À utiliser quand une étape est refusée plusieurs fois, quand les scores stagnent, ou quand on demande d'améliorer le harness lui-même.
 argument-hint: "[stage] — id d'étape à diagnostiquer ; vide = tout le pipeline"
 ---
 
@@ -38,6 +38,11 @@ sortie de session, la section `okf` du diagnostic isole les refus du gate (`refu
 bundle, fichiers fautifs, corrélés aux sessions qui ont écrit) et porte une proposition de
 correctif de frontmatter vérifiée en mémoire (`proposals`) pour les concepts encore fautifs.
 
+La section `experiments` porte la **mémoire de la boucle** : les corrections déjà appliquées au
+harnais, et ce que les runs suivants en ont dit (`improved`, `regressed`, `no_effect`, `pending`,
+`no_baseline`). Lis-la **avant** de formuler quoi que ce soit — c'est elle qui distingue une
+nouvelle hypothèse d'une redite.
+
 **Le script ne fait que compter. L'analyse, c'est toi.** N'ajoute pas de traitement dans `aidlc.py`
 pour ce que tu peux lire dans le JSON.
 
@@ -50,6 +55,8 @@ Le JSON agrégé oriente ; il ne remplace pas la lecture. Ouvre :
   source la plus riche du dépôt : un humain a pris le temps d'écrire pourquoi il refusait.
 - `.aidlc/logs/<session_id>.jsonl` — le déroulé des sessions faibles : combien de tours,
   combien d'allers-retours avec l'humain, quels outils, où ça a patiné.
+- `.aidlc/experiments.jsonl` — ce que la boucle a déjà tenté, et pourquoi. Une cause racine déjà
+  énoncée puis mesurée `no_effect` est une piste **fermée**, pas une piste à reprendre.
 - Le livrable refusé lui-même, et le `review.json` correspondant s'il est encore dans `.aidlc/tmp/`.
 
 ## 3. Corréler — du score faible à la cause racine
@@ -137,6 +144,11 @@ Règles de proposition :
 
 - **Trois propositions maximum**, classées par impact. Un correctif appliqué et mesuré vaut mieux
   que dix suggestions.
+- **Ne repropose jamais une expérience que la mesure a déjà jugée.** Si `experiments` porte, sur la
+  même cible, un verdict `no_effect` ou `regressed`, la cause racine énoncée alors était fausse :
+  cite-la, dis pourquoi tu en énonces une autre, et vise autre chose. Un verdict `regressed` se
+  traite d'abord en **défaisant** la correction, pas en empilant une seconde par-dessus. Un
+  `pending` n'autorise pas une nouvelle expérience sur la même étape : attends la mesure.
 - On corrige le **harness** (`skills/`, `templates/`, `checks.json`, `agents/`), jamais le livrable
   déjà noté — réécrire le livrable masquerait le problème sans le résoudre. Exception assumée : un
   concept `knowledge/` cassé (gate OKF) se corrige dans le bundle, avec accord (bloc 3bis).
@@ -167,17 +179,44 @@ juste le changement ». Attendre est le comportement correct.
    ```
    Un échec ici est **attendu et sain** si tu viens de durcir un check : il montre que la règle mord.
    Explique-le plutôt que de revenir en arrière.
-4. Consigne ce qui a été changé et pourquoi, dans ta réponse à l'utilisateur.
+4. **Enregistre l'expérience.** Un correctif appliqué et non enregistré est un correctif oublié :
+   la prochaine session le reproposera, et personne ne saura jamais s'il a marché.
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" experiment record \
+     --stage <stage> --target <axe> --file <fichier corrigé> \
+     --cause "<la cause racine, la même phrase que dans ta proposition>"
+   ```
+   `--target` est l'axe visé (`completeness`, `precision`, `traceability`, `autonomy`) ou
+   `overall`. Le script fige la moyenne de cet axe **à cet instant** : c'est la mesure d'avant, et
+   c'est le nombre de runs déjà notés qui séparera l'après. Une seule expérience par correctif
+   appliqué — c'est une hypothèse, pas un journal de bord.
+5. Consigne ce qui a été changé et pourquoi, dans ta réponse à l'utilisateur.
 
-## 7. Mesurer au prochain tour
+## 7. Mesurer — c'est le script qui tranche, pas la mémoire
 
-Rappelle à l'utilisateur que l'effet se lit au run suivant : `/aidlc-core:run <stage>` puis
-`/aidlc-core:status`. Si l'axe visé ne remonte pas après deux runs, la cause racine était mauvaise :
-reviens au bloc 3 avec les nouvelles données, n'empile pas un second correctif sur le premier.
+L'effet se lit sur les runs suivants : `/aidlc-core:run <stage>`, puis la revue, puis :
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" experiment effect --stage <stage>
+```
+
+Chaque expérience y porte son verdict, mesuré sur les seuls runs postérieurs à elle :
+
+| Verdict | Ce que ça veut dire | Ce que tu fais |
+|---|---|---|
+| `pending` | moins de deux runs notés depuis | rien : tu attends, tu ne proposes pas |
+| `improved` | l'axe a gagné au moins un demi-point | la cause racine était bonne — passe à l'axe suivant |
+| `no_effect` | l'axe n'a pas bougé | la cause racine était mauvaise : reviens au bloc 3 avec les nouvelles données, n'empile pas un second correctif sur le premier |
+| `regressed` | l'axe a perdu autant | la correction a nui : propose de la **défaire**, avec la mesure comme preuve |
+| `no_baseline` | l'étape n'avait aucun run avant | il y a une mesure, mais rien à quoi la comparer |
+
+La commande ne bloque rien (exit 0) : elle informe. Décider d'insister ou de revenir en arrière
+reste un acte humain.
 
 ## Conditions d'arrêt
 
 Tu t'arrêtes si : moins de deux runs sont enregistrés pour l'étape, aucune corrélation n'est étayée
-par une preuve, ou l'utilisateur ne donne pas son accord. Tu ne modifies jamais `.aidlc/maturity.json`
+par une preuve, une expérience de la même étape est encore `pending`, ou l'utilisateur ne donne pas
+son accord. Tu ne modifies jamais `.aidlc/maturity.json`
 ni `.aidlc/reviews/` — un hook `PreToolUse` les protège, et réécrire l'historique des scores viderait
 de son sens toute cette boucle.

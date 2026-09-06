@@ -9,6 +9,7 @@ from .commands import cmd_check_json
 from .commands import cmd_coverage
 from .commands import cmd_check_okf
 from .commands import cmd_check_python
+from .commands import cmd_experiment
 from .commands import cmd_gate
 from .commands import cmd_guard
 from .commands import cmd_improve
@@ -23,6 +24,7 @@ from .commands import cmd_test
 from .commands import cmd_validate
 from .commands import cmd_watchdog
 from .commands import cmd_watchdog_touched
+from .experiment import TARGETS
 from .tests import run as tests_run
 from .util import workspace_root
 """Parseur de commandes et bascule du moteur — appele par le point d'entree
@@ -89,6 +91,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     improve_cmd = sub.add_parser("improve", help="Diagnostic d'auto-amelioration (JSON).")
     improve_cmd.add_argument("--stage", help="Restreindre a une etape.")
+
+    experiment_cmd = sub.add_parser(
+        "experiment",
+        help="Memoire de la boucle : correction appliquee au harnais, effet mesure "
+             "sur les runs suivants.")
+    experiment_cmd.add_argument("action", choices=["record", "effect"])
+    experiment_cmd.add_argument("--stage",
+                                help="Etape concernee (requis pour record ; filtre "
+                                     "optionnel pour effect).")
+    experiment_cmd.add_argument("--target",
+                                help="Ce que la correction vise : " + ", ".join(TARGETS) + ".")
+    experiment_cmd.add_argument("--file", help="Fichier du harnais corrige.")
+    experiment_cmd.add_argument("--cause", help="Cause racine visee, en une phrase.")
+    experiment_cmd.add_argument("--json", action="store_true",
+                                help="JSON seul, sans resume humain.")
 
     ratchet_cmd = sub.add_parser(
         "ratchet",
@@ -169,6 +186,7 @@ def main(argv=None) -> int:
         "agents": cmd_agents,
         "review-request": cmd_review_request, "status": cmd_status,
         "scaffold": cmd_scaffold, "improve": cmd_improve,
+        "experiment": cmd_experiment,
         "knowledge": cmd_knowledge,
         "check-okf": cmd_check_okf, "check-python": cmd_check_python,
         "check-json": cmd_check_json, "ratchet": cmd_ratchet,

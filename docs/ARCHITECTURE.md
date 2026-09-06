@@ -438,6 +438,7 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
 .aidlc/maturity.json                historique des scores
 .aidlc/reviews/<stage>-<n>.json     revues humaines signées
 .aidlc/improvement-queue.jsonl      refus humains, haltes du watchdog et refus du gate OKF
+.aidlc/experiments.jsonl            corrections du harnais appliquées et effet mesuré (protégé)
 .aidlc/ratchet.json                 planchers de sévérité figés (protégé par le guard)
 .aidlc/tmp/                         scratch, ignoré par git
 .aidlc/tmp/knowledge/<source>/      cache des bundles OKF distants (clone profondeur 1)
@@ -704,7 +705,16 @@ instructions, à partir de ce que ses journaux montrent.
  checks.json           (le défaut est détectable de façon déterministe)
         |
         v
- accord humain explicite  ->  application  ->  run suivant
+ accord humain explicite  ->  application
+        |
+        v
+ aidlc.py experiment record       (ce qui a été changé, l'axe visé, la mesure d'avant)
+        |
+        |  runs suivants notés par le reviewer
+        v
+ aidlc.py experiment effect  ->  improved | no_effect | regressed | pending
+        |
+        +--> réinjecté dans le diagnostic `improve` (section `experiments`)
 ```
 
 Le **gate OKF de sortie** (section 3.4) emprunte le même chemin : quand le hook `Stop` refuse la
@@ -736,7 +746,7 @@ Règle de répartition du correctif :
 
 Le script produit le diagnostic ; l'analyse fine et la proposition de correctif sont le travail de
 l'agent. Aucun correctif n'est appliqué sans accord humain explicite : la boucle propose, elle ne
-décide pas.
+décide pas. Ce qui est appliqué, en revanche, est **mesuré** : voir §7.0.
 
 ### 7.1 Mécanismes anti-dérive
 
@@ -744,7 +754,7 @@ Quatre mécanismes, hérités des principes du « dark factory » (ai-software-f
 confiance indépendante des prompts :
 
 1. **La liste protégée** — un agent ne peut pas écrire dans l'état runtime (score, revues,
-   ratchet, file, journaux) ni dans la copie installée du harnais (pipeline, contrats, hooks,
+   ratchet, file, registre des expériences, journaux) ni dans la copie installée du harnais (pipeline, contrats, hooks,
    script, agents, skills, templates). Le hook `PreToolUse`/`guard` refuse ces écritures ; la
    conception du harnais vit dans le dépôt auteur, où les deux racines se confondent.
 2. **Le ratchet** — `aidlc.py ratchet` fige les planchers de sévérité de chaque `checks.json`
@@ -764,6 +774,37 @@ confiance indépendante des prompts :
    mètre. Combinée à `proof_of_run` (preuve d'exécution) et `must_not_violate_scope` (périmètre
    du plan amont respecté), elle impose que la validation mesure le travail, pas la conformité
    aux règles.
+
+### 7.2 La boucle se referme : l'expérience mesurée
+
+Un correctif proposé, appliqué, puis oublié n'est pas une boucle — c'est un diagnostic répété. Le
+registre `.aidlc/experiments.jsonl` est la **mémoire** de la boucle : chaque correction appliquée
+au harnais y est datée avec l'axe qu'elle vise, le fichier touché, la cause racine énoncée, et la
+**moyenne de cet axe à cet instant** (`baseline`, sur `baseline_runs` runs).
+
+`aidlc.py experiment effect` confronte ensuite chaque correction aux runs **postérieurs** à elle
+— c'est `baseline_runs` qui sépare l'avant de l'après, donc un run faible d'avant ne peut plus
+peser sur le verdict :
+
+| Verdict | Lecture |
+|---|---|
+| `pending` | moins de deux runs notés depuis la correction : on ne conclut pas |
+| `improved` | l'axe visé a gagné au moins un demi-point |
+| `regressed` | il en a perdu autant : la correction a nui, elle est à défaire |
+| `no_effect` | il n'a pas bougé : la cause racine était mauvaise, pas le correctif |
+| `no_baseline` | l'étape n'avait aucun run avant la correction : mesure sans comparaison |
+
+Le résultat remonte dans la section `experiments` du diagnostic `improve`. C'est ce qui interdit à
+la boucle de tourner à vide : un agent qui prépare une proposition **voit ce qui a déjà été tenté
+sur la même cible et ce que les runs en ont dit**, et ne repropose pas un correctif que la mesure
+a déjà jugé sans effet. Le registre n'est pas dédoublonné — réessayer après un échec est
+légitime, à condition que ce soit une nouvelle hypothèse et non la même.
+
+Comme le reste de l'état runtime, ce fichier n'est écrit que par le script : le hook `guard`
+refuse son édition directe. Antidater une expérience reviendrait à se noter soi-même, exactement
+ce que la liste protégée empêche pour `maturity.json`. Et `experiment effect` **ne bloque
+rien** (exit 0) : un correctif sans effet est une information rendue à l'humain, pas un défaut du
+dépôt — la décision d'insister ou de revenir en arrière reste la sienne.
 
 ---
 

@@ -238,6 +238,11 @@ def _aidlc_protection_reason(root: Path, resolved: Path):
     if parts and parts[0] == "improvement-queue.jsonl":
         return ("Ecriture refusee : la file d'amelioration est alimentee par les refus "
                 "(humains, gate OKF, watchdog), jamais editee a la main.")
+    if parts and parts[0] == "experiments.jsonl":
+        return ("Ecriture refusee : .aidlc/experiments.jsonl est la memoire de la "
+                "boucle d'amelioration — ce qui a ete corrige, et l'effet mesure. "
+                "Passer par `aidlc.py experiment record` ; antidater une experience "
+                "reviendrait a se noter soi-meme.")
     if parts and parts[0] == "logs":
         return ("Ecriture refusee : les journaux .aidlc/logs/*.jsonl sont la matiere "
                 "premiere du diagnostic (autonomie, watchdog). Ils ne sont editables "

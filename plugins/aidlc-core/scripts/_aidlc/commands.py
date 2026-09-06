@@ -21,6 +21,9 @@ from .maturity import gate_stage
 from .hookslog import guard_decision
 from .hookslog import handle_log
 from .hookslog import journal_bundle_write
+from .experiment import MIN_RUNS_AFTER
+from .experiment import effects as experiment_effects
+from .experiment import record as experiment_record
 from .improve import improve
 from .knowledge import SOURCES_FILE
 from .knowledge import catalog as knowledge_catalog
@@ -268,6 +271,57 @@ def cmd_agents(root: Path, args) -> int:
 
 def cmd_improve(root: Path, args) -> int:
     emit(improve(root, load_pipeline(), args.stage))
+    return 0
+
+
+def cmd_experiment(root: Path, args) -> int:
+    """Memoire de la boucle d'amelioration.
+
+      record : date une correction appliquee au harnais et fige la mesure d'avant ;
+      effect : confronte chaque correction aux runs qui l'ont suivie.
+
+    Sans ce registre, la boucle propose sans jamais savoir ce qu'elle a deja tente.
+    `effect` ne bloque rien (exit 0) : un correctif sans effet est une information
+    rendue a l'humain, pas un defaut du depot.
+    """
+    if args.action == "record":
+        missing = [name for name in ("stage", "target", "file", "cause")
+                   if not getattr(args, name, None)]
+        if missing:
+            sys.stderr.write("Options requises pour `experiment record` : "
+                             + ", ".join("--" + name for name in missing) + "\n")
+            return 1
+        try:
+            entry = experiment_record(root, args.stage, args.target, args.file, args.cause)
+        except ValueError as exc:
+            sys.stderr.write(f"{exc}\n")
+            return 1
+        emit(entry)
+        before = "-" if entry["baseline"] is None else entry["baseline"]
+        sys.stderr.write(
+            "Experience enregistree : {stage} / {target} (avant : {before}, sur "
+            "{baseline_runs} run(s)). Effet lisible apres {n} runs notes.\n".format(
+                before=before, n=MIN_RUNS_AFTER, **entry))
+        return 0
+
+    results = experiment_effects(root, args.stage)
+    emit(results)
+    if args.json:
+        return 0
+    if not results:
+        sys.stderr.write(
+            "Aucune experience enregistree. Apres avoir applique un correctif du "
+            "harnais : `aidlc.py experiment record --stage <etape> --target <axe> "
+            "--file <fichier> --cause \"<une phrase>\"`.\n")
+        return 0
+    for item in results:
+        measured = "-" if item["measured"] is None else item["measured"]
+        before = "-" if item["baseline"] is None else item["baseline"]
+        delta = "" if item["delta"] is None else f" ({item['delta']:+})"
+        sys.stderr.write(
+            "  [experience] {stage} / {target} : {before} -> {measured}{delta} — "
+            "{verdict} ({runs_after} run(s) depuis) — {file}\n".format(
+                **{**item, "before": before, "measured": measured, "delta": delta}))
     return 0
 
 

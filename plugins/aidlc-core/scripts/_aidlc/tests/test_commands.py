@@ -452,6 +452,65 @@ class TestCmdImprove(AidlcTestCase):
         json.loads(out)
 
 
+class TestCmdExperiment(AidlcTestCase):
+    """experiment : `record` exige de quoi mesurer, `effect` rend un verdict et ne
+    bloque jamais — un correctif sans effet est une information, pas un defaut."""
+
+    ARGS = ["experiment", "record", "--stage", "plan", "--target", "precision",
+            "--file", "plugins/aidlc-plan/checks.json", "--cause", "SKILL trop vague"]
+
+    def test_record_ecrit_le_registre_et_rend_l_entree_sur_stdout(self):
+        code, out, err = run(commands.cmd_experiment, self.root, parse(self.ARGS))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["stage"], "plan")
+        self.assertIn("plan / precision", err)
+
+    def test_record_sans_les_options_requises_echoue_en_les_nommant(self):
+        code, out, err = run(commands.cmd_experiment, self.root,
+                             parse(["experiment", "record", "--stage", "plan"]))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        for option in ("--target", "--file", "--cause"):
+            self.assertIn(option, err)
+
+    def test_record_sur_une_etape_inconnue_echoue_proprement(self):
+        argv = list(self.ARGS)
+        argv[argv.index("plan")] = "fantome"
+        code, out, err = run(commands.cmd_experiment, self.root, parse(argv))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("fantome", err)
+
+    def test_effect_sur_un_registre_vide_rend_une_liste_et_le_geste_a_faire(self):
+        code, out, err = run(commands.cmd_experiment, self.root,
+                             parse(["experiment", "effect"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), [])
+        self.assertIn("experiment record", err)
+
+    def test_effect_resume_chaque_experience_sur_stderr(self):
+        run(commands.cmd_experiment, self.root, parse(self.ARGS))
+        code, out, err = run(commands.cmd_experiment, self.root,
+                             parse(["experiment", "effect"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(len(json.loads(out)), 1)
+        self.assertIn("pending", err)
+
+    def test_effect_en_json_ne_dit_rien_a_l_humain(self):
+        run(commands.cmd_experiment, self.root, parse(self.ARGS))
+        code, out, err = run(commands.cmd_experiment, self.root,
+                             parse(["experiment", "effect", "--json"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(len(json.loads(out)), 1)
+
+    def test_effect_filtre_par_etape(self):
+        run(commands.cmd_experiment, self.root, parse(self.ARGS))
+        _, out, _ = run(commands.cmd_experiment, self.root,
+                        parse(["experiment", "effect", "--stage", "design"]))
+        self.assertEqual(json.loads(out), [])
+
+
 class TestCmdRatchet(AidlcTestCase):
     """ratchet fige les planchers au premier passage, refuse toute regression, et
     --reset est le seul moyen legal de les assouplir."""
