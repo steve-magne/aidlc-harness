@@ -324,6 +324,11 @@ class TestGuardDecision(AidlcTestCase):
         self.assertIsNotNone(reason)
         self.assertIn("amelioration", reason)
 
+    def test_refuse_l_edition_du_registre_des_experiences(self):
+        reason = self._reason("Write", aidlc_dir(self.root) / "experiments.jsonl")
+        self.assertIsNotNone(reason)
+        self.assertIn("experiment record", reason)
+
     def test_refuse_l_edition_des_journaux_de_session(self):
         reason = self._reason("Write", aidlc_dir(self.root) / "logs" / "x.jsonl")
         self.assertIsNotNone(reason)
