@@ -116,7 +116,8 @@ Chaque skill est un scénario d'agent complet (frontmatter + instructions) :
 Le point d'entrée `scripts/aidlc.py` (chemin stable des hooks et des skills) délègue au paquet
 `_aidlc/` : **toute** la logique non-agentique du harness y vit, bibliothèque standard Python
 uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `improve`,
-`hookslog`, `okf`, `knowledge`, `syntax`, `commands`, `cli`, plus `selftest`). Sorties machine : JSON sur
+`hookslog`, `okf`, `knowledge`, `syntax`, `ratchet`, `watchdog`, `coverage`, `commands`, `cli`,
+plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 **stdout** ; messages humains sur **stderr**.
 
 | Sous-commande | Rôle |
@@ -142,7 +143,10 @@ uniquement, un module par concern (`util`, `checks`, `maturity`, `scaffold`, `im
 | `check-python --touched` | mode hook `PostToolUse` : compile le fichier `.py` écrit — retour en contexte, non bloquant, silencieux hors Python |
 | `check-json` | parse tout JSON du dépôt (règle 6) ; exit 1 si fichier invalide |
 | `check-json --touched` | mode hook `PostToolUse` : parse le fichier `.json` écrit — retour en contexte, non bloquant, silencieux hors JSON |
-| `--selftest` | auto-test du projet (le seul test, il doit passer) |
+| `test` | suite de tests du moteur (`unittest`, stdlib) ; `-k <motif>` filtre, `-v` détaille, `--failfast` s'arrête au premier échec |
+| `coverage` | ratchet de couverture : la couverture ne descend jamais sous le plancher figé dans `.aidlc/coverage.json` ; exit 2 = régression |
+| `coverage --reset` | rebase le plancher sur l'état courant (geste humain, refusé si la suite est rouge) |
+| `--selftest` | alias historique de `test` — ce que la CI, les hooks et les consommateurs appellent depuis toujours |
 
 ## Les hooks — branchement sur le cycle de vie des sessions
 

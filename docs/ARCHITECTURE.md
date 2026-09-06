@@ -291,7 +291,7 @@ répertoire, un module par concern — `util` (racines et IO), `checks` (validat
 correctifs des bundles), `knowledge` (bundles OKF distants : cache, sommaire, recherche),
 `syntax` (hygiène du dépôt : tout Python compile, tout JSON parse),
 `ratchet` (planchers de sévérité figés), `watchdog` (détecteurs de stagnation),
-`selftest`, `commands` (gestionnaires de sous-commandes) et `cli`
+`coverage` (ratchet de couverture), `commands` (gestionnaires de sous-commandes) et `cli`
 (parseur et dispatch). L'ensemble résout deux racines : le **projet consommateur**
 (`CLAUDE_PROJECT_DIR`, sinon le répertoire courant) pour les livrables et `.aidlc/`, et le
 **harnais** (`CLAUDE_PLUGIN_ROOT`, sinon auto-localisation de `pipeline.json` à côté du moteur)
@@ -323,7 +323,9 @@ les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 | `check-python --touched` | mode hook `PostToolUse` : compile le fichier `.py` écrit — retour en contexte, non bloquant, silencieux hors Python |
 | `check-json` | parse tout JSON du dépôt (règle 6) ; exit 1 si fichier invalide |
 | `check-json --touched` | mode hook `PostToolUse` : parse le fichier `.json` écrit — retour en contexte, non bloquant, silencieux hors JSON |
-| `--selftest` | auto-test par assertions sur un répertoire temporaire |
+| `test` | suite `unittest` du moteur (paquet `_aidlc/tests/`, un module par concern) ; `-k`, `-v`, `--failfast` |
+| `coverage` | ratchet de couverture mesuré par `trace` ; plancher figé dans `.aidlc/coverage.json`, exit 2 si régression |
+| `--selftest` | alias historique de `test` |
 
 Règle non négociable du dépôt : toute nouvelle logique déterministe devient une sous-commande
 exposée par ce point d'entrée, dans le module du paquet `_aidlc/` qui possède déjà le concern

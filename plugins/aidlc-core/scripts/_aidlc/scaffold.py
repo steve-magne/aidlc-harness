@@ -170,6 +170,23 @@ def planned_stage(pipe: dict, stage_id: str) -> dict:
     return {}
 
 
+def _load_marketplace(market_path: Path, base: Path) -> dict:
+    """Marketplace du depot, ou un squelette neuf s'il n'existe pas encore.
+
+    Un fichier present mais illisible leve un ValueError explicite, comme les deux
+    autres gardes de `scaffold` — et non la JSONDecodeError brute qui remontait
+    jusqu'a l'appelant sans nommer le fichier ni le geste correctif.
+    """
+    if not market_path.exists():
+        return {"name": "aidlc", "owner": {"name": "Steve"}, "plugins": []}
+    try:
+        return json.loads(read_text(market_path))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"{os.path.relpath(market_path, base)} est illisible ({exc}) : "
+            "reparer le JSON du marketplace avant de generer un agent.") from exc
+
+
 def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
     """Genere le plugin d'un agent dans le depot auteur (jamais dans le projet
     consommateur), avec son manifeste agent.json et son contrat checks.json, et
@@ -187,6 +204,10 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
     plugin_dir = base / "plugins" / f"aidlc-{stage_id}"
     if plugin_dir.exists() and not force:
         raise ValueError(f"{os.path.relpath(plugin_dir, base)} existe deja (utiliser --force).")
+    # Le marketplace est lu ICI, avant la moindre ecriture : un fichier illisible doit
+    # arreter le scaffold avant qu'il ne laisse un plugin a moitie genere derriere lui.
+    market_path = base / ".claude-plugin" / "marketplace.json"
+    market = _load_marketplace(market_path, base)
 
     name = stage.get("name", stage_id.capitalize())
     deliverable = stage.get("deliverable", f"deliverables/{stage_id}/{stage_id}.md")
@@ -253,11 +274,6 @@ def scaffold(pipe: dict, stage_id: str, force: bool = False) -> dict:
     created.append(os.path.relpath(manifest_path, base))
     registry.reset_cache()  # le registre vient de changer dans ce processus
 
-    market_path = base / ".claude-plugin" / "marketplace.json"
-    if market_path.exists():
-        market = json.loads(read_text(market_path))
-    else:
-        market = {"name": "aidlc", "owner": {"name": "Steve"}, "plugins": []}
     market.setdefault("plugins", [])
     if not any(p.get("name") == f"aidlc-{stage_id}" for p in market["plugins"]):
         market["plugins"].append({

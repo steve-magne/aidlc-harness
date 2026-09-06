@@ -42,6 +42,8 @@ from .scaffold import scaffold
 from .checks import stage_for_file
 from .maturity import status_data
 from .checks import validate_stage
+from .coverage import coverage_reset
+from .coverage import coverage_run
 """Gestionnaires de sous-commandes : mode ligne de commande et modes hooks (--touched, --stop, payloads stdin)."""
 
 # ------------------------------------------------------------------- sous-commandes
@@ -567,4 +569,42 @@ def cmd_knowledge(root: Path, args) -> int:
             len(entries), len(view["sources"]),
             "" if len(shown) == len(entries)
             else f" — {len(entries) - len(shown)} non affiche(s), affiner ou --limit"))
+    return 0
+
+
+def cmd_test(root: Path, args) -> int:
+    """Suite de tests du moteur (unittest, stdlib). Messages sur stderr : stdout reste
+    reserve aux sorties machine. `--selftest` est l'alias historique de cette commande,
+    celui qu'appellent la CI et les consommateurs."""
+    from . import tests  # import tardif : la suite n'est chargee que si on la demande
+    return tests.run(select=args.select, verbosity=2 if args.verbose else 1,
+                     failfast=args.failfast)
+
+
+def cmd_coverage(root: Path, args) -> int:
+    """Ratchet de couverture : la couverture du moteur par sa suite ne descend jamais.
+    JSON sur stdout, exit 2 si une regression est constatee (porte CI)."""
+    try:
+        if args.reset:
+            emit(coverage_reset(root, args.select))
+            return 0
+        report = coverage_run(root, args.select)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    emit(report)
+    if report["baseline"]:
+        sys.stderr.write(
+            f"Plancher de couverture fige a {report['total']}% "
+            f"({len(report['modules'])} modules). Les passes suivantes le defendent.\n")
+        return 0
+    if not report["passed"]:
+        for item in report["regressions"]:
+            sys.stderr.write("  [couverture] {module} : {before}% -> {after}% ({reason})\n"
+                             .format(**{**item, "after": item["after"]
+                                        if item["after"] is not None else "absent"}))
+        sys.stderr.write(report.get("hint", "") + "\n")
+        return 2
+    sys.stderr.write(f"Couverture : {report['total']}% "
+                     f"({report['missing']} lignes non couvertes).\n")
     return 0

@@ -1,0 +1,22 @@
+{
+  "ts": "2026-09-06T11:36:37+00:00",
+  "baseline": false,
+  "total": 99.6,
+  "modules": {
+    "checks": 100.0,
+    "cli": 93.6,
+    "commands": 100.0,
+    "coverage": 100.0,
+    "hookslog": 100.0,
+    "improve": 100.0,
+    "knowledge": 100.0,
+    "maturity": 100.0,
+    "okf": 100.0,
+    "ratchet": 100.0,
+    "registry": 100.0,
+    "scaffold": 100.0,
+    "syntax": 100.0,
+    "util": 100.0,
+    "watchdog": 100.0
+  }
+}
