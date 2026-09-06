@@ -358,3 +358,59 @@ class TestDocPaths(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+#: Appels au moteur cites dans un fichier de porte (hook shell, workflow CI).
+_AIDLC_CALL_RE = re.compile(r"aidlc\.py\s+([a-z][a-z-]*)")
+
+
+class TestPortesLocalesEtCI(unittest.TestCase):
+    """Le hook pre-commit et le workflow CI sont deux fichiers hors du moteur qui
+    invoquent le moteur : un renommage de sous-commande ou du point d'entree les casse
+    en silence. Meme porte que `TestHooksJson`, appliquee aux portes de qualite."""
+
+    ENTRYPOINT = "plugins/aidlc-core/scripts/aidlc.py"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.hook = repo_root() / ".githooks" / "pre-commit"
+        cls.workflow = repo_root() / ".github" / "workflows" / "ci.yml"
+        cls.choices = _subparser_choices()
+
+    def test_le_hook_pre_commit_existe(self):
+        self.assertTrue(self.hook.is_file(), f"{self.hook} absent.")
+
+    def test_le_hook_pre_commit_est_executable(self):
+        """Git n'execute qu'un hook dont le bit d'execution est pose ; sans lui, la porte
+        locale est silencieusement inerte — le pire mode de panne pour un garde-fou."""
+        self.assertTrue(self.hook.stat().st_mode & 0o111,
+                        "Le bit d'execution du hook n'est pas pose (chmod +x).")
+
+    def test_le_hook_vise_le_point_d_entree_reel(self):
+        self.assertIn(self.ENTRYPOINT, self.hook.read_text(encoding="utf-8"))
+        self.assertTrue((repo_root() / self.ENTRYPOINT).is_file())
+
+    def test_le_hook_n_invoque_que_des_sous_commandes_exposees(self):
+        called = _AIDLC_CALL_RE.findall(self.hook.read_text(encoding="utf-8"))
+        self.assertTrue(called, "Le hook pre-commit n'invoque aucune sous-commande.")
+        for name in called:
+            with self.subTest(sous_commande=name):
+                self.assertIn(name, self.choices)
+
+    def test_le_workflow_ci_n_invoque_que_des_sous_commandes_exposees(self):
+        called = _AIDLC_CALL_RE.findall(self.workflow.read_text(encoding="utf-8"))
+        self.assertTrue(called, "Le workflow CI n'invoque aucune sous-commande.")
+        for name in called:
+            with self.subTest(sous_commande=name):
+                self.assertIn(name, self.choices)
+
+    def test_le_workflow_ci_vise_le_point_d_entree_reel(self):
+        self.assertIn(self.ENTRYPOINT, self.workflow.read_text(encoding="utf-8"))
+
+    def test_la_porte_du_score_est_tenue_des_deux_cotes(self):
+        """Le local et le distant rendent le meme verdict : `selfscore` est la porte
+        agregee, elle ne doit pas exister d'un seul cote."""
+        for path in (self.hook, self.workflow):
+            with self.subTest(fichier=path.name):
+                self.assertIn("selfscore",
+                              _AIDLC_CALL_RE.findall(path.read_text(encoding="utf-8")))

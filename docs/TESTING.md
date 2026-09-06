@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Stratégie de tests du harnais AI-DLC
-description: Ce que le harnais teste, comment, et pourquoi — suite unittest stdlib découpée par concern, contrat CLI en sous-processus, portes structurelles sur les artefacts de plugin, et ratchet de non-régression de couverture.
+description: Ce que le harnais teste, comment, et pourquoi — suite unittest stdlib découpée par concern, contrat CLI en sous-processus, portes structurelles sur les artefacts de plugin, ratchet de non-régression de couverture et score de maturité du harnais (selfscore).
 tags: [tests, qualité, ci, harness]
 generated: { by: human:steve-magne, at: 2026-09-06T00:00:00Z }
 ---
@@ -120,7 +120,55 @@ Deux plafonds sont assumés et documentés dans le code :
 - `trace` ne suit pas les sous-processus, donc les tests de contrat CLI (qui relancent `aidlc.py`)
   ne comptent pas dans la mesure. Le taux rendu est donc un **plancher**, jamais une surestimation.
 
-## 7. Les portes de la CI
+## 7. Le score de maturité du harnais
+
+Les portes précédentes répondent chacune par oui ou non. Une évolution du harnais mérite une
+réponse plus fine : **est-ce que le dépôt est plus mûr ou moins mûr qu'avant ce diff ?**
+`aidlc.py selfscore` répond par une note, sur le barème qui sert déjà à juger un livrable — 0 à 5,
+seuil `maturity_threshold`, plancher par axe `min_axis_score`, tous trois lus dans `pipeline.json`.
+Le harnais est noté par la grille qu'il impose aux autres.
+
+Cinq axes, cinq risques distincts, tous **déterministes** : aucun juge, aucun prompt, aucun réseau.
+Deux invocations sur le même arbre de fichiers rendent la même note.
+
+| Axe | Ce qu'il mesure | Barème |
+| --- | --- | --- |
+| `hygiene` | Règle 6 : tout Python compile, tout JSON parse | 5, ou **0** si un seul fichier est fautif |
+| `contracts` | Manifestes `agent.json` et contrats `checks.json` **de ce dépôt** ; cycle producteur → consommateur | 5, ou **0** au premier défaut |
+| `tests` | La suite passe, et chaque module de `_aidlc/` a son `tests/test_<module>.py` en face (règle 8) | **0** si la suite est rouge ; sinon 5 − 1 par module orphelin |
+| `coverage` | Le taux mesuré par `trace`, confronté au plancher figé dans `.aidlc/coverage.json` | **0** si régression ; sinon ≥ 95 % → 5, ≥ 90 → 4, ≥ 80 → 3, ≥ 70 → 2, ≥ 50 → 1 |
+| `knowledge` | Conformance OKF v0.2 des bundles du projet (`knowledge/`, `docs/`) | 5 × bundles conformes / bundles |
+
+Trois décisions valent d'être explicitées :
+
+- **Les axes binaires le sont exprès.** Un dépôt dont un JSON ne parse pas n'a pas une qualité
+  partielle : il ne se charge pas, et les axes suivants deviennent incalculables. La graduation a du
+  sens là où la dégradation est graduelle — un module orphelin de test, un bundle sur deux, un taux
+  de couverture — pas ailleurs.
+- **Un axe effondré ne se compense pas.** La moyenne doit atteindre le seuil *et* aucun axe ne doit
+  passer sous le plancher. Sans cette seconde règle, quatre axes à 5 et un à 0 donneraient 4,0 et
+  franchiraient la porte — le défaut exact que `min_axis_score` corrige déjà pour les livrables.
+- **Un axe peut être non applicable (`n/a`), jamais nul par défaut.** Un projet consommateur qui ne
+  porte aucun bundle OKF n'est pas puni pour ce qu'il n'a pas : l'axe est affiché, il ne pèse pas
+  dans la moyenne.
+
+La passe est en **lecture seule**, et la suite n'y tourne qu'une fois : `tests` et `coverage` sont
+deux lectures de la même mesure. Le plancher de couverture reste écrit par `aidlc.py coverage`
+seul — sinon un `git commit` laisserait derrière lui un `.aidlc/coverage.json` modifié *hors* du
+commit qu'il vient de valider.
+
+Deux endroits l'exécutent, avec le même verdict :
+
+```bash
+git config core.hooksPath .githooks   # une fois par clone : la porte devient pre-commit
+python3 plugins/aidlc-core/scripts/aidlc.py selfscore
+```
+
+Le hook `.githooks/pre-commit` refuse le commit sur `exit 2` (comptez une quinzaine de secondes,
+la mesure sous `trace` domine) ; `git commit --no-verify` reste le contournement assumé, et la CI
+rattrape ce qui passe par là.
+
+## 8. Les portes de la CI
 
 Dans l'ordre, chacune rougissant le build :
 
@@ -129,9 +177,14 @@ Dans l'ordre, chacune rougissant le build :
 | `test`, **sur une matrice de versions de Python** | La suite passe — et la promesse « `python3` seul, aucun `pip install` » tient réellement d'une version à l'autre |
 | `check-python`, `check-json` | Règle 6 : tout Python compile, tout JSON parse |
 | `agents --strict` | Les manifestes `agent.json` de ce dépôt sont valides |
-| `coverage` | La couverture n'a pas baissé (`exit 2`) |
 | `check-okf docs`, `check-okf knowledge` | Conformance OKF v0.2 des deux bundles |
+| `selfscore` | La note de maturité du dépôt tient le seuil, aucun axe sous le plancher (`exit 2`) |
 | `claude plugin validate` | Chaque plugin reste valide pour Claude Code |
+
+`selfscore` remplace la porte `coverage` en CI : elle fait la même mesure, en lecture seule, et
+refuse en plus ce qu'une couverture verte laissait passer — un module neuf sans test en face, un
+bundle OKF cassé, un manifeste invalide. Les portes unitaires restent en amont dans le workflow :
+elles coûtent une seconde et nomment la panne avant que la porte agrégée ne la chiffre.
 
 La suite tourne dans un job à matrice ; le reste des portes dans un job unique. La couverture
 n'est mesurée que sur **une** version : le taux varie d'une version de Python à l'autre selon les
@@ -141,38 +194,41 @@ fausses régressions.
 Aucune porte n'installe quoi que ce soit côté Python : la seule dépendance du workflow est le CLI
 `@anthropic-ai/claude-code`, outil de build du runner, pas du moteur.
 
-## 8. Où en est la suite
+## 9. Où en est la suite
 
 | | Avant | Après |
 | --- | --- | --- |
-| Forme | une fonction `selftest()` de 1254 lignes | 16 modules, 7 851 lignes |
-| Cas | 173 assertions dans un bloc unique | **812 tests** nommés, en 183 classes |
+| Forme | une fonction `selftest()` de 1254 lignes | 18 modules, 9 244 lignes |
+| Cas | 173 assertions dans un bloc unique | **987 tests** nommés, en 206 classes |
 | Isolation | un `TemporaryDirectory` partagé par tout | un projet temporaire neuf par test |
 | Échec | le premier échec masque les 32 scénarios suivants | chaque test tombe seul et se nomme |
 | Sélection | tout ou rien | `-k <motif>` |
-| Couverture | **81,3 %** (471 lignes jamais exécutées) | **99,6 %** (10 lignes) |
+| Couverture | **81,3 %** (471 lignes jamais exécutées) | **99,7 %** (10 lignes) |
 | Non-régression | aucune | plancher figé, `exit 2` si baisse |
+| Verdict | « ça passe » | une note sur 5, seuil et plancher par axe (`selfscore`) |
 
 Répartition par module :
 
 | Module | Tests | Couverture |
 | --- | ---: | ---: |
-| `commands` | 106 | 100 % |
-| `cli` | 90 | 93,6 % |
+| `commands` | 133 | 100 % |
+| `cli` | 112 | 94,6 % |
+| `maturity` | 100 | 100 % |
 | `registry` | 82 | 100 % |
 | `checks` | 73 | 100 % |
-| `maturity` | 72 | 100 % |
+| `hookslog` | 72 | 100 % |
 | `okf` | 70 | 100 % |
-| `hookslog` | 54 | 100 % |
 | `watchdog` | 52 | 100 % |
-| `knowledge` | 40 | 100 % |
+| `knowledge` | 50 | 100 % |
+| `selfscore` | 45 | 100 % |
 | `ratchet` | 35 | 100 % |
 | `coverage` | 32 | 100 % |
 | `scaffold` | 27 | 100 % |
 | `improve` | 27 | 100 % |
+| `experiment` | 22 | 100 % |
 | `util` | 20 | 100 % |
 | `syntax` | 19 | 100 % |
-| `plugins` (artefacts) | 13 | — |
+| `plugins` (artefacts) | 16 | — |
 
 Les **10 seules lignes non couvertes** du moteur sont dans `cli.py`, et ce sont exactement celles
 que `test_cli.py` exerce en sous-processus : l'aide sans sous-commande, `log` et `guard` qui lisent
@@ -180,7 +236,7 @@ stdin, et les deux `except` qui convertissent `FileNotFoundError` et `json.JSOND
 message français. Elles sont testées ; c'est `trace` qui ne les voit pas, faute de suivre les
 sous-processus. Le taux affiché est donc un plancher, pas un état réel.
 
-## 9. Ce qui reste hors périmètre
+## 10. Ce qui reste hors périmètre
 
 - **Les prompts des agents** (`agents/*.md`, `skills/*/SKILL.md`) ne sont pas testés pour leur
   contenu — seulement pour la validité des chemins qu'ils citent. Ce qu'un agent produit est jugé

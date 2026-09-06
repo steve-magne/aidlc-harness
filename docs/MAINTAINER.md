@@ -168,6 +168,19 @@ claude plugin validate plugins/aidlc-<stage>
 
 # 4. Le tableau de bord montre l'étape implémentée
 python3 plugins/aidlc-core/scripts/aidlc.py status
+
+# 5. La porte agrégée : la note de maturité du dépôt tient le seuil et aucun axe ne
+#    passe sous le plancher (exit 2 = bloquant). Elle rejoue les points 1, 2 et 2ter en
+#    une seule mesure et refuse en plus un module du moteur sans test en face.
+python3 plugins/aidlc-core/scripts/aidlc.py selfscore
+```
+
+Cette dernière porte est celle du hook local. Activez-la une fois par clone — elle refusera
+alors tout commit qui fait baisser la note du dépôt (`git commit --no-verify` reste le
+contournement assumé) :
+
+```bash
+git config core.hooksPath .githooks
 ```
 
 Test des contrats **à blanc** : copiez le template vers `deliverables/<stage>/<fichier>` (le dépôt
@@ -200,7 +213,7 @@ celui qui ne l'installe pas voit une entrée `missing_producers` s'il en dépend
 
 ### 3.2 Checklist de publication
 
-1. Les vérifications de la section 2.5 passent (check-python, check-json, test, coverage, `claude plugin validate`).
+1. Les vérifications de la section 2.5 passent (check-python, check-json, test, coverage, `selfscore`, `claude plugin validate`) — `selfscore` rend la note du dépôt : elle doit être au-dessus du seuil, sans axe sous le plancher.
 2. Les versions sont incrémentées pour **tous** les plugins modifiés (`aidlc-core` seulement si
    le noyau a changé). Le manifeste `agent.json` de chaque agent touché est valide :
    `python3 plugins/aidlc-core/scripts/aidlc.py agents --strict` (porte CI).
@@ -285,6 +298,8 @@ python3 plugins/aidlc-core/scripts/aidlc.py ratchet --reset <stage>  # repart du
 python3 plugins/aidlc-core/scripts/aidlc.py watchdog                # détecteurs de stagnation sur les journaux (exit 2 = halte)
 python3 plugins/aidlc-core/scripts/aidlc.py test                   # suite de tests (doit passer avant chaque release)
 python3 plugins/aidlc-core/scripts/aidlc.py coverage               # non-régression de couverture (exit 2 = baisse)
+python3 plugins/aidlc-core/scripts/aidlc.py selfscore              # note de maturité du dépôt, cinq axes (exit 2 = sous le seuil)
+git config core.hooksPath .githooks                                # une fois par clone : selfscore devient une porte pre-commit
 claude plugin validate plugins/aidlc-core                          # validité des plugins pour Claude Code
 claude plugin validate plugins/aidlc-<stage>
 ```

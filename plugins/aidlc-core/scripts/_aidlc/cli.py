@@ -20,6 +20,7 @@ from .commands import cmd_review_request
 from .commands import cmd_ratchet
 from .commands import cmd_scaffold
 from .commands import cmd_score
+from .commands import cmd_selfscore
 from .commands import cmd_status
 from .commands import cmd_test
 from .commands import cmd_validate
@@ -165,6 +166,13 @@ def build_parser() -> argparse.ArgumentParser:
     test.add_argument("--failfast", action="store_true",
                       help="S'arrete au premier echec.")
 
+    selfscore_cmd = sub.add_parser(
+        "selfscore",
+        help="Score de maturite du harnais : portes deterministes du depot, agregees "
+             "sur 5 (exit 2 sous le seuil).")
+    selfscore_cmd.add_argument("--json", action="store_true",
+                               help="JSON seul, sans resume humain.")
+
     coverage_cmd = sub.add_parser(
         "coverage",
         help="Ratchet de couverture : la couverture ne descend jamais (exit 2).")
@@ -202,6 +210,7 @@ def main(argv=None) -> int:
         "check-json": cmd_check_json, "ratchet": cmd_ratchet,
         "watchdog": cmd_watchdog, "watchdog-touched": cmd_watchdog_touched,
         "test": cmd_test, "coverage": cmd_coverage,
+        "selfscore": cmd_selfscore,
     }
     try:
         return handlers[args.command](root, args)

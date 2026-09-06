@@ -50,6 +50,7 @@ from .maturity import status_data
 from .checks import validate_stage
 from .coverage import coverage_reset
 from .coverage import coverage_run
+from .selfscore import selfscore_run
 """Gestionnaires de sous-commandes : mode ligne de commande et modes hooks (--touched, --stop, payloads stdin)."""
 
 # ------------------------------------------------------------------- sous-commandes
@@ -715,4 +716,33 @@ def cmd_coverage(root: Path, args) -> int:
         return 2
     sys.stderr.write(f"Couverture : {report['total']}% "
                      f"({report['missing']} lignes non couvertes).\n")
+    return 0
+
+
+def cmd_selfscore(root: Path, args) -> int:
+    """Score de maturite du harnais : les portes deterministes du depot, notees sur 5 et
+    agregees. JSON sur stdout, resume par axe sur stderr, exit 2 sous le seuil — c'est la
+    porte que tiennent le hook pre-commit et la CI. Aucune ecriture : la note mesure, elle
+    ne fige rien."""
+    try:
+        report = selfscore_run(root, load_pipeline())
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    emit(report)
+    if not args.json:
+        for axis in report["axes"]:
+            score = "  n/a" if axis["score"] is None else "{:5.2f}".format(axis["score"])
+            sys.stderr.write("  {:<10} {}/5  {}\n".format(
+                axis["axis"], score, axis["detail"]))
+            for finding in axis["findings"]:
+                sys.stderr.write(f"      - {finding}\n")
+        sys.stderr.write(
+            "Score de maturite du harnais : {:.2f}/5 (seuil {}, plancher par axe {}).\n"
+            .format(report["overall"], report["threshold"], report["min_axis_score"]))
+    if not report["passed"]:
+        sys.stderr.write("Bloquant : " + (", ".join(report["weak_axes"])
+                                          or "moyenne sous le seuil")
+                         + ". Corrigez l'axe avant de livrer.\n")
+        return 2
     return 0

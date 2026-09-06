@@ -1,0 +1,17 @@
+#!/bin/sh
+# Porte locale du depot : le score de maturite du harnais doit tenir avant chaque commit.
+#
+# C'est exactement la porte que rejoue la CI (.github/workflows/ci.yml, job « Gates du
+# harnais ») : ce qui passe ici passe la-bas. Le score agrege les cinq axes deterministes
+# du depot — hygiene, contrats d'agents, suite de tests, couverture, bundles OKF — et sort
+# 2 des qu'un axe passe sous le plancher ou que la moyenne passe sous le seuil.
+#
+# Activation, une fois par clone :   git config core.hooksPath .githooks
+# Contournement assume, si urgence : git commit --no-verify
+#
+# Le score mesure la suite entiere sous `trace` : comptez une quinzaine de secondes.
+set -e
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+# stdout (le JSON, pour une machine) est jete ; stderr (le resume par axe) reste visible.
+exec python3 plugins/aidlc-core/scripts/aidlc.py selfscore >/dev/null

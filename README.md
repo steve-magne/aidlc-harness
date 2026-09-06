@@ -179,6 +179,7 @@ Les portes exploitables en CI (le code de sortie *est* le verdict) :
 
 | Commande | Ce qu'elle refuse | Exit |
 | --- | --- | --- |
+| `selfscore` | une évolution du **harnais** qui fait baisser sa note de maturité | 2 |
 | `gate <stage>` | une étape non mûre | 2 |
 | `ratchet` | une régression de sévérité d'un `checks.json` | 2 |
 | `watchdog` | une boucle de stagnation détectée dans les journaux | 2 |
@@ -189,6 +190,17 @@ Les portes exploitables en CI (le code de sortie *est* le verdict) :
 | `test` | un test en échec | ≠0 |
 
 Sorties machine sur **stdout** (JSON), messages humains sur **stderr**.
+
+`selfscore` est la porte de tête : elle agrège en une note sur 5 les cinq axes déterministes du
+dépôt — hygiène (`check-python`, `check-json`), contrats d'agents (`agents --strict`), suite de
+tests et règle « un module, un test en face », couverture confrontée à son plancher figé, et
+conformance OKF des bundles. La moyenne est comparée au `maturity_threshold` de `pipeline.json`,
+et **un axe effondré ne se compense pas** (`min_axis_score`). C'est le même barème que la note
+d'un livrable, appliqué au harnais qui les juge. En local, une fois par clone :
+
+```bash
+git config core.hooksPath .githooks   # le score devient une porte pre-commit
+```
 
 ---
 
@@ -345,6 +357,8 @@ plugins/aidlc-plan/                l'étape Plan — la tranche verticale de ré
 plugins/aidlc-design/              l'étape Design — même structure, consomme le livrable de Plan
 plugins/aidlc-security/            un agent consultatif d'équipe (AppSec) — l'exemple à copier
 
+.githooks/pre-commit               la porte locale : `selfscore` avant chaque commit
+
 deliverables/<stage>/…             les livrables            (projet consommateur)
 .aidlc/logs/<session>.jsonl        le journal des sessions  (projet consommateur)
 .aidlc/maturity.json               l'historique des scores  (projet consommateur, protégé)
@@ -366,7 +380,8 @@ Trois règles expliquent la plupart des choix de conception. Le détail est dans
 2. **Toute la logique déterministe sous `plugins/aidlc-core/scripts/`**, derrière un point d'entrée
    unique. Pas de `Makefile`, pas de shell inline dans un hook, pas de second point d'entrée.
 3. **Une nouvelle vérification s'écrit d'abord dans un `checks.json`**, pas en Python — et toute
-   logique nouvelle arrive avec son test : la couverture ne redescend jamais.
+   logique nouvelle arrive avec son test : la couverture ne redescend jamais, et `selfscore`
+   refuse le commit qui ferait baisser la note du dépôt.
 
 ## Pour aller plus loin
 

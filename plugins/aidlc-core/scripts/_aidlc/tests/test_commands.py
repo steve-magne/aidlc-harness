@@ -1119,3 +1119,92 @@ class TestCmdCoverage(AidlcTestCase):
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         self.assertIn("suite indisponible", err)
+
+
+def rapport(overall=4.8, passed=True, weak=(), axes=None):
+    """Rapport de selfscore_run pret a etre injecte : le contrat que rend la commande."""
+    if axes is None:
+        axes = [{"axis": "hygiene", "score": 5.0, "detail": "38 fichiers", "findings": []},
+                {"axis": "knowledge", "score": None, "detail": "aucun bundle",
+                 "findings": []}]
+    return {"overall": overall, "threshold": 4.0, "min_axis_score": 3.0,
+            "axes": axes, "weak_axes": list(weak), "passed": passed}
+
+
+class TestCmdSelfscore(AidlcTestCase):
+    """selfscore : score de maturite du harnais. Le contrat que consomment le hook
+    pre-commit et la CI est un code de sortie (0 conforme, 2 bloquant, 1 en panne) ;
+    le JSON de stdout et le resume de stderr ne se melangent jamais."""
+
+    def test_un_depot_conforme_rend_zero(self):
+        with mock.patch.object(commands, "selfscore_run", return_value=rapport()):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertEqual(code, 0)
+        self.assertTrue(json.loads(out)["passed"])
+
+    def test_le_resume_donne_une_ligne_par_axe(self):
+        with mock.patch.object(commands, "selfscore_run", return_value=rapport()):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertIn("hygiene", err)
+        self.assertIn("38 fichiers", err)
+
+    def test_un_axe_non_applicable_s_affiche_sans_note(self):
+        with mock.patch.object(commands, "selfscore_run", return_value=rapport()):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertIn("knowledge    n/a/5", err)
+
+    def test_les_constats_d_un_axe_sont_listes_sous_lui(self):
+        axes = [{"axis": "tests", "score": 4.0, "detail": "16/17 modules",
+                 "findings": ["selfscore : aucun tests/test_selfscore.py en face"]}]
+        with mock.patch.object(commands, "selfscore_run",
+                              return_value=rapport(axes=axes)):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertIn("- selfscore : aucun tests/test_selfscore.py en face", err)
+
+    def test_le_score_et_les_seuils_sont_rappeles(self):
+        with mock.patch.object(commands, "selfscore_run", return_value=rapport()):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertIn("Score de maturite du harnais : 4.80/5", err)
+        self.assertIn("seuil 4.0", err)
+
+    def test_un_axe_effondre_bloque_avec_le_code_deux(self):
+        with mock.patch.object(commands, "selfscore_run",
+                              return_value=rapport(overall=3.8, passed=False,
+                                                   weak=["coverage"])):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertEqual(code, 2)
+        self.assertIn("Bloquant : coverage", err)
+
+    def test_une_moyenne_insuffisante_bloque_sans_nommer_d_axe(self):
+        with mock.patch.object(commands, "selfscore_run",
+                              return_value=rapport(overall=3.9, passed=False)):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertEqual(code, 2)
+        self.assertIn("moyenne sous le seuil", err)
+
+    def test_json_seul_tait_le_resume_mais_pas_le_verdict(self):
+        """--json est pour une machine : le detail humain disparait, le motif de blocage
+        reste sur stderr — un runner de CI doit pouvoir dire pourquoi il rougit."""
+        with mock.patch.object(commands, "selfscore_run",
+                              return_value=rapport(overall=3.8, passed=False,
+                                                   weak=["hygiene"])):
+            code, out, err = run(commands.cmd_selfscore, self.root,
+                                parse(["selfscore", "--json"]))
+        self.assertNotIn("Score de maturite", err)
+        self.assertIn("Bloquant : hygiene", err)
+        self.assertEqual(json.loads(out)["overall"], 3.8)
+
+    def test_une_mesure_impossible_est_un_echec_propre(self):
+        with mock.patch.object(commands, "selfscore_run",
+                              side_effect=RuntimeError("suite indisponible")):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("suite indisponible", err)
+
+    def test_un_point_d_entree_absent_est_un_echec_propre(self):
+        with mock.patch.object(commands, "selfscore_run",
+                              side_effect=FileNotFoundError("aidlc.py introuvable")):
+            code, out, err = run(commands.cmd_selfscore, self.root, parse(["selfscore"]))
+        self.assertEqual(code, 1)
+        self.assertIn("introuvable", err)
