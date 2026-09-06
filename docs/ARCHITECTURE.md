@@ -3,7 +3,7 @@ type: Reference
 title: Architecture du harness AI-DLC
 description: Référence de conception du dépôt aidlc-harness — intention, composants, cycle de vie d'une étape, grille de maturité, mode autonome et boucle de self-improvement.
 tags: [architecture, harness]
-generated: { by: human:steve-magne, at: 2026-09-04T00:00:00Z }
+generated: { by: human:steve-magne, at: 2026-09-06T00:00:00Z }
 ---
 
 # Architecture du harness AI-DLC
@@ -395,8 +395,13 @@ les messages destinés à l'humain sur la sortie d'erreur. Ses sous-commandes :
 | `check-python --touched` | mode hook `PostToolUse` : compile le fichier `.py` écrit — retour en contexte, non bloquant, silencieux hors Python |
 | `check-json` | parse tout JSON du dépôt (règle 6) ; exit 1 si fichier invalide |
 | `check-json --touched` | mode hook `PostToolUse` : parse le fichier `.json` écrit — retour en contexte, non bloquant, silencieux hors JSON |
+| `agents [--capability] [--json] [--strict]` | catalogue du registre (équipes, capacités, invocation) ; contrôle chaque `checks.json` à vide sous `contract_problems` ; `--strict` fait de la porte une porte CI sur les manifestes et contrats **de ce dépôt** |
+| `recall <stage>` | reproches des derniers runs (findings du reviewer, axes sous le plancher, justification d'un refus humain) pour qui reprend une étape |
 | `test` | suite `unittest` du moteur (paquet `_aidlc/tests/`, un module par concern) ; `-k`, `-v`, `--failfast` |
 | `coverage` | ratchet de couverture mesuré par `trace` ; plancher figé dans `.aidlc/coverage.json`, exit 2 si régression |
+| `experiment record --stage --target --file --cause` | date un correctif appliqué au harnais et fige la moyenne de l'axe visé (mesure d'avant) |
+| `experiment effect [--stage]` | confronte chaque correctif aux runs postérieurs : `improved`, `regressed`, `no_effect`, `pending`, `no_baseline` (exit 0, informatif) |
+| `selfscore` | note de maturité du dépôt : cinq axes déterministes (`hygiene`, `contracts`, `tests`, `coverage`, `knowledge`) agrégés sur le barème des livrables ; exit 2 si le seuil n'est pas tenu ou qu'un axe passe sous le plancher — porte de tête du hook pre-commit et de la CI (détail : [docs/TESTING.md](TESTING.md) §7) |
 | `--selftest` | alias historique de `test` |
 
 Règle non négociable du dépôt : toute nouvelle logique déterministe devient une sous-commande
@@ -490,9 +495,11 @@ cher que l'absence de trace.
 
 ### 3.6 Les skills
 
-`aidlc-core` expose cinq skills : `run` (exécuter une étape de bout en bout), `status` (tableau de
+`aidlc-core` expose sept skills : `run` (exécuter une étape de bout en bout), `status` (tableau de
 bord), `review` (déclencher le reviewer), `new-stage` (concevoir une nouvelle étape en dialogue
-avec le métier puis la générer), `improve` (analyser le diagnostic et proposer un correctif).
+avec le métier puis la générer), `improve` (analyser le diagnostic et proposer un correctif),
+`dispatch` (mobiliser les agents consultatifs par capacité et synthétiser leurs avis) et
+`knowledge` (consulter les bundles OKF distants déclarés : sommaire, recherche, puis un concept).
 
 Chaque plugin d'étape expose une skill du même nom que l'étape : elle contient la recette de
 rédaction du livrable, les questions à poser à l'humain, et l'obligation de lancer
@@ -964,7 +971,8 @@ dépôt — la décision d'insister ou de revenir en arrière reste la sienne.
 ## 8. Conventions de conception
 
 - Un livrable = un fichier dans `deliverables/` du **projet consommateur**, au chemin exact déclaré
-  par le `pipeline.json` du harnais.
+  par le champ `produces` de l'`agent.json` de son agent (§2.1) — jamais par `pipeline.json`, qui
+  ne porte que la gouvernance.
 - Le harnais (pipeline, contrats, script) vit dans les plugins ; le projet (livrables, `.aidlc/`,
   `knowledge/`) vit chez le consommateur. Deux racines, résolues par le script.
 - Toute logique déterministe vit dans `aidlc.py`, jamais dans un nouveau script.

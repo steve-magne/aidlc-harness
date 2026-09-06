@@ -157,6 +157,7 @@ plus le paquet `tests/` qui porte la suite). Sorties machine : JSON sur
 | `test` | suite de tests du moteur (`unittest`, stdlib) ; `-k <motif>` filtre, `-v` détaille, `--failfast` s'arrête au premier échec |
 | `coverage` | ratchet de couverture : la couverture ne descend jamais sous le plancher figé dans `.aidlc/coverage.json` ; exit 2 = régression |
 | `coverage --reset` | rebase le plancher sur l'état courant (geste humain, refusé si la suite est rouge) |
+| `selfscore` | note de maturité du dépôt : cinq axes déterministes (`hygiene`, `contracts`, `tests`, `coverage`, `knowledge`) agrégés sur le barème des livrables, seuil et plancher par axe de `pipeline.json` ; exit 2 si le seuil n'est pas tenu ou qu'un axe s'effondre — porte du hook pre-commit (`.githooks/pre-commit`) et de la CI |
 | `--selftest` | alias historique de `test` — ce que la CI, les hooks et les consommateurs appellent depuis toujours |
 
 ## Les hooks — branchement sur le cycle de vie des sessions
