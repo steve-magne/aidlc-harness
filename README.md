@@ -81,6 +81,9 @@ Puis, dans la session, pour concevoir un nouvel agent avec son référent métie
 
 ## Comment ça marche
 
+> Une vue complète en diagrammes ASCII — neuf schémas, un par question — est dans
+> **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)**.
+
 ```
   contexte métier (humain)  +  savoir OKF (librarian)
                     │
@@ -339,6 +342,7 @@ Trois règles expliquent la plupart des choix de conception. Le détail est dans
 
 | Document | Pour qui |
 | --- | --- |
+| [docs/DIAGRAMS.md](docs/DIAGRAMS.md) | comprendre le fonctionnement en schémas, sans lire de code |
 | [docs/CONSUMER.md](docs/CONSUMER.md) | l'équipe projet : installation, premier run, revue humaine, mises à jour |
 | [docs/MAINTAINER.md](docs/MAINTAINER.md) | l'auteur d'un agent : concevoir, remplir, vérifier, publier |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | la référence de conception : composants, cycle de vie, décisions |
