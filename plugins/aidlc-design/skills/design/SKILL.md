@@ -1,6 +1,6 @@
 ---
 name: design
-description: Produit le livrable de conception deliverables/design/spec.md à partir de l'intention produit, en dialoguant avec l'architecte d'entreprise, puis le valide avec aidlc.py. À utiliser pour lancer, reprendre ou corriger l'étape Design du pipeline AI-DLC.
+description: Produit le livrable de conception deliverables/design/spec.md à partir de l'intention produit, en dialoguant avec l'architecte d'entreprise, puis le valide avec `aidlc`. À utiliser pour lancer, reprendre ou corriger l'étape Design du pipeline AI-DLC.
 argument-hint: [titre de l'initiative à concevoir]
 ---
 
@@ -20,8 +20,8 @@ signe. L'agent rédige, l'humain décide.
   (`$CLAUDE_PROJECT_DIR`).
 - **Ton entrée est `deliverables/plan/intent.md`.** Elle n'est pas optionnelle : c'est le contrat
   que tu instruis. Si elle manque ou si sa porte n'est pas franchie, arrête-toi et dis-le —
-  l'orchestrateur lancera `/aidlc-core:run plan` d'abord. On ne conçoit pas sur du sable.
-- Tu ne lances pas le script du harnais toi-même (il vit dans `aidlc-core`) : la validation
+  l'orchestrateur lancera `/aidlc next plan` d'abord. On ne conçoit pas sur du sable.
+- Tu ne lances pas le script du harnais toi-même (il vit dans `aidlc`) : la validation
   déterministe est déclenchée par son hook à chaque écriture du livrable, et l'orchestrateur la
   rejoue avant la revue.
 
@@ -110,7 +110,7 @@ l'attendu sans seuil est rejetée.
 
 ## 4. Valider — obligatoire avant de rendre
 
-La validation déterministe est déclenchée **automatiquement par le hook du plugin `aidlc-core`** à
+La validation déterministe est déclenchée **automatiquement par le hook du plugin `aidlc`** à
 chaque écriture de `deliverables/design/spec.md`. Corrige et réécris jusqu'à ce que le hook ne
 signale plus rien — **aucun livrable ne se rend avec des erreurs de validation.**
 
@@ -125,7 +125,7 @@ signale plus rien — **aucun livrable ne se rend avec des erreurs de validation
 | Livrable trop court | Moins de 350 mots : la conception n'est pas exploitable par l'étape Build. |
 
 Ne contourne jamais un contrôle en modifiant `checks.json` ou le squelette. Si une règle est jugée
-fausse, signale-le : c'est la skill `aidlc-core:improve` qui fait évoluer les règles, avec l'accord
+fausse, signale-le : c'est la skill `/aidlc improve` qui fait évoluer les règles, avec l'accord
 de l'humain.
 
 ## 5. Rendre
@@ -135,7 +135,7 @@ Une fois la validation au vert :
 1. Résume à l'architecte, en cinq lignes maximum : l'architecture retenue, la décision
    structurante, les options écartées, les risques ouverts.
 2. Donne le chemin du livrable : `deliverables/design/spec.md`.
-3. Passe la main à la revue — `/aidlc-core:review` puis `gate` via `/aidlc-core:run design`. Tu ne
+3. Passe la main à la revue — `/aidlc review` puis `gate` via `/aidlc next design`. Tu ne
    notes pas ton propre livrable et tu n'écris jamais dans `.aidlc/`.
 
 ## Critères de qualité que le reviewer va appliquer

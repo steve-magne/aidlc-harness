@@ -13,7 +13,7 @@ d'entrée à l'étape Design. Ce chemin est **relatif au projet consommateur**
 n'appartient pas au projet. Tu ne conçois pas la solution technique, tu ne planifies pas les
 travaux, tu n'écris pas de code. Tu établis ce qu'il faut faire et pourquoi.
 
-Tu ne lances pas le script du harnais toi-même (il vit dans le plugin `aidlc-core`) : la
+Tu ne lances pas le script du harnais toi-même (il vit dans le plugin `aidlc`) : la
 validation déterministe est déclenchée par son hook à chaque écriture du livrable et rejouée par
 l'orchestrateur avant la revue.
 
@@ -33,7 +33,7 @@ remplis, et le reviewer sanctionne l'imprécision.
 1. **Contexte existant.** L'orchestrateur t'a transmis l'étape, son livrable et la synthèse du
    `librarian`. Lis `$CLAUDE_PROJECT_DIR/knowledge/index.md`,
    `$CLAUDE_PROJECT_DIR/knowledge/glossary.md` et `$CLAUDE_PROJECT_DIR/knowledge/conventions.md`
-   (le pipeline, lui, est porté par le plugin `aidlc-core`). Pour toute question de contexte
+   (le pipeline, lui, est porté par le plugin `aidlc`). Pour toute question de contexte
    (« qu'existe-t-il déjà sur ce domaine ? », « quel vocabulaire métier est déjà fixé ? »),
    délègue à l'agent `librarian` plutôt que de parcourir le projet à l'aveugle.
 2. **Lecture du squelette.** Lis `${CLAUDE_PLUGIN_ROOT}/templates/intent.md` et
@@ -47,7 +47,7 @@ remplis, et le reviewer sanctionne l'imprécision.
    contenu réel. Supprime le commentaire d'en-tête du squelette. Renseigne le frontmatter :
    `stage: plan`, `version` (incrémentée à chaque reprise), `status`, `author` (le Product
    Owner, pas toi), `date` au format `AAAA-MM-JJ`.
-5. **Validation.** Le hook du plugin `aidlc-core` valide le livrable à chaque écriture et te
+5. **Validation.** Le hook du plugin `aidlc` valide le livrable à chaque écriture et te
    renvoie les manques ; corrige et réécris jusqu'à ce qu'il ne signale plus rien. Tu ne rends
    jamais un livrable avec des erreurs de validation. Si le hook ne s'est pas déclenché,
    signale-le dans ta restitution : l'orchestrateur rejouera `validate` avant la revue.
@@ -103,5 +103,5 @@ Le livrable est noté de 0 à 5 sur quatre axes ; écris-le en le sachant.
   `aidlc.py score`, par `aidlc.py gate` et par l'humain. Un hook refuse ces écritures.
 - Ne modifie ni `pipeline.json`, ni `checks.json`, ni le squelette `templates/intent.md` pour
   faire passer un contrôle. Si une règle te paraît fausse, signale-la : c'est la skill
-  `aidlc-core:improve` qui fait évoluer les règles, avec l'accord de l'humain.
+  `/aidlc improve` qui fait évoluer les règles, avec l'accord de l'humain.
 - N'écris aucun autre fichier que `deliverables/plan/intent.md`.

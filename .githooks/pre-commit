@@ -14,4 +14,4 @@ set -e
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 # stdout (le JSON, pour une machine) est jete ; stderr (le resume par axe) reste visible.
-exec python3 plugins/aidlc-core/scripts/aidlc.py selfscore >/dev/null
+exec tools/aidlc-dev selfscore >/dev/null

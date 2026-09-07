@@ -121,7 +121,7 @@ position dans un fichier. `pipeline.json` ne porte que la gouvernance par défau
 contenir de liste d'étapes en dur.
 
 **Plugin** — Unité d'extension Claude Code (`plugins/aidlc-*`), composée d'agents, de skills, de
-templates, de checks et parfois de hooks. `aidlc-core` porte l'infrastructure, `aidlc-<stage>`
+templates, de checks et parfois de hooks. `aidlc` porte l'infrastructure, `aidlc-<stage>`
 porte une étape.
 
 **ponytail** — Marqueur de commentaire `# ponytail: ...` signalant un raccourci assumé dans le
@@ -162,8 +162,13 @@ le diagnostic, l'agent propose le correctif, l'humain l'accepte.
 minimale pour qu'un livrable soit accepté. Le seuil prime sur le verdict du reviewer.
 
 **Skill** — Procédure exécutable décrite dans `skills/<nom>/SKILL.md`. Une skill par étape décrit
-la recette du livrable ; `aidlc-core` en expose huit transverses (`setup`, `run`, `status`,
-`review`, `new-stage`, `improve`, `dispatch`, `knowledge`).
+la recette de son livrable ; `aidlc` n'en expose qu'**une**, `aidlc`, qui route vers un verbe
+(`init`, `next`, `status`, `review`, `sign`, `agents`, `new-agent`, `ask`, `improve`, `doctor`,
+`knowledge`) dont le détail vit dans `skills/aidlc/reference/<verbe>.md`, chargé à la demande.
+
+**Verbe** — Une entrée de la table de routage de la skill `aidlc` : `/aidlc next plan`. Le verbe
+est ce que tape l'utilisateur ; la sous-commande du moteur (`bin/aidlc gate plan`) est la plomberie
+que le verbe appelle, et qu'on ne met jamais en avant.
 
 **Source de vérité** — Fichier qui fait autorité sur un sujet et que l'on ne duplique jamais :
 `agent.json` pour la définition d'une étape (livrable, entrées, contrat), `checks.json` pour les

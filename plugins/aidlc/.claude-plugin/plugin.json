@@ -1,0 +1,16 @@
+{
+  "name": "aidlc",
+  "description": "Harnais agentique d'entreprise pour le AI-native SDLC : une seule porte d'entrée, /aidlc. Compose le workflow d'une initiative avec les agents publiés par les équipes, valide et note chaque livrable, tient les portes de qualité et journalise chaque session.",
+  "version": "0.5.0",
+  "author": {
+    "name": "Steve"
+  },
+  "keywords": [
+    "aidlc",
+    "sdlc",
+    "orchestration",
+    "gouvernance",
+    "maturite",
+    "revue"
+  ]
+}

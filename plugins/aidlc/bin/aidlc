@@ -1,0 +1,22 @@
+#!/bin/sh
+# Lanceur du moteur AI-DLC. C'est ce chemin-ci que citent les hooks, les skills et la
+# documentation : `"${CLAUDE_PLUGIN_ROOT}/bin/aidlc" status`, jamais un interpreteur et
+# un fichier .py. Un consommateur n'a pas a savoir en quoi le moteur est ecrit.
+#
+# uv d'abord quand il est installe : il lit le bloc PEP 723 de scripts/aidlc.py et
+# garantit la version de Python, au lieu de subir le `python3` du systeme. python3
+# ensuite, pour que le harnais tourne sur une machine sans uv. Le moteur est stdlib
+# pure dans les deux cas — aucun paquet n'est resolu ni telecharge.
+#
+# AIDLC_PYTHON force un interpreteur precis et court-circuite les deux.
+set -e
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ENGINE="$DIR/scripts/aidlc.py"
+
+if [ -n "${AIDLC_PYTHON:-}" ]; then
+  exec "$AIDLC_PYTHON" "$ENGINE" "$@"
+fi
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --quiet --script "$ENGINE" "$@"
+fi
+exec python3 "$ENGINE" "$@"

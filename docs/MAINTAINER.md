@@ -38,11 +38,11 @@ Toute la conception d'étape se mène dans **ce dépôt**, qui contient `plugins
 `.claude-plugin/marketplace.json`. Un projet consommateur ne scaffolde pas d'étape : sa copie
 installée du harnais n'a ni `plugins/` ni `marketplace.json` à mettre à jour, et le scaffolder le
 refuse. Le tableau de bord le dit de lui-même : une étape prévue mais non installée propose
-`aidlc.py scaffold <étape>` **ici**, et « à publier par l'équipe \<équipe\> » chez un
+`aidlc scaffold <étape>` **ici**, et « à publier par l'équipe \<équipe\> » chez un
 consommateur — la distinction est déterministe (`maturity.authoring` : le harnais vit-il sous la
 racine du projet ?), pas une consigne de prose.
 
-Symétriquement, `aidlc.py init` est une commande **de consommateur** : elle amorce un projet
+Symétriquement, `aidlc init` est une commande **de consommateur** : elle amorce un projet
 d'accueil (gouvernance `aidlc.json`, `deliverables/`, bundle `knowledge/`, inventaire des sources
 existantes). Vous ne la lancez pas ici, sauf pour reproduire ce que vit une équipe projet.
 
@@ -50,23 +50,23 @@ Deux façons de travailler ici :
 
 ```bash
 # En session Claude Code, plugins chargés depuis le dépôt (mode développement)
-claude --plugin-dir plugins/aidlc-core --plugin-dir plugins/aidlc-plan
+claude --plugin-dir plugins/aidlc --plugin-dir plugins/aidlc-plan
 
 # En ligne de commande pure (le script s'auto-localise depuis la racine du dépôt)
-python3 plugins/aidlc-core/scripts/aidlc.py status
+python3 plugins/aidlc/bin/aidlc status
 ```
 
-Dans une session de développement, le plugin `aidlc-core` est chargé depuis
-`plugins/aidlc-core` : `${CLAUDE_PLUGIN_ROOT}` pointe ce dossier et le pipeline modifié est bien
-celui du dépôt. Garde-fou : la skill `new-stage` vérifie qu'elle travaille dans le dépôt auteur et
+Dans une session de développement, le plugin `aidlc` est chargé depuis
+`plugins/aidlc` : `${CLAUDE_PLUGIN_ROOT}` pointe ce dossier et le pipeline modifié est bien
+celui du dépôt. Garde-fou : la skill `/aidlc new-agent` vérifie qu'elle travaille dans le dépôt auteur et
 s'arrête si on l'appelle depuis une copie installée.
 
 ## 2. Ajouter une nouvelle étape
 
-### 2.1 La voie recommandée : la skill `/aidlc-core:new-stage`
+### 2.1 La voie recommandée : la skill `/aidlc new-agent`
 
 ```
-/aidlc-core:new-stage design
+/aidlc new-agent design
 ```
 
 La skill mène un **entretien de conception** avec le professionnel métier responsable de l'étape
@@ -81,11 +81,11 @@ d'écrasement du scaffolder.
 ### 2.2 La voie directe : `scaffold`
 
 Le scaffolder n'a besoin d'aucune déclaration préalable. Si l'étape figure dans `planned_stages` de
-`plugins/aidlc-core/pipeline.json`, il en reprend le livrable, les entrées, le rôle humain et
+`plugins/aidlc/pipeline.json`, il en reprend le livrable, les entrées, le rôle humain et
 l'équipe pour pré-remplir le manifeste ; sinon il part de zéro et vous complétez `agent.json`.
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py scaffold design
+python3 plugins/aidlc/bin/aidlc scaffold design
 # --force écrase un plugin existant : à n'utiliser que pour tout réécrire, jamais par réflexe
 ```
 
@@ -104,7 +104,7 @@ python3 plugins/aidlc-core/scripts/aidlc.py scaffold design
 **Rien n'est écrit dans le noyau.** Le manifeste est le point clé : il suffit à faire entrer
 l'agent au registre, et le contrat `checks.json` est résolu relativement à lui — donc lu dans votre
 plugin, où qu'il soit installé. C'est pourquoi **publier un agent ne touche ni au pipeline, ni aux
-hooks, ni à `aidlc.py`** : la validation à l'écriture et le garde-fou d'intégrité s'appliquent au
+hooks, ni à `bin/aidlc`** : la validation à l'écriture et le garde-fou d'intégrité s'appliquent au
 nouveau livrable dès que le manifeste le déclare.
 
 ### 2.3bis Publier un agent consultatif (le cas d'une équipe métier)
@@ -124,7 +124,7 @@ sections types, volume minimal 250 mots, motifs interdits `TODO`/`TBD`/…, cita
 l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 
 1. **`plugins/aidlc-<stage>/checks.json`** — d'abord, car il fixe le contrat. N'utilisez que les
-   règles reconnues par le moteur (voir la liste dans le `SKILL.md` de `new-stage`) : la forme se
+   règles reconnues par le moteur (voir la liste dans `skills/aidlc/reference/new-agent.md`) : la forme se
    vérifie ici, le **fond se juge au reviewer**, pas avec une expression régulière. Ce fichier
    n'est pas facultatif : une étape gouvernée sans contrat ne franchit pas sa porte, et le
    bloquant nomme votre équipe. Déclarez-y vos chemins d'entrée **nus**
@@ -135,7 +135,7 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
    du dépôt.
 3. **`skills/<stage>/SKILL.md`** — la recette : questions à poser au métier, structure attendue,
    obligation de citer les entrées, et remise de la validation à l'orchestrateur (le plugin
-   d'étape n'appelle pas `aidlc.py` lui-même).
+   d'étape n'appelle pas `bin/aidlc` lui-même).
 3bis. **`review.md`** — la rubrique de revue de votre équipe : ce que `completeness`, `precision`,
    `traceability` et `autonomy` veulent dire **pour ce métier**, et les fautes rédhibitoires qui
    imposent un rejet quelle que soit la moyenne. Elle précise et durcit la grille universelle du
@@ -153,37 +153,37 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 ```bash
 # 1. Hygiène du dépôt — tout Python compile, tout JSON parse (règles non négociables,
 #    portes du moteur, exit 1 si fichier fautif ; rien n'est écrit)
-python3 plugins/aidlc-core/scripts/aidlc.py check-python
-python3 plugins/aidlc-core/scripts/aidlc.py check-json
+python3 plugins/aidlc/bin/aidlc check-python
+python3 plugins/aidlc/bin/aidlc check-json
 
 # 2. La suite de tests du moteur passe ; elle vérifie aussi la conformité OKF v0.2 des
 #    bundles docs/ et knowledge/ (frontmatter, fichiers réservés, dates du journal)
-python3 plugins/aidlc-core/scripts/aidlc.py test
+python3 plugins/aidlc/bin/aidlc test
 
 # 2ter. La couverture n'a pas baissé (exit 2 = régression)
-python3 plugins/aidlc-core/scripts/aidlc.py coverage
+python3 plugins/aidlc/bin/aidlc coverage
 
 # 2bis. Conformance OKF des bundles de connaissance (exit 1 si non conforme)
-python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
-python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
+python3 plugins/aidlc/bin/aidlc check-okf docs
+python3 plugins/aidlc/bin/aidlc check-okf knowledge
 
 # 2ter. Manifestes ET contrats du dépôt (exit 1) : agent.json valides, et chaque
 #    checks.json cohérent à vide — règle inconnue, regex fautive, section exigée hors
 #    de required_sections, dérive entre le gabarit du plugin et le contrat
-python3 plugins/aidlc-core/scripts/aidlc.py agents --strict
+python3 plugins/aidlc/bin/aidlc agents --strict
 
 # 3. Le plugin de l'étape est valide pour Claude Code (la CI .github/workflows/ci.yml
 #    rejoue la validation sur chaque plugin du dépôt à chaque PR)
-claude plugin validate plugins/aidlc-core
+claude plugin validate plugins/aidlc
 claude plugin validate plugins/aidlc-<stage>
 
 # 4. Le tableau de bord montre l'étape implémentée
-python3 plugins/aidlc-core/scripts/aidlc.py status
+python3 plugins/aidlc/bin/aidlc status
 
 # 5. La porte agrégée : la note de maturité du dépôt tient le seuil et aucun axe ne
 #    passe sous le plancher (exit 2 = bloquant). Elle rejoue les points 1, 2 et 2ter en
 #    une seule mesure et refuse en plus un module du moteur sans test en face.
-python3 plugins/aidlc-core/scripts/aidlc.py selfscore
+python3 plugins/aidlc/bin/aidlc selfscore
 ```
 
 Cette dernière porte est celle du hook local. Activez-la une fois par clone — elle refusera
@@ -197,7 +197,7 @@ git config core.hooksPath .githooks
 Test des contrats **à blanc** : copiez le template vers `deliverables/<stage>/<fichier>` (le dépôt
 sert de projet d'essai), lancez `validate <stage>` et vérifiez qu'il **échoue** — un template non
 rempli doit être rejeté. S'il passe, les checks sont trop lâches. Complétez ensuite un exemplaire
-de bout en bout (`/aidlc-core:run <stage>` avec le métier) et **supprimez le fichier d'essai**
+de bout en bout (`/aidlc next <stage>` avec le métier) et **supprimez le fichier d'essai**
 avant de committer : un livrable d'essai ne se rend pas dans le dépôt.
 
 ## 3. Publier dans le marketplace
@@ -213,21 +213,21 @@ lui, un push ne change rien chez les consommateurs.
 
 | Vous modifiez… | Vous incrémentez la version de… |
 | --- | --- |
-| `plugins/aidlc-core/pipeline.json` (seuil, feuille de route, watchdog) | `plugins/aidlc-core/.claude-plugin/plugin.json` |
-| Les hooks, le script `aidlc.py`, les skills ou agents du noyau | `plugins/aidlc-core/.claude-plugin/plugin.json` |
+| `plugins/aidlc/pipeline.json` (seuil, feuille de route, watchdog) | `plugins/aidlc/.claude-plugin/plugin.json` |
+| Les hooks, le script `bin/aidlc`, les skills ou agents du noyau | `plugins/aidlc/.claude-plugin/plugin.json` |
 | Le contenu d'un plugin d'agent (manifeste, SKILL, agent, template, checks) | `plugins/<nom>/.claude-plugin/plugin.json` |
 
 Exemple : l'ajout de l'étape `design` **ne touche pas au noyau** — vous publiez un nouveau plugin
 en 0.1.0, et c'est tout. Le consommateur qui l'installe le voit apparaître à son tableau de bord ;
 celui qui ne l'installe pas voit une entrée `missing_producers` s'il en dépend. Incrémentez
-`aidlc-core` seulement si vous avez modifié le noyau lui-même.
+`aidlc` seulement si vous avez modifié le noyau lui-même.
 
 ### 3.2 Checklist de publication
 
 1. Les vérifications de la section 2.5 passent (check-python, check-json, test, coverage, `selfscore`, `claude plugin validate`) — `selfscore` rend la note du dépôt : elle doit être au-dessus du seuil, sans axe sous le plancher.
-2. Les versions sont incrémentées pour **tous** les plugins modifiés (`aidlc-core` seulement si
+2. Les versions sont incrémentées pour **tous** les plugins modifiés (`aidlc` seulement si
    le noyau a changé). Le manifeste `agent.json` de chaque agent touché est valide :
-   `python3 plugins/aidlc-core/scripts/aidlc.py agents --strict` (porte CI).
+   `python3 plugins/aidlc/bin/aidlc agents --strict` (porte CI).
 3. `.claude-plugin/marketplace.json` liste chaque plugin d'étape avec un `source` relatif
    (`./plugins/aidlc-<stage>`) — les chemins relatifs sont résolus par rapport à la racine du
    marketplace, donc ils fonctionnent que le consommateur ait ajouté le dépôt par chemin local ou
@@ -250,21 +250,21 @@ jour les plugins (détails dans [CONSUMER.md](CONSUMER.md#8-mises-à-jour-et-dé
 ```bash
 claude plugin marketplace update aidlc        # recharge le catalogue depuis le dépôt
 claude plugin install aidlc-design@aidlc      # une NOUVELLE étape = un nouveau plugin à installer
-claude plugin update aidlc-core               # une étape existante = mettre à jour les plugins concernés
+claude plugin update aidlc               # une étape existante = mettre à jour les plugins concernés
 # puis, dans la session : /reload-plugins (les hooks reprennent la nouvelle copie du plugin)
 ```
 
 Trois conséquences à assumer quand vous annoncez une release :
 
 - **Une nouvelle étape exige une action du consommateur** (installer le plugin, pas seulement
-  mettre à jour le catalogue). Dès qu'il met à jour `aidlc-core`, son pipeline affiche l'étape
-  comme `implemented` — mais tant qu'il n'a pas installé `aidlc-<stage>@aidlc`, `/aidlc-core:run
+  mettre à jour le catalogue). Dès qu'il met à jour `aidlc`, son pipeline affiche l'étape
+  comme `implemented` — mais tant qu'il n'a pas installé `aidlc-<stage>@aidlc`, `/aidlc next
   <stage>` échoue faute de skill : la mise à jour du catalogue ne suffit pas.
 - **Modifier le `checks.json` ou le template d'une étape déjà franchie** chez des consommateurs
   actifs peut rouvrir leur porte au prochain run (la validation rejoue les nouvelles règles sur le
   livrable existant). Annoncez ce type de changement ; l'historique de maturité
   (`.aidlc/maturity.json` des consommateurs) n'est jamais recalculé.
-- **Une évolution des hooks voyage dans `aidlc-core`** et s'active chez le consommateur au
+- **Une évolution des hooks voyage dans `aidlc`** et s'active chez le consommateur au
   prochain reload de plugin — sans action de sa part. Exemples : le hook `PostToolUse`
   `check-okf --touched` (chaque écriture dans `knowledge/`) et le hook `Stop` `check-okf --stop`
   (la fermeture de session est refusée tant que le bundle est non conforme — portée
@@ -276,10 +276,10 @@ Trois conséquences à assumer quand vous annoncez une release :
 
 ## 4. Faire évoluer une étape existante
 
-Une étape `implemented` ne se reconçoit pas via `new-stage` (la skill s'arrête) : elle **s'améliore**.
+Une étape `implemented` ne se reconçoit pas via `/aidlc new-agent` (la skill s'arrête) : elle **s'améliore**.
 
 ```
-/aidlc-core:improve <stage>
+/aidlc improve <stage>
 ```
 
 La boucle d'auto-amélioration agrège les signaux — journaux de sessions, historique de maturité,
@@ -290,9 +290,9 @@ branchés jamais joués, agents publiés que personne n'a branchés, coût par �
 de quoi proposer une évolution de la chaîne et pas seulement d'un plugin.
 
 Quand le signal vient d'un projet consommateur que vous ne maintenez pas, c'est
-`aidlc.py feedback --agent <votre-agent>` qui vous le rend : ses notes, ses axes faibles et les
+`aidlc feedback --agent <votre-agent>` qui vous le rend : ses notes, ses axes faibles et les
 motifs écrits par ses relecteurs. Demandez-le à l'équipe projet — c'est le retour d'usage sur
-lequel une version suivante se conçoit. La skill `/aidlc-core:improve` le lit et **propose** un diff
+lequel une version suivante se conçoit. La skill `/aidlc improve` le lit et **propose** un diff
 sur le `SKILL.md`, le template ou le `checks.json` de l'étape faible ; elle ne l'applique jamais
 sans accord humain explicite, et elle corrige la **source** (ce dépôt), jamais une copie installée.
 
@@ -305,30 +305,30 @@ pousser, annoncer aux consommateurs (`claude plugin update`).
 Depuis la racine du dépôt :
 
 ```bash
-python3 plugins/aidlc-core/scripts/aidlc.py status                 # tableau de bord
-python3 plugins/aidlc-core/scripts/aidlc.py status --history       # journal de passage : qui a produit, noté et signé quoi
-python3 plugins/aidlc-core/scripts/aidlc.py workflow               # ce qui compose la chaîne, et ce qui est publié sans être branché
-python3 plugins/aidlc-core/scripts/aidlc.py feedback --agent <id>  # ce qu'un projet a mesuré sur un agent
-python3 plugins/aidlc-core/scripts/aidlc.py agents --strict        # manifestes + contrats du dépôt (exit 1 si incohérent)
-python3 plugins/aidlc-core/scripts/aidlc.py check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
-python3 plugins/aidlc-core/scripts/aidlc.py check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
-python3 plugins/aidlc-core/scripts/aidlc.py check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)
-python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage>       # génère le plugin d'une étape planned
-python3 plugins/aidlc-core/scripts/aidlc.py init                   # (côté consommateur) amorce un projet d'accueil
-python3 plugins/aidlc-core/scripts/aidlc.py scaffold <stage> --force   # écrase et régénère
-python3 plugins/aidlc-core/scripts/aidlc.py ratchet                # fige les planchers de sévérité des checks.json (exit 2 = régression)
-python3 plugins/aidlc-core/scripts/aidlc.py ratchet --reset <stage>  # repart du contrat courant après décision humaine
-python3 plugins/aidlc-core/scripts/aidlc.py watchdog                # détecteurs de stagnation sur les journaux (exit 2 = halte)
-python3 plugins/aidlc-core/scripts/aidlc.py test                   # suite de tests (doit passer avant chaque release)
-python3 plugins/aidlc-core/scripts/aidlc.py coverage               # non-régression de couverture (exit 2 = baisse)
-python3 plugins/aidlc-core/scripts/aidlc.py selfscore              # note de maturité du dépôt, cinq axes (exit 2 = sous le seuil)
+python3 plugins/aidlc/bin/aidlc status                 # tableau de bord
+python3 plugins/aidlc/bin/aidlc status --history       # journal de passage : qui a produit, noté et signé quoi
+python3 plugins/aidlc/bin/aidlc workflow               # ce qui compose la chaîne, et ce qui est publié sans être branché
+python3 plugins/aidlc/bin/aidlc feedback --agent <id>  # ce qu'un projet a mesuré sur un agent
+python3 plugins/aidlc/bin/aidlc agents --strict        # manifestes + contrats du dépôt (exit 1 si incohérent)
+python3 plugins/aidlc/bin/aidlc check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
+python3 plugins/aidlc/bin/aidlc check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
+python3 plugins/aidlc/bin/aidlc check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)
+python3 plugins/aidlc/bin/aidlc scaffold <stage>       # génère le plugin d'une étape planned
+python3 plugins/aidlc/bin/aidlc init                   # (côté consommateur) amorce un projet d'accueil
+python3 plugins/aidlc/bin/aidlc scaffold <stage> --force   # écrase et régénère
+python3 plugins/aidlc/bin/aidlc ratchet                # fige les planchers de sévérité des checks.json (exit 2 = régression)
+python3 plugins/aidlc/bin/aidlc ratchet --reset <stage>  # repart du contrat courant après décision humaine
+python3 plugins/aidlc/bin/aidlc watchdog                # détecteurs de stagnation sur les journaux (exit 2 = halte)
+python3 plugins/aidlc/bin/aidlc test                   # suite de tests (doit passer avant chaque release)
+python3 plugins/aidlc/bin/aidlc coverage               # non-régression de couverture (exit 2 = baisse)
+python3 plugins/aidlc/bin/aidlc selfscore              # note de maturité du dépôt, cinq axes (exit 2 = sous le seuil)
 git config core.hooksPath .githooks                                # une fois par clone : selfscore devient une porte pre-commit
-claude plugin validate plugins/aidlc-core                          # validité des plugins pour Claude Code
+claude plugin validate plugins/aidlc                          # validité des plugins pour Claude Code
 claude plugin validate plugins/aidlc-<stage>
 ```
 
 Règles non négociables rappelées par [CLAUDE.md](../CLAUDE.md) : un livrable = un fichier de
 `deliverables/` chez le consommateur ; toute logique déterministe vit sous
-`plugins/aidlc-core/scripts/` (`aidlc.py` + paquet `_aidlc/`, jamais de second point d'entrée,
+`plugins/aidlc/scripts/` (`bin/aidlc` + paquet `_aidlc/`, jamais de second point d'entrée,
 jamais de logique dans un hook) ; une nouvelle vérification s'exprime d'abord dans
 un `checks.json` ; aucune dépendance externe ; aucun placeholder non résolu hors des `templates/`.

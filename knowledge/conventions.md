@@ -73,7 +73,7 @@ sépare un 4 d'un 3.
 3. **Mettre à jour `knowledge/index.md`** (une entrée par concept) et **`knowledge/log.md`**
    (une entrée datée).
 4. **Vérifier la forme** : le frontmatter s'ouvre par `---`, se ferme par `---`, contient un
-   `type` non vide. En session Claude Code, les hooks du plugin `aidlc-core` contrôlent le
+   `type` non vide. En session Claude Code, les hooks du plugin `aidlc` contrôlent le
    bundle : `check-okf --touched` à chaque écriture (retour immédiat en contexte, et
    journalisation de l'écriture fautive — session, fichier — pour le diagnostic `improve`) et
    `check-okf --stop` à la fermeture — l'arrêt est refusé tant que le bundle est non conforme en
@@ -105,7 +105,7 @@ vivent hors du bundle :
 
 - [CLAUDE.md](../CLAUDE.md) — les conventions lues par tout agent du dépôt ;[^claude-md]
 - le bundle [docs/](../docs/index.md) — architecture, guide consommateur, guide mainteneur ;
-- `plugins/aidlc-core/pipeline.json` — la gouvernance par défaut du harnais : seuils, `watchdog`,
+- `plugins/aidlc/pipeline.json` — la gouvernance par défaut du harnais : seuils, `watchdog`,
   et `planned_stages` (feuille de route consultative) — installée avec le plugin ;
 - l'`aidlc.json` du projet — sa gouvernance à lui, qui recouvre la précédente : son exigence, son
   workflow (`agents`) et le nom de son initiative, écrits par `aidlc.py workflow` ;
