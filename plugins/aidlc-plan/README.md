@@ -13,7 +13,7 @@ Le livrable `deliverables/plan/intent.md` est produit **dans le projet consommat
 squelette (`templates/`), le contrat (`checks.json`) et l'agent/skill de ce plugin restent dans le
 plugin, où le harnais les lit — le manifeste `agent.json` de ce plugin déclare l'agent au registre
 et désigne son contrat. Les skills et agents de ce plugin ne lancent pas le script du harnais : la validation
-est déclenchée par le hook de `aidlc-core` à chaque écriture et rejouée par l'orchestrateur.
+est déclenchée par le hook de `aidlc` à chaque écriture et rejouée par l'orchestrateur.
 
 ## Ce que fait ce plugin
 
@@ -22,10 +22,10 @@ est déclenchée par le hook de `aidlc-core` à chaque écriture et rejouée par
 - **Produit l'unique livrable de l'étape** : `deliverables/plan/intent.md` **dans le projet
   consommateur**, l'*intention produit* (ce qu'il faut faire et pourquoi — jamais le comment
   technique, qui appartient à l'étape Design).
-- **Fait valider le livrable de façon déterministe** par le harnais (hook de `aidlc-core` à
+- **Fait valider le livrable de façon déterministe** par le harnais (hook de `aidlc` à
   chaque écriture, puis `validate plan` rejoué par l'orchestrateur) contre son `checks.json`.
-- **Passe la main** à la revue de maturité (agent `reviewer` de `aidlc-core`) puis à la porte
-  (`gate`) via `/aidlc-core:run plan`.
+- **Passe la main** à la revue de maturité (agent `reviewer` de `aidlc`) puis à la porte
+  (`gate`) via `/aidlc next plan`.
 
 ## Place dans le pipeline
 
@@ -56,7 +56,7 @@ plugins/aidlc-plan/
 
 ## Déroulé d'un run
 
-Le plugin est déclenché par l'orchestrateur (`/aidlc-core:run plan`), qui invoque la skill
+Le plugin est déclenché par l'orchestrateur (`/aidlc next plan`), qui invoque la skill
 `aidlc-plan:plan`. Déroulé type :
 
 1. **Contexte** — l'analyste lit le squelette `${CLAUDE_PLUGIN_ROOT}/templates/intent.md`, le
@@ -76,13 +76,13 @@ Le plugin est déclenché par l'orchestrateur (`/aidlc-core:run plan`), qui invo
    conserve les huit titres de section **au caractère près** (comparés littéralement par le
    contrôle automatique) et renseigne le frontmatter (`stage: plan`, `version`, `status`,
    `author` = le Product Owner, `date` AAAA-MM-JJ).
-4. **Validation** — déclenchée par le hook de `aidlc-core` à chaque écriture (corrigé jusqu'à ce
-   qu'il ne signale plus rien), rejouée par l'orchestrateur (`/aidlc-core:run plan`) avant la
+4. **Validation** — déclenchée par le hook de `aidlc` à chaque écriture (corrigé jusqu'à ce
+   qu'il ne signale plus rien), rejouée par l'orchestrateur (`/aidlc next plan`) avant la
    revue. Aucun livrable ne se rend avec des erreurs de validation ; on ne contourne jamais un
    contrôle en éditant `checks.json` ou le squelette.
 5. **Restitution** — résumé en cinq lignes au Product Owner (problème retenu, bénéfice visé,
    critères d'acceptation, hypothèses ouvertes), chemin du livrable (relatif au projet), puis
-   passage à la revue : `/aidlc-core:review plan` puis `gate`.
+   passage à la revue : `/aidlc review plan` puis `gate`.
 
 ## `checks.json` — le contrat déterministe
 
@@ -102,7 +102,7 @@ Le contrôle vérifie la **forme** ; le jugement du fond appartient au reviewer.
 
 ## La grille de maturité appliquée ensuite
 
-Le reviewer de `aidlc-core` note le livrable de 0 à 5 sur quatre axes, chaque note justifiée par
+Le reviewer de `aidlc` note le livrable de 0 à 5 sur quatre axes, chaque note justifiée par
 une citation. Pour l'étape Plan :
 
 | Axe | Ce qui est vérifié |
@@ -122,11 +122,11 @@ Le seuil de passage est `maturity_threshold` (4.0) dans `pipeline.json`.
 - Toute affirmation quantifiée cite sa source dans `## Sources et références`.
 - Aucune solution technique dans ce livrable (pas de composant, de schéma, de bibliothèque).
 
-## Relations avec `aidlc-core`
+## Relations avec `aidlc`
 
 Ce plugin n'embarque aucune logique : tout le déterminisme est dans
-`${CLAUDE_PLUGIN_ROOT}/../aidlc-core/scripts/aidlc.py` une fois installé (en dépôt auteur :
-`plugins/aidlc-core/scripts/aidlc.py`), et le pilotage dans les skills/agents de `aidlc-core`.
+`${CLAUDE_PLUGIN_ROOT}/../aidlc/scripts/aidlc.py` une fois installé (en dépôt auteur :
+`plugins/aidlc/scripts/aidlc.py`), et le pilotage dans les skills/agents de `aidlc`.
 `aidlc-plan` apporte uniquement le **métier** de l'étape : la recette du dialogue (`SKILL.md`),
 le profil de l'interlocuteur pour l'humain (`plan-analyst.md`), le squelette du livrable
 (`templates/intent.md`), le contrat de forme (`checks.json`) et le manifeste `agent.json` qui les

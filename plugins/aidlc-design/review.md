@@ -1,7 +1,7 @@
 # Rubrique de revue — étape Design
 
 Ce fichier appartient à l'équipe **Architecture**. Il ne remplace pas la grille universelle du
-reviewer (`aidlc-core`) : il dit ce que chaque axe veut dire **pour une conception cible**, et
+reviewer (`aidlc`) : il dit ce que chaque axe veut dire **pour une conception cible**, et
 quelles fautes de ce métier sont rédhibitoires. Le barème (0-5), le calcul de la note globale, le
 plancher par axe et l'enregistrement restent au noyau — cette équipe ne note pas sa propre copie.
 

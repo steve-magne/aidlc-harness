@@ -5,24 +5,24 @@
   },
   "plugins": [
     {
-      "name": "aidlc-core",
-      "source": "./plugins/aidlc-core",
-      "description": "Noyau du harness AI-DLC : orchestrateur, reviewer, librarian, script deterministe aidlc.py, composition du workflow par initiative, hooks de journalisation et de garde-fous."
+      "name": "aidlc",
+      "source": "./plugins/aidlc",
+      "description": "LE PLUGIN À INSTALLER. Harnais AI-DLC complet : une seule porte d'entrée, /aidlc. Amorce le projet, compose le workflow de l'initiative, exécute chaque étape, note les livrables, tient les portes de qualité et journalise les sessions. Les trois plugins suivants sont des exemples d'agents d'équipe : à installer pour essayer le harnais ou à copier pour écrire le vôtre, jamais requis."
     },
     {
       "name": "aidlc-plan",
       "source": "./plugins/aidlc-plan",
-      "description": "Etape Plan du SDLC : dialogue avec le Product Owner et production du livrable deliverables/plan/intent.md valide par checks.json."
-    },
-    {
-      "name": "aidlc-security",
-      "source": "./plugins/aidlc-security",
-      "description": "Agent de revue de securite de l'equipe AppSec : exemple de reference d'un agent d'equipe integre au registre AI-DLC par son manifeste agent.json, sans modifier le noyau."
+      "description": "EXEMPLE — agent d'étape en tête de chaîne. Produit deliverables/plan/intent.md et ne consomme rien : le modèle à copier pour un agent qui ouvre un workflow."
     },
     {
       "name": "aidlc-design",
       "source": "./plugins/aidlc-design",
-      "description": "Etape Design du pipeline AI-DLC : produit deliverables/design/spec.md."
+      "description": "EXEMPLE — agent d'étape aval. Consomme le livrable de plan et produit deliverables/design/spec.md : le modèle à copier pour montrer comment se déclare un chaînage producteur → consommateur."
+    },
+    {
+      "name": "aidlc-security",
+      "source": "./plugins/aidlc-security",
+      "description": "EXEMPLE — agent consultatif. Aucun `produces` dans son manifeste : invocable pour un avis, jamais noté ni soumis à une porte. Le modèle à copier pour l'agent d'une équipe transverse."
     }
   ]
 }

@@ -21,7 +21,7 @@ Neuf schémas pour comprendre le fonctionnement sans lire une ligne de code. Cha
 ```
 ┌── LE HARNAIS  (${CLAUDE_PLUGIN_ROOT}) ─────────────────────────────────┐
 │                                                                        │
-│   aidlc-core       pipeline.json  seuils, watchdog, feuille de route   │
+│   aidlc       pipeline.json  seuils, watchdog, feuille de route   │
 │                    scripts/       le moteur, stdlib uniquement         │
 │                    hooks/         branchés sur la session              │
 │                    agents/ skills/                                     │
@@ -51,7 +51,7 @@ Neuf schémas pour comprendre le fonctionnement sans lire une ligne de code. Cha
 ```
 
 Un projet consommateur **installe** le harnais et n'y touche plus : les plugins sont en lecture
-seule, tout ce qui est produit atterrit dans le projet. `aidlc.py` résout les deux racines seul.
+seule, tout ce qui est produit atterrit dans le projet. `bin/aidlc` résout les deux racines seul.
 Quand le dépôt du harnais sert de projet d'essai, les deux se confondent — d'où la présence de
 `deliverables/` et `.aidlc/` à sa racine.
 
@@ -62,10 +62,10 @@ Quand le dépôt du harnais sert de projet d'essai, les deux se confondent — d
 **La question :** que se passe-t-il entre « lance l'étape » et « l'étape est franchie » ?
 
 ```
-  vous                 les agents                   le moteur (aidlc.py)
+  vous                 les agents                   le moteur (bin/aidlc)
   ────                 ──────────                   ────────────────────
 
-  /aidlc-core:run plan
+  /aidlc next plan
         │
         ├──── orchestrateur ─────────────────────►  status
         │       « quelle étape, qu'est-ce qui bloque »
@@ -129,7 +129,7 @@ Cinq pièges fréquents, dans l'ordre où on les rencontre :
   revue : la note ne porte plus sur ce qui est là. Il faut refaire noter. (À ne pas confondre avec
   la condition de présence ci-dessus : l'une regarde l'existence, l'autre le contenu jugé.)
 - **`revue humaine signée`** — exigée tant que l'étape n'est pas autonome, et apposée par
-  `aidlc.py sign <stage> --approve --by … --why …` **depuis un terminal humain**. Après **3 runs
+  `aidlc sign <stage> --approve --by … --why …` **depuis un terminal humain**. Après **3 runs
   consécutifs** au-dessus du seuil et approuvés, l'étape passe `autonomous` et la signature n'est
   plus demandée à chaque passage.
 
@@ -148,7 +148,7 @@ Cinq pièges fréquents, dans l'ordre où on les rencontre :
                     ▼
           ┌───────────────────┐
           │     REGISTRE      │  id · team · capabilities · version · invocation
-          │  (aidlc.py agents)│  produces · consumes · checks · review · human_role
+          │  (aidlc agents)│  produces · consumes · checks · review · human_role
           └───────────────────┘
                     │
           ┌─────────┴──────────┐
@@ -163,7 +163,7 @@ Cinq pièges fréquents, dans l'ordre où on les rencontre :
 
 **Le noyau ne tient aucune liste.** Publier un agent, c'est publier un plugin avec son manifeste —
 le noyau n'est jamais modifié. C'est la condition de la modularité : chaque équipe maintient son
-agent dans son dépôt, et `/aidlc-core:dispatch` mobilise les agents consultatifs par capacité.
+agent dans son dépôt, et `/aidlc ask` mobilise les agents consultatifs par capacité.
 
 **Découvert n'est pas branché.** Le projet retient ce qu'il joue, dans la clé `agents` de son
 `aidlc.json`, et l'écart se dit dans les deux sens :
@@ -176,12 +176,12 @@ agent dans son dépôt, et `/aidlc-core:dispatch` mobilise les agents consultati
                                                    ✗──── test    déclaré, plugin absent
                       │                                    │
                       ▼                                    ▼
-        « aidlc.py workflow --add build »     « installez le plugin de l'équipe »
+        « aidlc workflow --add build »     « installez le plugin de l'équipe »
 ```
 
 Les deux lignes remontent sous le tableau de bord. Taire l'une ou l'autre ferait rétrécir le
 pipeline en silence — une équipe publie son agent et ne voit rien, ou un id mal orthographié
-disparaît sans un mot. `aidlc.py workflow` est la seule commande qui écrit cette liste.
+disparaît sans un mot. `aidlc workflow` est la seule commande qui écrit cette liste.
 
 ---
 
@@ -270,12 +270,12 @@ une gêne à contourner : un agent évolue dans le dépôt de son équipe.
                        │                 │       + .aidlc/logs/
    halte du watchdog  ─┘                 │       + .aidlc/maturity.json
    (stagnation)                          ▼
-                                   aidlc.py improve
+                                   aidlc improve
                                    diagnostic JSON : la faiblesse, la session
                                    fautive, le correctif candidat
                                           │
                                           ▼
-                                   /aidlc-core:improve
+                                   /aidlc improve
                                    PROPOSE un diff sur le SKILL.md, le template,
                                    le checks.json ou le concept fautif
                                           │
@@ -311,7 +311,7 @@ les scores — antidater une expérience reviendrait à se noter soi-même.
 
 ```
    hooks   ─┐
-   skills  ─┼──►  scripts/aidlc.py   ──►  _aidlc/   util · checks · maturity · registry
+   skills  ─┼──►  bin/aidlc   ──►  _aidlc/   util · checks · maturity · registry
    CLI     ─┘     le point d'entrée         │       scaffold · improve · experiment · okf
                   unique et stable          │       hookslog · knowledge · syntax · ratchet
                                             │       watchdog · coverage · commands · cli

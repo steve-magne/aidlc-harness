@@ -22,8 +22,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: aidlc.py test
-        run: python3 plugins/aidlc-core/scripts/aidlc.py test
+      - name: Suite du moteur
+        run: python3 tools/aidlc-dev.py test
 
   checks:
     name: Gates du harnais
@@ -41,14 +41,14 @@ jobs:
       # tourne dans le job `tests`, sur plusieurs versions de Python.
       - name: Hygiène syntaxique (check-python, check-json)
         run: |
-          python3 plugins/aidlc-core/scripts/aidlc.py check-python
-          python3 plugins/aidlc-core/scripts/aidlc.py check-json
+          plugins/aidlc/bin/aidlc check-python
+          plugins/aidlc/bin/aidlc check-json
       - name: Registre d'agents (agents --strict)
-        run: python3 plugins/aidlc-core/scripts/aidlc.py agents --strict
+        run: plugins/aidlc/bin/aidlc agents --strict
       - name: Conformance OKF v0.2 de knowledge/
-        run: python3 plugins/aidlc-core/scripts/aidlc.py check-okf knowledge
+        run: plugins/aidlc/bin/aidlc check-okf knowledge
       - name: Conformance OKF v0.2 de docs/
-        run: python3 plugins/aidlc-core/scripts/aidlc.py check-okf docs
+        run: plugins/aidlc/bin/aidlc check-okf docs
 
       # La porte agrégée : cinq axes déterministes notés sur 5 (hygiène, contrats
       # d'agents, suite + règle « un module, un test en face », couverture confrontée au
@@ -62,15 +62,15 @@ jobs:
       # version à l'autre (branches conditionnelles), et comparer un plancher unique à
       # plusieurs mesures produirait de fausses régressions.
       - name: Score de maturité du harnais (selfscore)
-        run: python3 plugins/aidlc-core/scripts/aidlc.py selfscore
+        run: python3 tools/aidlc-dev.py selfscore
 
-      # Chaque plugin du dépôt (aidlc-core, aidlc-plan, et toute étape scaffoldée plus
+      # Chaque plugin du dépôt (aidlc, ses exemples, et toute étape scaffoldée plus
       # tard) reste valide pour Claude Code : manifest, hooks et chemins réels. Le CLI
       # est un outil de build du runner (npm), pas une dépendance du moteur — tout le
       # reste du workflow reste stdlib Python.
       - name: Validation des plugins Claude Code
         run: |
           npm install -g @anthropic-ai/claude-code
-          for plugin in plugins/aidlc-*; do
+          for plugin in plugins/aidlc plugins/aidlc-*; do
             claude plugin validate "$plugin"
           done

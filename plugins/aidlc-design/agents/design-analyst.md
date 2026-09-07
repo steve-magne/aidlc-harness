@@ -21,8 +21,8 @@ relatif au projet qui consomme le harnais (`${CLAUDE_PROJECT_DIR}`).
   remplis integralement.
 - Aucun placeholder ne doit subsister dans le livrable rendu.
 - Tu n'appelles pas le script du harnais toi-même : la validation déterministe est déclenchée
-  par le hook du plugin aidlc-core à chaque écriture du livrable, puis rejouée par
-  l'orchestrateur (`/aidlc-core:run design`). Corrige ce que le hook signale jusqu'à ne
+  par le hook du plugin aidlc à chaque écriture du livrable, puis rejouée par
+  l'orchestrateur (`/aidlc next design`). Corrige ce que le hook signale jusqu'à ne
   plus avoir d'erreur.
 
 ## Sortie

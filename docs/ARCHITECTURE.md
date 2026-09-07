@@ -24,7 +24,7 @@ versionné dans **le projet qui consomme le harnais** (pas dans le dépôt du ha
 l'entrée de l'agent suivant.
 
 Le dépôt `aidlc-harness` est distribué comme un **marketplace de plugins Claude Code**. Il
-distingue deux racines : le **harnais** (`plugins/aidlc-core/` : `pipeline.json`, contrats,
+distingue deux racines : le **harnais** (`plugins/aidlc/` : `pipeline.json`, contrats,
 script, hooks — installé dans le cache de Claude Code, désigné par `CLAUDE_PLUGIN_ROOT`) et le
 **projet consommateur** (`CLAUDE_PROJECT_DIR` : `deliverables/`, `.aidlc/`, `knowledge/`). Quand
 le dépôt sert de projet d'essai, les deux racines se confondent.
@@ -93,7 +93,7 @@ porte de qualité, ratchet. Un seul concept, un champ qui bascule.
 ### 2.2 La découverte
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc.py" agents --json
+"${CLAUDE_PLUGIN_ROOT}/bin/aidlc" agents --json
 ```
 
 Trois sources, par ordre de précédence :
@@ -129,7 +129,7 @@ Owner cadre, l'architecte d'entreprise instruit. Les quatre autres figurent dans
 de `pipeline.json` — une **feuille de route consultative**,
 affichée par `status` et utilisée pour pré-remplir le scaffold, qui n'exécute rien et n'oblige à
 rien : un agent peut naître sans y figurer. Elles se matérialisent à la demande via
-`aidlc.py scaffold <stage>`, piloté par la skill `/aidlc-core:new-stage`.
+`aidlc scaffold <stage>`, piloté par la skill `/aidlc new-agent`.
 
 Le dépôt livre aussi `plugins/aidlc-security/` : un agent **consultatif** de l'équipe AppSec, qui
 sert d'exemple de référence à toute équipe voulant publier le sien.
@@ -237,7 +237,7 @@ empreintes ne périme rien, par compatibilité ascendante.
 
 ### 3.1 `pipeline.json` — la gouvernance, et rien d'autre
 
-Fichier unique installé avec le plugin noyau : `plugins/aidlc-core/pipeline.json` (dans la copie
+Fichier unique installé avec le plugin noyau : `plugins/aidlc/pipeline.json` (dans la copie
 installée, il est résolu via `CLAUDE_PLUGIN_ROOT` ou par auto-localisation du script).
 
 **Il ne contient plus aucun registre d'étapes.** « Quels agents existent » se lit dans les
@@ -277,7 +277,7 @@ un agent découvert absent de la liste est une équipe qui a publié et que pers
 revient à prendre tous les agents découverts.
 
 Ni un agent ni un humain n'édite ce fichier à la main : le hook `PreToolUse` refuse l'écriture d'un
-agent (il n'abaisse pas le mètre qui le juge, ni ne se retire du pipeline), et `aidlc.py workflow`
+agent (il n'abaisse pas le mètre qui le juge, ni ne se retire du pipeline), et `aidlc workflow`
 est la seule commande qui écrit `agents` et `initiative`. Elle valide ce qu'elle écrit — refus d'un
 identifiant qu'aucun manifeste ne porte, préservation des clés étrangères du fichier, avertissement
 quand un retrait casse la chaîne producteur → consommateur, refus d'un nom d'initiative qui
@@ -310,7 +310,7 @@ Absente, rien ne change : un projet qui ne mène qu'une idée reste à plat, et 
 le comportement correct. Changer d'initiative ne déplace aucun fichier : ceux de la précédente
 restent où ils sont, et `status --history` continue de les raconter.
 
-`aidlc.py init` pose ce fichier, ainsi que `deliverables/`, le bundle `knowledge/` et un concept
+`aidlc init` pose ce fichier, ainsi que `deliverables/`, le bundle `knowledge/` et un concept
 `sources/projet-existant.md` — l'inventaire déterministe des README, manifestes de dépendances et
 documents de `docs/` déjà présents dans le dépôt d'accueil. Le harnais suppose un projet qui
 existe ; sans cet amorçage, la première étape s'ouvrait sur un entretien à froid et le `librarian`
@@ -319,7 +319,7 @@ le sens reste à l'humain et aux agents. Elle ne remplace jamais un fichier exis
 
 Aucun composant ne doit contenir une liste d'agents en dur — ni ce fichier, ni le moteur, ni un
 prompt. Tout ce qui a besoin de savoir quels agents existent interroge le registre
-(`aidlc.py agents`, module `_aidlc/registry.py`).
+(`aidlc agents`, module `_aidlc/registry.py`).
 
 ### 3.2 `checks.json` — validation déclarative
 
@@ -367,7 +367,7 @@ fichier n'était jusqu'ici ouvert qu'au moment de valider un livrable — une r�
 regex fautive ou une section mal orthographiée y restaient donc invisibles jusqu'à rendre le
 contrat **insatisfiable en pleine session** : l'agent corrige, revalide, et n'y arrive jamais.
 
-`aidlc.py agents` contrôle désormais chaque contrat **avant tout livrable**, et remonte sous
+`aidlc agents` contrôle désormais chaque contrat **avant tout livrable**, et remonte sous
 `contract_problems` (préfixe `[contrat]` en sortie humaine, également dans `status`) :
 
 - une clé de règle inconnue — elle ne sera jamais appliquée ;
@@ -387,9 +387,9 @@ La sévérité est la même que pour les manifestes : `agents --strict` (porte C
 les contrats **de ce dépôt** — la CI d'un consommateur n'échoue pas sur le contrat cassé d'une
 direction voisine, elle l'affiche.
 
-### 3.3 `plugins/aidlc-core/scripts/` — la seule logique déterministe
+### 3.3 `plugins/aidlc/scripts/` — la seule logique déterministe
 
-Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'entrée `aidlc.py`
+Bibliothèque standard Python uniquement, sans dépendance externe. Le point d'entrée `bin/aidlc`
 (chemin stable utilisé par les hooks et les skills) délègue au paquet `_aidlc/` du même
 répertoire, un module par concern — `util` (racines et IO), `checks` (validation des livrables),
 `maturity` (scores, porte amont, porte, revue, signature), `scaffold`, `init` (amorçage d'un
@@ -448,7 +448,7 @@ de fichier hors de `scripts/`.
 
 ### 3.4 Les hooks
 
-Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des sessions Claude Code.
+Les hooks du plugin `aidlc` branchent le script sur le cycle de vie des sessions Claude Code.
 
 - `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop` et `SessionEnd` appellent
   `log`. C'est la matière première de l'axe *autonomy* et du diagnostic `improve` : on sait
@@ -494,7 +494,7 @@ Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des ses
   `check-json` (exit 1) en ligne de commande et en CI.
 - `PostToolUse` sur `Write|Edit` appelle aussi `watchdog-touched` : un diagnostic de stagnation
   non bloquant, muet sans détection. Le watchdog n'interrompt jamais une session qui travaille ;
-  il enregistre la halte dans la file d'amelioration, et la commande `aidlc.py watchdog` (ou la
+  il enregistre la halte dans la file d'amelioration, et la commande `aidlc watchdog` (ou la
   CI) la rend visible avec exit 2.
 - `PreToolUse` sur `Write|Edit` appelle `guard`. Il refuse catégoriquement qu'un agent écrive
   dans `.aidlc/maturity.json`, dans `.aidlc/reviews/*.json`, dans `.aidlc/ratchet.json`, dans
@@ -518,29 +518,46 @@ Les hooks du plugin `aidlc-core` branchent le script sur le cycle de vie des ses
 Le journal est écrit sans jamais interrompre la session. Un hook qui casse une session coûte plus
 cher que l'absence de trace.
 
-### 3.5 Les agents de `aidlc-core`
+### 3.5 Les agents de `aidlc`
 
 - **`orchestrator`** — pilote le pipeline. Il lit `pipeline.json`, détermine l'étape courante via
-  `aidlc.py status`, lance la skill de l'étape, déclenche le reviewer, puis `aidlc.py gate`. Il
+  `aidlc status`, lance la skill de l'étape, déclenche le reviewer, puis `aidlc gate`. Il
   ne rédige jamais un livrable lui-même : il délègue systématiquement à l'agent d'étape.
 - **`reviewer`** — note le livrable sur les quatre axes de la grille de maturité, émet un verdict,
-  écrit un `review.json` et appelle `aidlc.py score`. Il doit justifier chaque note par une
+  écrit un `review.json` et appelle `aidlc score`. Il doit justifier chaque note par une
   citation du livrable. Il n'a pas le droit d'écrire dans `.aidlc/`.
 - **`librarian`** — sert la base de connaissance, un bundle OKF v0.2. Il répond à la question
   « quel contexte pour l'étape X » en lisant les concepts de `knowledge/` (filtrés par leur champ
   `stages`), le glossaire et les livrables amont. Lecture seule en dehors de `knowledge/`.
 
-### 3.6 Les skills
+### 3.6 La skill routeur
 
-`aidlc-core` expose sept skills : `run` (exécuter une étape de bout en bout), `status` (tableau de
-bord), `review` (déclencher le reviewer), `new-stage` (concevoir une nouvelle étape en dialogue
-avec le métier puis la générer), `improve` (analyser le diagnostic et proposer un correctif),
-`dispatch` (mobiliser les agents consultatifs par capacité et synthétiser leurs avis) et
-`knowledge` (consulter les bundles OKF distants déclarés : sommaire, recherche, puis un concept).
+`aidlc` expose **une seule skill**, `aidlc`, et c'est la porte d'entrée de tout le harnais. Son
+`SKILL.md` ne contient qu'une table de routage — onze verbes, une ligne chacun ; le détail de
+chaque verbe vit dans `skills/aidlc/reference/<verbe>.md` et n'est chargé que lorsque ce verbe est
+choisi.
+
+| Verbe | Ce qu'il fait |
+| --- | --- |
+| `init` | amorcer le projet et composer le workflow de l'initiative |
+| `next` | exécuter une étape de bout en bout |
+| `status` | tableau de bord du pipeline |
+| `review` · `sign` | déclencher le reviewer · préparer la revue humaine |
+| `agents` | qui est publié, qui est branché, comment brancher |
+| `new-agent` | concevoir une étape avec le métier, puis la générer |
+| `ask` | mobiliser les agents consultatifs par capacité et synthétiser leurs avis |
+| `improve` · `doctor` | diagnostiquer une étape qui stagne · la dérive d'installation |
+| `knowledge` | consulter les bundles OKF déclarés |
+
+Le découpage n'est pas cosmétique : huit skills concurrentes obligeaient l'agent à arbitrer entre
+huit descriptions qui se recouvraient, et chargeaient un fichier entier pour une question de
+routage. Une table courte plus des références à la demande — c'est le motif *progressive
+disclosure*. La contrepartie est tenue par un test : un verbe qui cite une référence absente est
+une impasse silencieuse, une référence que rien ne cite est du travail que personne n'atteindra.
 
 Chaque plugin d'étape expose une skill du même nom que l'étape : elle contient la recette de
 rédaction du livrable, les questions à poser à l'humain, et l'obligation de lancer
-`aidlc.py validate <stage>` avant de rendre.
+`aidlc validate <stage>` avant de rendre.
 
 ### 3.7 `knowledge/` — la base de connaissance
 
@@ -605,7 +622,7 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
         ^                                       |
         |                (2) hook PostToolUse   |
         |     retour immédiat des manques       v
-        +---------------------------- aidlc.py validate  <-- checks.json
+        +---------------------------- aidlc validate  <-- checks.json
                                                 |
                                         ok ? ---+--- non --> l'agent corrige
                                                 |
@@ -618,12 +635,12 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
                                                 |  review.json
                                                 v
                                      +---------------------+
-                                     |   aidlc.py score    | --> .aidlc/maturity.json
+                                     |   aidlc score    | --> .aidlc/maturity.json
                                      +---------------------+
                                                 |
         (4) décision                            v
                                      +---------------------+
-                                     |   aidlc.py gate     |
+                                     |   aidlc gate     |
                                      +---------------------+
                                         /                \
                               passed = false          passed = true
@@ -635,14 +652,14 @@ deliverables/<stage>/...            livrables versionnés (projet consommateur)
                      étape suivante   .aidlc/improvement-queue.jsonl
                                              |
                                              v
-                                    /aidlc-core:improve
+                                    /aidlc improve
                                     (correctif proposé sur
                                      SKILL.md / template / checks.json)
 ```
 
 ### Les conditions du passage
 
-`aidlc.py gate <stage>` ne renvoie `passed: true` que si les six conditions suivantes sont
+`aidlc gate <stage>` ne renvoie `passed: true` que si les six conditions suivantes sont
 réunies :
 
 0. **Le contrat existe et il est cohérent** : `contract_problems` est vide. Un agent gouverné sans
@@ -676,7 +693,7 @@ la consigne de relecture. Signer consistait alors à copier ce gabarit, éditer 
 horodatage ISO 8601 compris — puis demander à l'agent de relancer la porte : trois gestes manuels
 et un format de date, demandés à un Product Owner ou à un référent métier.
 
-`aidlc.py sign <stage> --approve|--reject --by "Nom" --why "…"` fait le même travail en une
+`aidlc sign <stage> --approve|--reject --by "Nom" --why "…"` fait le même travail en une
 commande, et **rejoue la porte dans la foulée** (exit 0 si elle s'ouvre, 2 avec les bloquants
 sinon). Elle tient trois exigences que le fichier ne savait pas tenir : un relecteur nommé, une
 justification non vide **dans les deux sens** (une approbation sans motif est un tampon, pas une
@@ -709,7 +726,7 @@ Le reviewer note quatre axes sur une échelle commune :
 | 4 | conforme |
 | 5 | exemplaire |
 
-Ces six niveaux sont les seules notes possibles : `aidlc.py score` **refuse une note
+Ces six niveaux sont les seules notes possibles : `aidlc score` **refuse une note
 fractionnaire**. L'échelle est ordinale — chaque cran a un sens écrit — et une demi-note n'en
 désigne aucun ; elle sert surtout à négocier le franchissement du plancher par le haut (2,9 contre
 3,0). La règle vivait dans la skill de revue, donc dans un prompt : elle est dans le moteur.
@@ -796,7 +813,7 @@ humaine.
 #### Le plancher par axe est tenu par le moteur
 
 `min_axis_score` (`pipeline.json`, **3** par défaut) : si un des **axes du livrable** passe sous ce
-plancher, `aidlc.py score` force le verdict enregistré à `rejected`, quelle que soit la moyenne et
+plancher, `aidlc score` force le verdict enregistré à `rejected`, quelle que soit la moyenne et
 quel que soit le verdict rendu par le reviewer. Le run porte alors `weak_axes`, et `gate` bloque en
 nommant l'axe fautif.
 
@@ -899,10 +916,10 @@ instructions, à partir de ce que ses journaux montrent.
         |   + .aidlc/logs/*.jsonl     (nombre de tours, outils, relances)
         |   + .aidlc/maturity.json    (axes les plus faibles, tendances)
         v
- aidlc.py improve  ->  diagnostic JSON
+ aidlc improve  ->  diagnostic JSON
         |
         v
- /aidlc-core:improve
+ /aidlc improve
         |
         |  l'agent analyse le diagnostic et propose un diff concret
         v
@@ -911,18 +928,18 @@ instructions, à partir de ce que ses journaux montrent.
  checks.json           (le défaut est détectable de façon déterministe)
  aidlc.json            (le problème n'est pas le plugin mais la chaîne : section `workflow`
                         du diagnostic — maillon manquant, étape jamais jouée, agent publié
-                        et non branché, coût en tentatives. Écrit par `aidlc.py workflow`,
+                        et non branché, coût en tentatives. Écrit par `aidlc workflow`,
                         et seulement sur décision de l'équipe projet)
         |
         v
  accord humain explicite  ->  application
         |
         v
- aidlc.py experiment record       (ce qui a été changé, l'axe visé, la mesure d'avant)
+ aidlc experiment record       (ce qui a été changé, l'axe visé, la mesure d'avant)
         |
         |  runs suivants notés par le reviewer
         v
- aidlc.py experiment effect  ->  improved | no_effect | regressed | pending
+ aidlc experiment effect  ->  improved | no_effect | regressed | pending
         |
         +--> réinjecté dans le diagnostic `improve` (section `experiments`)
 ```
@@ -968,7 +985,7 @@ confiance indépendante des prompts :
    workflow du projet), ni dans la copie installée du harnais (pipeline, contrats, hooks,
    script, agents, skills, templates), ni dans le livrable d'un autre agent. Le hook `PreToolUse`/`guard` refuse ces écritures ; la
    conception du harnais vit dans le dépôt auteur, où les deux racines se confondent.
-2. **Le ratchet** — `aidlc.py ratchet` fige les planchers de sévérité de chaque `checks.json`
+2. **Le ratchet** — `aidlc ratchet` fige les planchers de sévérité de chaque `checks.json`
    (`min_words`, `min_items_per_section`, `required_sections`) dans `.aidlc/ratchet.json`
    (protégé par le guard). Un plancher peut monter librement (durcir) ; le descendre est refusé
    (exit 2) sauf `ratchet --reset <stage>`, geste explicite de l'auteur après décision humaine.
@@ -979,7 +996,7 @@ confiance indépendante des prompts :
    même session sur un même fichier, rafale de relances sur une même étape. Chaque halte est
    enregistrée dans la file d'amélioration (`kind: watchdog`, dédoublonnée) et remonte dans le
    diagnostic `improve` ; la reprise est un acte humain. En hook il est non bloquant ; en CI
-   (`aidlc.py watchdog`) il sort en 2.
+   (`aidlc watchdog`) il sort en 2.
 4. **Le holdout stdlib** — la règle déclarative `checks_do_not_self_reference` rejette un
    livrable qui cite son propre `checks.json` : on optimise contre le livrable, jamais contre le
    mètre. Combinée à `proof_of_run` (preuve d'exécution) et `must_not_violate_scope` (périmètre
@@ -993,7 +1010,7 @@ registre `.aidlc/experiments.jsonl` est la **mémoire** de la boucle : chaque co
 au harnais y est datée avec l'axe qu'elle vise, le fichier touché, la cause racine énoncée, et la
 **moyenne de cet axe à cet instant** (`baseline`, sur `baseline_runs` runs).
 
-`aidlc.py experiment effect` confronte ensuite chaque correction aux runs **postérieurs** à elle
+`aidlc experiment effect` confronte ensuite chaque correction aux runs **postérieurs** à elle
 — c'est `baseline_runs` qui sépare l'avant de l'après, donc un run faible d'avant ne peut plus
 peser sur le verdict :
 
@@ -1027,11 +1044,11 @@ dépôt — la décision d'insister ou de revenir en arrière reste la sienne.
   projet nomme son idée en cours (§3.1).
 - Le harnais (pipeline, contrats, script) vit dans les plugins ; le projet (livrables, `.aidlc/`,
   `knowledge/`) vit chez le consommateur. Deux racines, résolues par le script.
-- Toute logique déterministe vit dans `aidlc.py`, jamais dans un nouveau script.
+- Toute logique déterministe vit dans `bin/aidlc`, jamais dans un nouveau script.
 - Bibliothèque standard Python uniquement, aucune dépendance externe, aucun format autre que JSON
   et Markdown.
 - `.aidlc/maturity.json` et `.aidlc/reviews/*.json` ne sont jamais édités à la main par un agent :
-  seuls `aidlc.py score` et l'humain y écrivent, et le hook `guard` fait respecter la règle.
+  seuls `aidlc score` et l'humain y écrivent, et le hook `guard` fait respecter la règle.
 - Un chemin de livrable ne se situe qu'à **un seul endroit** : `registry._normalize`, par
   `util.scoped`. Tout le reste du moteur lit `produces` et `consumes` depuis l'entrée de catalogue,
   et suit sans le savoir.

@@ -31,19 +31,24 @@ dans les prérequis d'installation transformerait une garantie en dépendance.
 [CLAUDE.md](../CLAUDE.md) autorise explicitement `unittest` et `trace` ; elle continue d'exclure
 tout paquet à installer, `pytest` et `coverage` compris.
 
-**La suite n'est pas un second point d'entrée.** Elle n'est atteignable que par `aidlc.py` :
+**La suite n'est pas un point d'entrée de plus, et elle n'est pas dans le plugin.** Elle vit
+derrière `tools/aidlc-dev`, avec les trois autres portes du dépôt :
 
 ```bash
-S=plugins/aidlc-core/scripts/aidlc.py
-python3 $S test                  # toute la suite
-python3 $S test -k registry -v   # un sous-ensemble, un nom de test par ligne
-python3 $S test --failfast       # s'arrête au premier échec
-python3 $S coverage              # non-régression de couverture (exit 2 = baisse)
-python3 $S coverage --reset      # rebase le plancher (geste humain, visible au diff)
+tools/aidlc-dev test                  # toute la suite
+tools/aidlc-dev test -k registry -v   # un sous-ensemble, un nom de test par ligne
+tools/aidlc-dev test --failfast       # s'arrête au premier échec
+tools/aidlc-dev coverage              # non-régression de couverture (exit 2 = baisse)
+tools/aidlc-dev coverage --reset      # rebase le plancher (geste humain, visible au diff)
 ```
 
-`--selftest` reste l'alias historique de `test` — c'est ce que la CI, les hooks et les
-consommateurs appellent depuis toujours, et rien ne les oblige à changer.
+`--selftest` reste l'alias historique de `test`, sur ce même point d'entrée.
+
+**Pourquoi hors du plugin.** `test`, `coverage`, `selfscore` et `ratchet` notent, mesurent et
+figent CE dépôt : elles n'ont aucun sens dans le projet d'un consommateur, qui n'a pas à savoir
+comment le moteur est maintenu — et à qui il ne faut surtout pas donner de quoi re-figer un
+plancher. `aidlc --help`, côté plugin, ne les montre donc pas ; une entrée de `hooks.json` ou de CI
+qui les appellerait par le plugin fait rougir la suite (`TestPortesLocalesEtCI`).
 
 ## 3. Quatre niveaux, quatre risques distincts
 
@@ -108,23 +113,23 @@ dépôt serait un test qui pollue le dépôt suivant.
 
 ## 6. La couverture : mesurée, figée, défendue
 
-`aidlc.py coverage` mesure la couverture ligne avec `trace` (stdlib) et la compare au plancher figé
+`tools/aidlc-dev coverage` mesure la couverture ligne avec `trace` (stdlib) et la compare au plancher figé
 dans `.aidlc/coverage.json`. Même geste que le `ratchet` sur les planchers de sévérité : **un
 plancher ne descend jamais**. Monter est libre et re-fige automatiquement ; descendre exige
-`aidlc.py coverage --reset`, un geste humain explicite qui se voit dans le diff.
+`tools/aidlc-dev coverage --reset`, un geste humain explicite qui se voit dans le diff.
 
 Deux plafonds sont assumés et documentés dans le code :
 
 - une tolérance de 0,5 point avant de crier à la régression — un refactor qui supprime des lignes
   déplace mécaniquement le taux sans rien tester de moins ;
-- `trace` ne suit pas les sous-processus, donc les tests de contrat CLI (qui relancent `aidlc.py`)
+- `trace` ne suit pas les sous-processus, donc les tests de contrat CLI (qui relancent `bin/aidlc`)
   ne comptent pas dans la mesure. Le taux rendu est donc un **plancher**, jamais une surestimation.
 
 ## 7. Le score de maturité du harnais
 
 Les portes précédentes répondent chacune par oui ou non. Une évolution du harnais mérite une
 réponse plus fine : **est-ce que le dépôt est plus mûr ou moins mûr qu'avant ce diff ?**
-`aidlc.py selfscore` répond par une note, sur le barème qui sert déjà à juger un livrable — 0 à 5,
+`tools/aidlc-dev selfscore` répond par une note, sur le barème qui sert déjà à juger un livrable — 0 à 5,
 seuil `maturity_threshold`, plancher par axe `min_axis_score`, tous trois lus dans `pipeline.json`.
 Le harnais est noté par la grille qu'il impose aux autres.
 
@@ -153,7 +158,7 @@ Trois décisions valent d'être explicitées :
   dans la moyenne.
 
 La passe est en **lecture seule**, et la suite n'y tourne qu'une fois : `tests` et `coverage` sont
-deux lectures de la même mesure. Le plancher de couverture reste écrit par `aidlc.py coverage`
+deux lectures de la même mesure. Le plancher de couverture reste écrit par `tools/aidlc-dev coverage`
 seul — sinon un `git commit` laisserait derrière lui un `.aidlc/coverage.json` modifié *hors* du
 commit qu'il vient de valider.
 
@@ -161,7 +166,7 @@ Deux endroits l'exécutent, avec le même verdict :
 
 ```bash
 git config core.hooksPath .githooks   # une fois par clone : la porte devient pre-commit
-python3 plugins/aidlc-core/scripts/aidlc.py selfscore
+tools/aidlc-dev selfscore
 ```
 
 Le hook `.githooks/pre-commit` refuse le commit sur `exit 2` (comptez une quinzaine de secondes,

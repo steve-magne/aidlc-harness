@@ -1,0 +1,14 @@
+#!/bin/sh
+# Lanceur des portes du depot (voir tools/aidlc-dev.py). Meme choix d'interpreteur que
+# le lanceur du plugin : uv quand il est la, python3 sinon, AIDLC_PYTHON pour forcer.
+set -e
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ENGINE="$DIR/aidlc-dev.py"
+
+if [ -n "${AIDLC_PYTHON:-}" ]; then
+  exec "$AIDLC_PYTHON" "$ENGINE" "$@"
+fi
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --quiet --script "$ENGINE" "$@"
+fi
+exec python3 "$ENGINE" "$@"

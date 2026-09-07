@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Produit le livrable de cadrage deliverables/plan/intent.md en dialoguant avec le Product Owner, puis le valide avec aidlc.py. À utiliser pour lancer, reprendre ou corriger l'étape Plan du pipeline AI-DLC.
+description: Produit le livrable de cadrage deliverables/plan/intent.md en dialoguant avec le Product Owner, puis le valide avec `aidlc`. À utiliser pour lancer, reprendre ou corriger l'étape Plan du pipeline AI-DLC.
 argument-hint: [titre de l'initiative à cadrer]
 ---
 
@@ -17,9 +17,9 @@ c'est lui qui signe. L'agent rédige, l'humain décide.
 - Ce plugin (`aidlc-plan`) est `${CLAUDE_PLUGIN_ROOT}` : ton squelette et tes règles s'y trouvent.
 - Le livrable est `deliverables/plan/intent.md`, **relatif au projet consommateur**
   (`$CLAUDE_PROJECT_DIR`). Le pipeline (ordre des étapes, entrées) est porté par le plugin
-  `aidlc-core` : l'étape Plan n'a **aucune** entrée amont, sa matière première est l'entretien
+  `aidlc` : l'étape Plan n'a **aucune** entrée amont, sa matière première est l'entretien
   avec le Product Owner.
-- Tu ne lances pas le script du harnais toi-même (il vit dans `aidlc-core`) : la validation
+- Tu ne lances pas le script du harnais toi-même (il vit dans `aidlc`) : la validation
   déterministe est déclenchée par son hook à chaque écriture du livrable, et l'orchestrateur la
   rejoue avant la revue.
 
@@ -106,13 +106,13 @@ Forme attendue d'un critère d'acceptation : « étant donné <situation>, quand
 
 ## 4. Valider — obligatoire avant de rendre
 
-La validation déterministe est déclenchée **automatiquement par le hook du plugin `aidlc-core`**
+La validation déterministe est déclenchée **automatiquement par le hook du plugin `aidlc`**
 à chaque écriture de `deliverables/plan/intent.md` : le retour du hook te liste immédiatement les
 manques (`errors`) et les avertissements (`warnings`). Corrige et réécris jusqu'à ce que le hook
 ne signale plus rien — **aucun livrable ne se rend avec des erreurs de validation.**
 
-Quand le hook ne s'est pas déclenché (session sans plugin `aidlc-core`, ou besoin d'une passe
-explicite), rends la main à l'orchestrateur : `/aidlc-core:run plan` rejoue `validate` avant la
+Quand le hook ne s'est pas déclenché (session sans plugin `aidlc`, ou besoin d'une passe
+explicite), rends la main à l'orchestrateur : `/aidlc next plan` rejoue `validate` avant la
 revue. Ne cherche pas à appeler le script du harnais depuis ce plugin.
 
 Les erreurs les plus fréquentes et leurs corrections :
@@ -129,7 +129,7 @@ Les erreurs les plus fréquentes et leurs corrections :
 | Livrable long (avertissement) | Au-delà de 2000 mots le contrôle passe mais signale le débordement : coupe ce qui relève du Design. |
 
 Ne contourne jamais un contrôle en modifiant `checks.json` ou le squelette. Si une règle est
-jugée fausse, signale-le : c'est la skill `aidlc-core:improve` qui fait évoluer les règles, avec
+jugée fausse, signale-le : c'est la skill `/aidlc improve` qui fait évoluer les règles, avec
 l'accord de l'humain.
 
 ## 5. Rendre
@@ -139,7 +139,7 @@ Une fois la validation au vert :
 1. Résume au Product Owner, en cinq lignes maximum : le problème retenu, le bénéfice visé, les
    critères d'acceptation, les hypothèses restées ouvertes.
 2. Donne le chemin du livrable : `deliverables/plan/intent.md` (relatif au projet consommateur).
-3. Passe la main à la revue — `/aidlc-core:review` puis `gate` via `/aidlc-core:run plan`. Tu ne
+3. Passe la main à la revue — `/aidlc review` puis `gate` via `/aidlc next plan`. Tu ne
    notes pas ton propre livrable et tu n'écris jamais dans `.aidlc/`.
 
 ## Critères de qualité que le reviewer va appliquer
