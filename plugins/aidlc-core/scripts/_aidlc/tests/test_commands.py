@@ -418,6 +418,14 @@ class TestCmdAgents(AidlcTestCase):
         self.assertIn("[manque]", err)
         self.assertIn("deliverables/plan/intent.md", err)
 
+    def test_prerequis_manquant_est_signale_sans_bloquer(self):
+        self.write_agent("aidlc-dep", manifest(
+            "dep", "Equipe D", "deliverables/dep/d.md",
+            requires=["jamais-installe"]), CHECKS)
+        code, out, err = run(commands.cmd_agents, self.root, parse(["agents"]))
+        self.assertEqual(code, 0)
+        self.assertIn("jamais-installe", err)
+
     def test_cycle_de_dependances_bloque_meme_hors_strict(self):
         self.write_agent("aidlc-a", manifest(
             "stage-a", "Equipe A", "deliverables/a.md", ["deliverables/b.md"]),

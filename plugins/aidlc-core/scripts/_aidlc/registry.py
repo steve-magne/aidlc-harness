@@ -332,6 +332,21 @@ def missing_producers(agents: list) -> list:
     return holes
 
 
+def missing_requires(agents: list) -> list:
+    """Prerequis `requires` pointant vers un agent absent du workflow.
+
+    order() intersecte les dependances avec les agents connus — sinon un id fantome
+    immobiliserait toute la chaine —, et ce filet faisait disparaitre le prerequis sans
+    un mot : un agent qui exige le passage d'un autre etait ordonne comme s'il n'exigeait
+    rien. missing_producers ne couvre que `consumes` ; celui-ci couvre l'autre moitie.
+    """
+    known = {agent["id"] for agent in agents}
+    return [{"agent": agent["id"], "requires": required}
+            for agent in agents
+            for required in (agent.get("requires") or [])
+            if required not in known]
+
+
 # ---------------------------------------------------------------------- catalogue
 
 def catalog(capability: str = None, platform: str = None, refresh: bool = False) -> dict:
@@ -358,6 +373,7 @@ def catalog(capability: str = None, platform: str = None, refresh: bool = False)
         "agents": rows,
         "capabilities": {name: sorted(ids) for name, ids in sorted(capabilities.items())},
         "missing_producers": missing_producers(found["agents"]),
+        "missing_requires": missing_requires(found["agents"]),
         "cycle": cycle,
         "declared": found.get("declared") or [],
         "undeclared": found.get("undeclared") or [],

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from . import registry
+from .checks import contract_problems
 from .hookslog import AIDLC_ENTRIES
 from .util import PROJECT_CONFIG
 from .util import PROJECT_KEYS
@@ -378,6 +379,38 @@ def compose_workflow(root: Path, add=(), remove=(), initiative=None) -> dict:
     data["agents"] = current
     write_json(project_config_path(root), data)
     registry.reset_cache()
+    warnings.extend(branch_warnings(add))
     return {"config": PROJECT_CONFIG, "agents": current, "changed": changed,
             "warnings": warnings, "initiative": data.get("initiative"),
             "available": sorted(known)}
+
+
+def branch_warnings(added) -> list:
+    """Ce qu'on decouvre d'un agent au moment ou on le branche, pas au prochain `status`.
+
+    Un id existant suffisait a l'ajouter : son contrat casse, son absence d'invocation
+    sur la plateforme courante et ses prerequis non installes n'apparaissaient qu'a la
+    porte, une fois le livrable ecrit. Le catalogue est relu **apres** ecriture : les
+    agents ajoutes y sont desormais declares, donc lisibles en entier (la liste blanche
+    ne rend des agents non declares que leur id).
+    """
+    if not added:
+        return []
+    catalog = registry.catalog()
+    holes = {hole["agent"]: hole["requires"] for hole in catalog["missing_requires"]}
+    messages = []
+    for agent in catalog["agents"]:
+        agent_id = agent["id"]
+        if agent_id not in added:
+            continue
+        if not agent["invocable"]:
+            messages.append(
+                "« {} » n'est pas invocable sur {} : son manifeste ne déclare pas "
+                "d'invocation pour cette plateforme.".format(agent_id,
+                                                             catalog["platform"]))
+        if agent_id in holes:
+            messages.append(
+                "« {} » requiert le passage de « {} », qu'aucun agent installé ne "
+                "porte.".format(agent_id, holes[agent_id]))
+        messages.extend(contract_problems(agent))
+    return messages
