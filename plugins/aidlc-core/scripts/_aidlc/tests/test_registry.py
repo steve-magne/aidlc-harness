@@ -421,6 +421,30 @@ class TestProducteursManquants(AidlcTestCase):
         self.assertEqual(registry.missing_producers([producer, consumer]), [])
 
 
+class TestPrerequisManquants(AidlcTestCase):
+    """`requires` vers un agent absent : order() l'ignore pour ne pas immobiliser la
+    chaine, ce qui le rendait invisible."""
+
+    seed_agents = False
+
+    def test_signale_un_prerequis_qu_aucun_agent_ne_porte(self):
+        agent = {"id": "a", "requires": ["fantome"]}
+        self.assertEqual(registry.missing_requires([agent]),
+                         [{"agent": "a", "requires": "fantome"}])
+
+    def test_ne_signale_rien_quand_le_prerequis_est_installe(self):
+        self.assertEqual(registry.missing_requires(
+            [{"id": "a"}, {"id": "b", "requires": ["a"]}]), [])
+
+    def test_un_prerequis_absent_remonte_dans_le_catalogue(self):
+        self.write_json("plugins/aidlc-bad/agent.json",
+                        manifest("dependant", "X", "deliverables/d.md",
+                                 requires=["jamais-installe"]))
+        registry.reset_cache()
+        self.assertEqual(registry.catalog()["missing_requires"],
+                         [{"agent": "dependant", "requires": "jamais-installe"}])
+
+
 class TestCatalogueDesTroisAgents(AidlcTestCase):
     """Le catalogue reference : deux etapes gouvernees (plan, design) et un agent
     consultatif d'une autre equipe, decouvert par AIDLC_AGENT_PATH."""

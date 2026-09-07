@@ -7,6 +7,8 @@ from pathlib import Path
 
 from .. import registry
 from .harness import AidlcTestCase
+from .harness import CHECKS
+from .harness import manifest
 from ..util import PROJECT_CONFIG
 from ..init import compose_workflow
 from ..init import GITIGNORE_LINES
@@ -330,6 +332,12 @@ class TestCompositionDuWorkflow(AidlcTestCase):
         result = compose_workflow(self.root, remove=["design"])
         self.assertIn("ne composait pas", " ".join(result["warnings"]))
 
+    def test_une_gouvernance_qui_n_est_pas_un_objet_est_refusee(self):
+        self.write(PROJECT_CONFIG, "[]")
+        with self.assertRaises(ValueError) as caught:
+            compose_workflow(self.root, add=["design"])
+        self.assertIn("objet JSON", str(caught.exception))
+
     def test_sans_gouvernance_la_commande_renvoie_vers_init(self):
         (self.root / PROJECT_CONFIG).unlink()
         with self.assertRaises(ValueError) as caught:
@@ -340,6 +348,47 @@ class TestCompositionDuWorkflow(AidlcTestCase):
         # Sans invalidation du cache, `status` juste apres montrerait l'ancien workflow.
         compose_workflow(self.root, add=["design"])
         self.assertIn("design", [agent["id"] for agent in registry.agents_list()])
+
+
+class TestCeQuOnDecouvreEnBranchant(AidlcTestCase):
+    """Un id existant suffisait a brancher un agent : son contrat, son invocabilite et
+    ses prerequis n'apparaissaient qu'au prochain `status`, une fois le livrable ecrit."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+
+    def test_un_contrat_introuvable_est_dit_au_branchement(self):
+        self.write_agent("aidlc-bad", manifest("bad", "X", "deliverables/bad/b.md"))
+        result = compose_workflow(self.root, add=["bad"])
+        self.assertIn("contrat introuvable", " ".join(result["warnings"]))
+
+    def test_un_agent_non_invocable_ici_est_dit_au_branchement(self):
+        self.write_agent("aidlc-ailleurs",
+                         manifest("ailleurs", "X", "deliverables/ailleurs/a.md",
+                                  invocation={"codex": "ailleurs"}),
+                         CHECKS)
+        result = compose_workflow(self.root, add=["ailleurs"])
+        self.assertIn("pas invocable", " ".join(result["warnings"]))
+
+    def test_un_prerequis_non_installe_est_dit_au_branchement(self):
+        self.write_agent("aidlc-dep",
+                         manifest("dep", "X", "deliverables/dep/d.md",
+                                  requires=["jamais-installe"]),
+                         CHECKS)
+        result = compose_workflow(self.root, add=["dep"])
+        self.assertIn("jamais-installe", " ".join(result["warnings"]))
+
+    def test_un_agent_sain_ne_declenche_aucun_avertissement(self):
+        self.assertEqual(compose_workflow(self.root, add=["design"])["warnings"], [])
+
+    def test_seul_l_agent_ajoute_est_controle(self):
+        # Le contrat casse d'un agent deja branche n'est pas le sujet du geste en cours :
+        # le reproche appartiendrait a `agents`, pas a l'ajout d'un voisin.
+        self.write_agent("aidlc-bad", manifest("bad", "X", "deliverables/bad/b.md"))
+        compose_workflow(self.root, add=["bad"])
+        result = compose_workflow(self.root, add=["design"])
+        self.assertEqual(result["warnings"], [])
 
 
 class TestNommerLInitiative(AidlcTestCase):

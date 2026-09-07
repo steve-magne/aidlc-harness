@@ -419,6 +419,10 @@ def cmd_agents(root: Path, args) -> int:
         for hole in view["missing_producers"]:
             sys.stderr.write("  [manque] {} attend {} : aucun agent installé ne le "
                              "produit.\n".format(hole["agent"], hole["input"]))
+        for hole in view["missing_requires"]:
+            sys.stderr.write("  [manque] {} requiert le passage de {} : aucun agent de "
+                             "ce workflow ne porte cet identifiant.\n".format(
+                                 hole["agent"], hole["requires"]))
         if view["cycle"]:
             sys.stderr.write("  [cycle] dépendances circulaires entre agents : "
                              + ", ".join(view["cycle"]) + "\n")
