@@ -7,6 +7,7 @@ import tempfile
 
 from pathlib import Path
 
+from .util import DEV_LAUNCHER
 from .util import aidlc_dir
 from .util import now_iso
 from .util import read_text
@@ -157,9 +158,9 @@ def coverage_run(root: Path, select: str = None) -> dict:
     if regressions:
         out["hint"] = ("La couverture ne descend jamais. Ajoutez les tests manquants, "
                        "ou, si la baisse est voulue (code supprime), rebasez le "
-                       "plancher avec `aidlc.py coverage --reset`.")
+                       f"plancher avec `{DEV_LAUNCHER} coverage --reset`.")
     elif not fresh["suite_passed"]:
-        out["hint"] = ("La suite elle-meme est rouge : `aidlc.py test` pour le detail. "
+        out["hint"] = (f"La suite elle-meme est rouge : `{DEV_LAUNCHER} test` pour le detail. "
                        "Le plancher n'est pas mis a jour tant qu'elle ne passe pas.")
     return out
 

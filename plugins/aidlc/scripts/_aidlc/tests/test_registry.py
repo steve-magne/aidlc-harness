@@ -11,6 +11,7 @@ from .harness import manifest
 from .. import registry
 from ..util import PROJECT_CONFIG
 from ..util import ensure_dir
+from ..util import launcher
 
 """Registre ouvert des agents : decouverte par manifeste, validation de forme, ordre
 derive de la chaine produces/consumes, catalogue filtre, frontieres projet/hors-projet."""
@@ -742,7 +743,7 @@ class TestAgentDecouvertMaisNonDeclare(AidlcTestCase):
     def test_l_avertissement_nomme_la_commande_qui_le_branche(self):
         self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
         registry.reset_cache()
-        self.assertIn("aidlc.py workflow --add design",
+        self.assertIn(f"{launcher(self.root)} workflow --add design",
                       " ".join(registry.discover()["warnings"]))
 
     def test_les_ids_ecartes_sont_rendus_a_part(self):

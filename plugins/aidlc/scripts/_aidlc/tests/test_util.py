@@ -9,11 +9,13 @@ from pathlib import Path
 from unittest import mock
 
 from .harness import AidlcTestCase
+from .harness import repo_root
 from ..util import MAX_FIELD
 from ..util import aidlc_dir
 from ..util import digest
 from ..util import emit_machine
 from ..util import initiative
+from ..util import launcher
 from ..util import scoped
 from ..util import harness_root
 from ..util import PROJECT_CONFIG
@@ -268,3 +270,25 @@ class TestEmitMachine(AidlcTestCase):
     def test_l_option_json_le_force_meme_dans_un_terminal(self):
         self.assertEqual(json.loads(self._capture(isatty=True, forced=True)),
                          {"ok": True})
+
+
+class TestLauncher(AidlcTestCase):
+    """La commande rendue a un humain doit s'executer : `aidlc.py` ne s'executait pas."""
+
+    def test_quand_le_harnais_vit_sous_le_projet_le_chemin_est_relatif(self):
+        self.assertEqual(launcher(self.root), str(Path("bin") / "aidlc"))
+
+    def test_quand_le_harnais_est_installe_ailleurs_le_chemin_est_absolu(self):
+        """Cas du consommateur : le plugin est en cache, hors de l'arbre du projet."""
+        ailleurs = self.root.parent / "un-projet-voisin"
+        self.assertTrue(Path(launcher(ailleurs)).is_absolute())
+
+    def test_le_chemin_relatif_se_resout_depuis_la_racine_du_projet(self):
+        (self.root / "bin").mkdir(exist_ok=True)
+        (self.root / "bin" / "aidlc").write_text("#!/bin/sh\n", encoding="utf-8")
+        self.assertTrue((self.root / launcher(self.root)).exists())
+
+    def test_le_lanceur_du_depot_reel_existe_et_est_executable(self):
+        reel = repo_root() / "plugins" / "aidlc" / "bin" / "aidlc"
+        self.assertTrue(reel.exists())
+        self.assertTrue(os.access(reel, os.X_OK))

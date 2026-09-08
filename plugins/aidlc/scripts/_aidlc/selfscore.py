@@ -14,6 +14,7 @@ from .okf import PROJECT_OKF_BUNDLES
 from .okf import okf_report
 from .syntax import json_report
 from .syntax import python_report
+from .util import DEV_LAUNCHER
 from .util import read_text
 
 """Score de maturite du harnais : le depot lui-meme, note comme on note un livrable.
@@ -119,7 +120,7 @@ def axis_tests(fresh: dict) -> dict:
     """
     if not fresh.get("suite_passed"):
         return _axis("tests", 0.0, "la suite du moteur est rouge",
-                     ["`aidlc.py test` echoue : aucune note tant que la suite est rouge"])
+                     [f"`{DEV_LAUNCHER} test` echoue : aucune note tant que la suite est rouge"])
     modules, gaps = module_test_gaps()
     return _axis("tests", max(0.0, MAX - len(gaps)),
                  "{}/{} modules du moteur ont leur test en face".format(

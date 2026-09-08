@@ -8,6 +8,7 @@ from . import registry
 from .checks import contract_problems
 from .hookslog import AIDLC_ENTRIES
 from .util import PROJECT_CONFIG
+from .util import launcher
 from .util import PROJECT_KEYS
 from .util import ensure_dir
 from .util import now_iso
@@ -254,8 +255,8 @@ def render_init(result: dict) -> str:
                      "completez la cle 'agents' de {}.".format(PROJECT_CONFIG))
     lines.append("Relisez {} — c'est votre exigence et votre workflow, pas ceux du "
                  "harnais.".format(PROJECT_CONFIG))
-    lines.append("Ensuite : aidlc.py workflow pour composer la chaîne, puis la skill "
-                 "/aidlc next.")
+    lines.append("Ensuite : {} workflow pour composer la chaîne, puis la skill "
+                 "/aidlc next.".format(launcher(Path(result["root"]))))
     return "\n".join(lines)
 
 
@@ -301,7 +302,8 @@ def _read_config_raw(root: Path) -> dict:
     path = project_config_path(root)
     if not path.is_file():
         raise ValueError(
-            "{} absent : amorcez d'abord le projet avec `aidlc.py init`.".format(
+            "{} absent : amorcez d'abord le projet avec `{} init`.".format(
+            launcher(root),
                 PROJECT_CONFIG))
     data = json.loads(read_text(path))
     if not isinstance(data, dict):

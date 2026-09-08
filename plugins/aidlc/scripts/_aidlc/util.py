@@ -80,6 +80,28 @@ def project_config_path(root: Path = None) -> Path:
     return (root or workspace_root()) / PROJECT_CONFIG
 
 
+#: Portes du depot du harnais : elles ne s'invoquent que depuis sa racine, ou ce chemin
+#: relatif est exact. Elles ne vivent pas dans le plugin — voir DEV_COMMANDS.
+DEV_LAUNCHER = "tools/aidlc-dev"
+
+
+def launcher(root: Path = None) -> str:
+    """Le lanceur, sous la forme qu'un humain peut coller dans son terminal.
+
+    Les messages du moteur citaient `aidlc.py`, qui n'est une commande nulle part : la
+    personne a qui `review-request` demande de signer recopiait une ligne qui ne
+    s'executait pas, et la signature humaine est le seul geste que le harnais ne peut
+    pas faire a sa place. Relatif quand le harnais vit sous le projet (depot d'essai),
+    absolu quand il est installe en cache — les deux se collent tels quels depuis la
+    racine du projet, qui est d'ou toute la documentation fait lancer les commandes.
+    """
+    path = harness_root() / "bin" / "aidlc"
+    try:
+        return str(path.relative_to(root or workspace_root()))
+    except ValueError:
+        return str(path)
+
+
 def project_config(root: Path = None) -> dict:
     """Gouvernance declaree par le projet consommateur (aidlc.json a sa racine).
 
