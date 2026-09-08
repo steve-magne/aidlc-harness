@@ -317,6 +317,29 @@ class TestCompositionDuWorkflow(AidlcTestCase):
         result = compose_workflow(self.root, remove=["plan"])
         self.assertIn("design", " ".join(result["warnings"]))
 
+    def test_retirer_un_producteur_remplace_n_avertit_pas(self):
+        # Remplacer l'agent d'une equipe par le sien est le geste d'entree d'une equipe
+        # qui publie : l'entree reste ecrite, la porte reste ouverte, et l'annoncer
+        # fermee envoie chercher une panne qui n'existe pas.
+        self.write_agent("po-assistant",
+                         manifest("po-assistant", "Produit",
+                                  "deliverables/plan/intent.md"),
+                         dict(CHECKS, must_reference_inputs=False))
+        compose_workflow(self.root, add=["design", "po-assistant"])
+        result = compose_workflow(self.root, remove=["plan"])
+        self.assertEqual(result["warnings"], [])
+
+    def test_remplacer_un_producteur_en_un_seul_appel_n_avertit_pas(self):
+        # Le remplacant est encore hors du workflow quand le retrait est juge : sans son
+        # manifeste complet, il ne produit rien aux yeux du calcul.
+        self.write_agent("po-assistant",
+                         manifest("po-assistant", "Produit",
+                                  "deliverables/plan/intent.md"),
+                         dict(CHECKS, must_reference_inputs=False))
+        compose_workflow(self.root, add=["design"])
+        result = compose_workflow(self.root, add=["po-assistant"], remove=["plan"])
+        self.assertEqual(result["warnings"], [])
+
     def test_un_agent_inconnu_du_registre_est_refuse(self):
         with self.assertRaises(ValueError):
             compose_workflow(self.root, add=["fantome"])

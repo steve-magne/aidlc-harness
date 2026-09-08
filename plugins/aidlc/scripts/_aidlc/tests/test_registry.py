@@ -750,6 +750,15 @@ class TestAgentDecouvertMaisNonDeclare(AidlcTestCase):
         registry.reset_cache()
         self.assertEqual(registry.discover()["undeclared"], ["design"])
 
+    def test_les_ecartes_sont_rendus_en_entier_aussi(self):
+        # Juger l'effet d'un branchement avant qu'il soit declare exige le `produces`
+        # de l'ecarte, pas seulement son identifiant.
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+        registry.reset_cache()
+        ecartes = registry.discover()["undeclared_agents"]
+        self.assertEqual([(agent["id"], agent["produces"]) for agent in ecartes],
+                         [("design", "deliverables/design/spec.md")])
+
     def test_sans_liste_blanche_rien_n_est_ecarte(self):
         self.assertEqual(registry.discover()["undeclared"], [])
 
@@ -762,3 +771,9 @@ class TestAgentDecouvertMaisNonDeclare(AidlcTestCase):
         self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
         registry.reset_cache()
         self.assertEqual(registry.catalog()["undeclared"], ["design"])
+
+    def test_le_catalogue_expose_les_ecartes_en_entier(self):
+        self.write_json(PROJECT_CONFIG, {"agents": ["plan"]})
+        registry.reset_cache()
+        self.assertEqual([agent["id"] for agent in
+                          registry.catalog()["undeclared_agents"]], ["design"])

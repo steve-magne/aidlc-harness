@@ -278,7 +278,11 @@ def discover(refresh: bool = False) -> dict:
               # Les ids ecartes par la liste blanche : le tableau de bord doit pouvoir
               # les distinguer d'un plugin reellement absent, sans quoi il annonce « a
               # publier par l'equipe X » un agent que l'equipe X a deja publie.
-              "undeclared": sorted(agent["id"] for agent in undeclared)}
+              "undeclared": sorted(agent["id"] for agent in undeclared),
+              # Les entrees completes des ecartes, la ou `undeclared` ne porte que des
+              # ids : qui compose le workflow a besoin du `produces` d'un agent AVANT
+              # de le declarer, sinon juger l'effet d'un ajout revient a juger a vide.
+              "undeclared_agents": sorted(undeclared, key=lambda agent: agent["id"])}
     _CACHE[key] = result
     return result
 
@@ -377,6 +381,7 @@ def catalog(capability: str = None, platform: str = None, refresh: bool = False)
         "cycle": cycle,
         "declared": found.get("declared") or [],
         "undeclared": found.get("undeclared") or [],
+        "undeclared_agents": found.get("undeclared_agents") or [],
         "problems": found["problems"],
         "warnings": found["warnings"],
     }
