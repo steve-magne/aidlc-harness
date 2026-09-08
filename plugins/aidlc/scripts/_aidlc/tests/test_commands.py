@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 
 from contextlib import redirect_stderr
@@ -1429,6 +1430,14 @@ class TestCmdSign(AidlcTestCase):
         self.assertEqual(code, 1)
         self.assertIn("geste humain", err)
         self.assertFalse((self.root / ".aidlc/reviews/plan-1.json").exists())
+
+    def test_le_refus_hors_terminal_situe_la_voie_manuelle_dans_l_initiative(self):
+        self.write_json("aidlc.json", {"initiative": "reco"})
+        with mock.patch.object(sys, "stdin", mock.Mock(isatty=lambda: False)):
+            code, out, err = run(commands.cmd_sign, self.root,
+                                 parse(["sign", "plan", "--approve", "--by", "S",
+                                        "--why", "ok"]))
+        self.assertIn(os.path.join(".aidlc", "reco", "reviews"), err)
 
     def test_le_refus_hors_terminal_rappelle_la_voie_manuelle(self):
         with mock.patch.object(sys, "stdin", mock.Mock(isatty=lambda: False)):

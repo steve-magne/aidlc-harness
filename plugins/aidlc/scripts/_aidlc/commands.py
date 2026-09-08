@@ -54,6 +54,7 @@ from .maturity import record_score
 from .maturity import render_history
 from .maturity import render_recall
 from .maturity import render_status
+from .maturity import review_path
 from .maturity import review_request
 from .maturity import sign_review
 from .checks import contract_problems
@@ -333,7 +334,8 @@ def cmd_sign(root: Path, args) -> int:
             "Signature refusee : `sign` est un geste humain et exige un terminal.\n"
             "  - depuis votre terminal, relancez la meme commande ;\n"
             "  - sans terminal (CI, session headless), remplissez a la main "
-            ".aidlc/reviews/<etape>-<run>.json — `review-request` en pose le gabarit.\n")
+            "{} — `review-request` en pose le gabarit.\n".format(
+                os.path.relpath(review_path(root, args.stage, "<run>"), root)))
         return 1
     try:
         signed = sign_review(root, load_pipeline(), args.stage,
