@@ -18,6 +18,7 @@ from .watchdog import watchdog_touched
 from pathlib import Path
 from .util import PROJECT_CONFIG
 from .util import emit
+from .util import launcher
 from .util import emit_machine
 from .util import initiative as util_initiative
 from .maturity import gate_stage
@@ -474,8 +475,8 @@ def render_workflow(declared: list, undeclared: list, agents: list,
     if undeclared:
         lines.append("")
         lines.append("Découverts, hors de ce workflow : " + ", ".join(undeclared))
-        lines.append("Les brancher : aidlc.py workflow --add "
-                     + " --add ".join(undeclared))
+        lines.append("Les brancher : {} workflow --add {}".format(
+            launcher(), " --add ".join(undeclared)))
     return "\n".join(lines)
 
 
@@ -603,7 +604,7 @@ def cmd_experiment(root: Path, args) -> int:
     if not results:
         sys.stderr.write(
             "Aucune expérience enregistrée. Après avoir appliqué un correctif du "
-            "harnais : `aidlc.py experiment record --stage <etape> --target <axe> "
+            f"harnais : `{launcher(root)} experiment record --stage <etape> --target <axe> "
             "--file <fichier> --cause \"<une phrase>\"`.\n")
         return 0
     for item in results:

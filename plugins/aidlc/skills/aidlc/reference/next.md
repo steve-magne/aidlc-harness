@@ -152,12 +152,10 @@ Lis la sortie JSON : `passed`, `blocking`, `next_stage`, `human_review_required`
 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" review-request <stage>
 ```
 
-Le script affiche les consignes sur stderr : quel fichier relire, et **la commande à taper**.
-Relaie-les telles quelles. La voie normale est une seule commande, depuis le terminal de l'humain :
-
-```
-aidlc sign <stage> --approve --by "<son nom>" --why "<ce qu'il a vérifié>"
-```
+Le script affiche les consignes sur stderr : quel fichier relire, et **la commande à taper**,
+lanceur résolu compris. Relaie-les telles quelles — recopier la ligne affichée, jamais la
+réécrire : une commande abrégée n'existe dans le PATH de personne, et l'humain resterait bloqué
+sur le seul geste que tu ne peux pas faire à sa place.
 
 Elle rejoue la porte toute seule. Dis-lui que la justification est obligatoire **même pour une
 approbation** : une approbation motivée ne bloque rien, mais son motif est conservé et alimente la

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -7,6 +8,7 @@ import re
 from pathlib import Path
 from . import registry
 from .util import harness_root
+from .util import launcher
 from .util import read_text
 from .util import scoped
 """Validation deterministe des livrables d'etape : regles declarees (checks.json), sections, frontmatter, mots interdits, preuve d'execution, holdout (le livrable ne cite pas ses propres regles)."""
@@ -152,6 +154,7 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
     errors, warnings = result["errors"], result["warnings"]
     ran = 0
     present = {line.strip() for line in text.splitlines()}
+    headings = [line.strip() for line in text.splitlines() if heading_level(line)]
 
     for key in checks:
         if key not in KNOWN_RULES and not key.startswith("_"):
@@ -186,7 +189,8 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         ran += 1
         for section in checks["required_sections"]:
             if section.strip() not in present:
-                errors.append(f"Section obligatoire absente : « {section} ».")
+                errors.append(f"Section obligatoire absente : « {section} »"
+                              + nearest_heading(section, headings) + ".")
 
     words = len(body.split())
     if "min_words" in checks:
@@ -205,12 +209,13 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
             ran += 1
             for pattern in checks[rule]:
                 try:
-                    found = re.search(pattern, text, re.IGNORECASE) is not None
+                    hits = list(re.finditer(pattern, text, re.IGNORECASE))
                 except re.error as exc:
                     warnings.append(f"Regex invalide dans {rule} : {pattern} ({exc}).")
                     continue
+                found = bool(hits)
                 if is_forbidden and found:
-                    errors.append(f"Motif interdit présent : « {pattern} ».")
+                    errors.append("Motif interdit présent " + locate(text, hits) + ".")
                 elif not is_forbidden and not found:
                     errors.append(f"Motif obligatoire absent : « {pattern} ».")
 
@@ -236,7 +241,8 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         ran += 1
         for section in checks["proof_of_run"]:
             if section.strip() not in present:
-                errors.append(f"Section obligatoire absente : « {section} ».")
+                errors.append(f"Section obligatoire absente : « {section} »"
+                              + nearest_heading(section, headings) + ".")
                 continue
             evidence = find_evidence(section_body(text, section))
             if not evidence:
@@ -252,7 +258,8 @@ def run_checks(root: Path, stage: dict, file_path: Path) -> dict:
         ran += 1
         for input_path, section in checks["required_input_section"].items():
             if section.strip() not in present:
-                errors.append(f"Section obligatoire absente : « {section} ».")
+                errors.append(f"Section obligatoire absente : « {section} »"
+                              + nearest_heading(section, headings) + ".")
                 continue
             name = Path(input_path).name
             body = section_body(text, section)
@@ -321,6 +328,31 @@ EVIDENCE_RE = re.compile(
 """Valeur observee concrete : chiffre+unite, date, chemin, p95/p99, id explicite."""
 
 
+def locate(text: str, hits: list) -> str:
+    """« ligne N : « <extrait> » » — ou et quoi, plutot que la regex qui a matche.
+
+    Le message donnait le motif brut (`(?i)<[^>\\n]{0,80}\\b[àa]\\s+remplir...>`) : ni
+    l'agent qui corrige ni l'humain qui relit ne pouvaient en deduire quelle ligne du
+    livrable reprendre. Chaque aller-retour de validation coute un tour complet.
+    """
+    first = hits[0]
+    line = text.count("\n", 0, first.start()) + 1
+    extract = " ".join(first.group(0).split())[:80]
+    plural = f" ({len(hits)} occurrences)" if len(hits) > 1 else ""
+    return f"ligne {line} : « {extract} »{plural}"
+
+
+def nearest_heading(wanted: str, headings: list) -> str:
+    """Le titre present le plus proche du titre attendu, quand il y en a un.
+
+    Une section « absente » est presque toujours une section desaccentuee ou reformulee
+    (« ## Criteres d'acceptation » pour « ## Critères d'acceptation ») : la comparaison
+    est litterale. Nommer le titre coupable evite de faire relire tout le livrable.
+    """
+    close = difflib.get_close_matches(wanted.strip(), headings, n=1, cutoff=0.7)
+    return f" — titre le plus proche trouvé : « {close[0]} »" if close else ""
+
+
 def find_evidence(block: str) -> bool:
     """Vrai si le bloc contient au moins une valeur observee concrete."""
     return any(EVIDENCE_RE.search(line) for line in block.splitlines())
@@ -360,7 +392,7 @@ def validate_stage(root: Path, pipe: dict, stage_id: str, file_override=None) ->
     if stage is None:
         return {"stage": stage_id, "file": None, "ok": False,
                 "errors": [f"Agent inconnu du registre : {stage_id}. "
-                           "Lister les agents disponibles : aidlc.py agents"],
+                           f"Lister les agents disponibles : {launcher(root)} agents"],
                 "warnings": [], "checks_run": 0}
     if not stage.get("produces"):
         return {"stage": stage_id, "file": None, "ok": False,

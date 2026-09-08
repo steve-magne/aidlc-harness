@@ -9,6 +9,7 @@ from .util import aidlc_dir
 from .util import digest
 from .util import harness_root
 from .util import initiative
+from .util import launcher
 from .util import project_config_path
 from .util import ensure_dir
 from . import registry
@@ -469,8 +470,8 @@ Rôle attendu      : {role}
 
 Signer, depuis votre terminal — une seule commande, elle rejoue la porte :
 
-  aidlc.py sign {stage} --approve --by "<votre nom>" --why "<ce que vous avez vérifié>"
-  aidlc.py sign {stage} --reject  --by "<votre nom>" --why "<ce qui manque>"
+  {cli} sign {stage} --approve --by "<votre nom>" --why "<ce que vous avez vérifié>"
+  {cli} sign {stage} --reject  --by "<votre nom>" --why "<ce qui manque>"
 
 Sans terminal (CI, session headless), la voie manuelle reste ouverte : {target}
   - copier le fichier .template.json en {basename}
@@ -505,7 +506,7 @@ def review_request(root: Path, pipe: dict, stage_id: str) -> dict:
     write_json(template_path, template)
     sys.stderr.write(REVIEW_INSTRUCTIONS.format(
         stage=stage_id, run=run, deliverable=stage.get("produces"),
-        role=stage.get("human_role", "non precise"),
+        role=stage.get("human_role", "non precise"), cli=launcher(root),
         target=os.path.relpath(target, root), basename=target.name,
     ))
     return {
@@ -670,7 +671,8 @@ def status_data(root: Path, pipe: dict) -> dict:
         elif last.get("verdict") != "accepted" or float(last.get("overall", 0)) < threshold:
             row["next_action"] = "Reprendre le livrable puis relancer le reviewer"
         elif not row["autonomous"] and not human_review(root, stage_id, last.get("run", 0)):
-            row["next_action"] = f"Revue humaine : aidlc.py review-request {stage_id}"
+            row["next_action"] = (f"Revue humaine : {launcher(root)} "
+                                  f"review-request {stage_id}")
         else:
             row["next_action"] = "Étape franchie"
         cleared[stage_id] = row["next_action"] == "Étape franchie"
@@ -774,6 +776,7 @@ def _short(value: str, width: int = ROLE_WIDTH) -> str:
 
 
 def render_status(data: dict) -> str:
+    cli = launcher(Path(data["root"]))
     headers = ["AGENT", "ÉQUIPE", "LIVRABLE", "VALIDÉ", "SCORE", "AUTO",
                "EN ATTENTE DE", "PROCHAINE ACTION"]
     rows = []
@@ -817,7 +820,7 @@ def render_status(data: dict) -> str:
     for stage in data.get("planned", []):
         lines.append("Prévu, plugin non installé : {} ({}) — {}".format(
             stage.get("id"), stage.get("name", ""),
-            "aidlc.py scaffold {}".format(stage.get("id")) if data.get("authoring")
+            "{} scaffold {}".format(cli, stage.get("id")) if data.get("authoring")
             else "à publier par l'équipe {}".format(stage.get("team") or "propriétaire")))
     if data.get("cycle"):
         lines.append("Cycle de dépendances entre agents : " + ", ".join(data["cycle"]))

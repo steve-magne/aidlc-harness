@@ -4,6 +4,7 @@ import json
 
 from pathlib import Path
 from .checks import resolve_checks_path
+from .util import DEV_LAUNCHER
 from .util import aidlc_dir
 from .util import ensure_dir
 from .util import harness_root
@@ -164,7 +165,7 @@ def ratchet_run(root: Path, pipe: dict) -> dict:
         "passed": not violations,
         "violations": violations,    "hint": ("Un plancher ne descend jamais, et desinstaller un agent ne l'efface "
              "pas. Pour l'assouplir legalement : faire evoluer le checks.json dans le "
-             "depot de l'equipe qui porte l'agent, puis `aidlc.py ratchet --reset "
+             f"depot de l'equipe qui porte l'agent, puis `{DEV_LAUNCHER} ratchet --reset "
              "<agent>` dans le projet."),
     } if violations else {
         "ratchet": str(path),
@@ -180,7 +181,7 @@ def ratchet_reset(root: Path, pipe: dict, stage_id: str) -> dict:
     (auteur du harnais, geste humain). Trace dans l'entree elle-meme (champ reset_at)."""
     path = ratchet_path(root)
     if not path.exists():
-        raise ValueError("Aucun ratchet fige : lancer `aidlc.py ratchet` d'abord.")
+        raise ValueError(f"Aucun ratchet fige : lancer `{DEV_LAUNCHER} ratchet` d'abord.")
     try:
         state = json.loads(read_text(path))
     except json.JSONDecodeError as exc:

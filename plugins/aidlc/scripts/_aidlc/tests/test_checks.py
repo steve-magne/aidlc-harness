@@ -13,6 +13,8 @@ from .harness import manifest
 from .harness import repo_root
 from .. import checks
 from ..checks import contract_problems
+from ..checks import locate
+from ..checks import nearest_heading
 from ..checks import scoped_checks
 from ..checks import validate_stage
 from .. import registry
@@ -55,6 +57,70 @@ class TestMotifsInterdits(AidlcTestCase):
         res = checks.validate_stage(self.root, self.pipeline, "plan")
         self.assertFalse(res["ok"])
         self.assertTrue(any("interdit" in e for e in res["errors"]))
+
+
+class TestErreursLocalisees(AidlcTestCase):
+    """Une erreur de validation doit dire ou corriger, pas seulement quelle regle a
+    parle : le message est relu par l'agent qui reprend le livrable, et chaque
+    aller-retour de validation coute un tour complet."""
+
+    def test_le_motif_interdit_est_situe_par_son_numero_de_ligne(self):
+        bad = dict(GOOD_SECTIONS)
+        bad["## Probleme"] = "Probleme a preciser, TODO plus tard."
+        self.plan_intent(bad)
+        res = checks.validate_stage(self.root, self.pipeline, "plan")
+        faute = next(e for e in res["errors"] if "interdit" in e)
+        ligne = int(faute.split("ligne ")[1].split(" ")[0])
+        contenu = read_text(self.root / "deliverables/plan/intent.md").splitlines()
+        self.assertIn("TODO", contenu[ligne - 1])
+
+    def test_le_motif_interdit_montre_le_texte_fautif_et_non_la_regex(self):
+        bad = dict(GOOD_SECTIONS)
+        bad["## Probleme"] = "Probleme a preciser, TODO plus tard."
+        self.plan_intent(bad)
+        res = checks.validate_stage(self.root, self.pipeline, "plan")
+        faute = next(e for e in res["errors"] if "interdit" in e)
+        self.assertIn("TODO", faute)
+        self.assertNotIn("(?i)", faute)
+
+    def test_plusieurs_occurrences_sont_comptees(self):
+        self.assertIn("(3 occurrences)", locate("a\nb\nc", [
+            _Faux(0, "a"), _Faux(2, "b"), _Faux(4, "c")]))
+
+    def test_une_occurrence_unique_ne_porte_pas_de_compte(self):
+        self.assertNotIn("occurrences", locate("a", [_Faux(0, "a")]))
+
+    def test_un_extrait_tres_long_est_tronque(self):
+        long = "x" * 200
+        self.assertLessEqual(len(locate(long, [_Faux(0, long)])), 120)
+
+    def test_une_section_mal_accentuee_est_nommee_comme_titre_le_plus_proche(self):
+        """Le cas courant : le titre est la, mais la comparaison est litterale."""
+        sections = dict(GOOD_SECTIONS)
+        sections["## Problème"] = sections.pop("## Probleme")
+        self.plan_intent(sections)
+        res = checks.validate_stage(self.root, self.pipeline, "plan")
+        faute = next(e for e in res["errors"] if "« ## Probleme »" in e)
+        self.assertIn("## Problème", faute)
+
+    def test_sans_titre_ressemblant_l_erreur_reste_nue(self):
+        self.assertEqual(nearest_heading("## Contexte", ["## Annexes", "## Glossaire"]), "")
+
+    def test_un_livrable_sans_aucun_titre_ne_suggere_rien(self):
+        self.assertEqual(nearest_heading("## Contexte", []), "")
+
+
+class _Faux:
+    """Le minimum d'un re.Match que `locate` consomme : sa position et son texte."""
+
+    def __init__(self, start, text):
+        self._start, self._text = start, text
+
+    def start(self):
+        return self._start
+
+    def group(self, index):
+        return self._text
 
 
 class TestFrontmatterIncomplet(AidlcTestCase):

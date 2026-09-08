@@ -10,6 +10,8 @@ from .util import PROJECT_CONFIG
 from .util import aidlc_dir
 from .util import ensure_dir
 from .util import harness_root
+from .util import DEV_LAUNCHER
+from .util import launcher
 from .util import load_pipeline
 from .util import now_iso
 from .util import read_text
@@ -344,15 +346,15 @@ def _aidlc_protection_reason(root: Path, resolved: Path):
         parts = parts[1:]
     if parts and parts[0] == "maturity.json":
         return ("Écriture refusée : .aidlc/maturity.json est l'intégrité du score. "
-                "Passer par `aidlc.py score <stage> --file <review.json>`.")
+                f"Passer par `{launcher(root)} score <stage> --file <review.json>`.")
     if len(parts) >= 2 and parts[0] == "reviews" and parts[1].endswith(".json") \
             and not parts[1].endswith(".template.json"):
         return ("Écriture refusée : les revues humaines .aidlc/reviews/*.json sont signées "
-                "par un humain. Utiliser `aidlc.py review-request <stage>` et laisser "
+                f"par un humain. Utiliser `{launcher(root)} review-request <stage>` et laisser "
                 "l'humain remplir le fichier.")
     if parts and parts[0] == "ratchet.json":
         return ("Écriture refusée : .aidlc/ratchet.json fige les planchers de validation. "
-                "Seul `aidlc.py ratchet` écrit ce fichier ; toute modification hors de "
+                f"Seul `{DEV_LAUNCHER} ratchet` écrit ce fichier ; toute modification hors de "
                 "cette sous-commande est une fraude au mètre.")
     if parts and parts[0] == "improvement-queue.jsonl":
         return ("Écriture refusée : la file d'amélioration est alimentée par les refus "
@@ -360,7 +362,7 @@ def _aidlc_protection_reason(root: Path, resolved: Path):
     if parts and parts[0] == "experiments.jsonl":
         return ("Écriture refusée : .aidlc/experiments.jsonl est la mémoire de la "
                 "boucle d'amélioration — ce qui a été corrigé, et l'effet mesuré. "
-                "Passer par `aidlc.py experiment record` ; antidater une expérience "
+                f"Passer par `{launcher(root)} experiment record` ; antidater une expérience "
                 "reviendrait à se noter soi-même.")
     if parts and parts[0] == "logs":
         return ("Écriture refusée : les journaux .aidlc/logs/*.jsonl sont la matière "

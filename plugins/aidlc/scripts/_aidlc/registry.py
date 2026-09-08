@@ -6,6 +6,7 @@ import re
 
 from pathlib import Path
 from .util import harness_root
+from .util import launcher
 from .util import PROJECT_CONFIG
 from .util import project_config
 from .util import initiative
@@ -268,9 +269,9 @@ def discover(refresh: bool = False) -> dict:
         for agent in undeclared:
             warnings.append(
                 "Agent '{}' (equipe {}) decouvert mais absent de la cle 'agents' de {} : "
-                "il ne compose pas ce workflow. L'ajouter : aidlc.py workflow --add {}."
+                "il ne compose pas ce workflow. L'ajouter : {} workflow --add {}."
                 .format(agent["id"], agent.get("team") or "?", PROJECT_CONFIG,
-                        agent["id"]))
+                        launcher(project), agent["id"]))
         agents = [agent for agent in agents if agent["id"] in keep]
 
     result = {"agents": agents, "problems": problems, "warnings": warnings,

@@ -17,10 +17,14 @@ quel, sans reformuler : le chemin du livrable et la forme de la commande doivent
 
 ## 2. Rendre la main
 
-La voie normale est une seule commande, **depuis le terminal de l'humain** :
+La voie normale est une seule commande, **depuis le terminal de l'humain**. `review-request`
+l'a déjà écrite avec le chemin résolu du lanceur : **recopie la ligne qu'il a affichée**, ne la
+réécris pas de mémoire — un `aidlc sign ...` abrégé n'existe dans le PATH de personne, et l'humain
+resterait bloqué devant un « command not found » sur le seul geste que tu ne peux pas faire à sa
+place. Elle a cette forme :
 
 ```bash
-aidlc sign <stage> --approve --by "<son nom>" --why "<ce qu'il a vérifié>"
+<chemin affiché par review-request> sign <stage> --approve --by "<son nom>" --why "<ce qu'il a vérifié>"
 ```
 
 `--reject` à la place de `--approve` pour un refus. La justification est obligatoire **dans les

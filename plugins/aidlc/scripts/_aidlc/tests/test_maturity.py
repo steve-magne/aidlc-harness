@@ -23,6 +23,7 @@ from ..maturity import render_history
 from ..maturity import render_recall
 from ..maturity import render_status
 from ..maturity import authoring
+from ..util import launcher
 from ..maturity import review_request
 from ..maturity import sign_review
 from ..maturity import upstream_blockers
@@ -483,7 +484,8 @@ class TestStatusData(AidlcTestCase):
         record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
         row = next(r for r in status_data(self.root, self.pipeline)["stages"]
                   if r["stage"] == "plan")
-        self.assertEqual(row["next_action"], "Revue humaine : aidlc.py review-request plan")
+        self.assertEqual(row["next_action"],
+                         f"Revue humaine : {launcher(self.root)} review-request plan")
 
     def test_prochaine_action_etape_franchie_quand_tout_est_vert(self):
         self.plan_intent()
@@ -578,7 +580,7 @@ class TestRenderStatus(AidlcTestCase):
 
     def test_une_etape_prevue_est_annoncee_avec_la_commande_scaffold(self):
         data = status_data(self.root, self.pipeline)
-        self.assertIn("aidlc.py scaffold build", render_status(data))
+        self.assertIn(f"{launcher(self.root)} scaffold build", render_status(data))
 
     def test_un_cycle_de_dependances_est_annonce_dans_le_rendu(self):
         self.write_agent("aidlc-a", manifest("a", "Equipe A", "deliverables/a/out.md",
@@ -1252,7 +1254,7 @@ class TestConsignesDeRevue(AidlcTestCase):
         self.plan_intent()
         with self.muted() as err:
             review_request(self.root, self.pipeline, "plan")
-        self.assertIn("aidlc.py sign plan --approve", err.getvalue())
+        self.assertIn(f"{launcher(self.root)} sign plan --approve", err.getvalue())
 
     def test_les_consignes_gardent_la_voie_manuelle_pour_la_ci(self):
         self.plan_intent()
