@@ -52,8 +52,21 @@ def stage_maturity(maturity: dict, stage_id: str) -> dict:
     return maturity["stages"].setdefault(stage_id, {"runs": [], "autonomous": False})
 
 
+def review_path(root: Path, stage_id: str, run, template: bool = False) -> Path:
+    """Chemin de la revue humaine d'un run. Un seul endroit qui le sait.
+
+    Il etait reconstruit a quatre endroits, dont deux **messages** adresses a l'humain
+    qui l'ecrivaient en dur, sans le segment d'initiative : sous `initiative`, la porte
+    et le refus de `sign` envoyaient donc relire un fichier qui n'existe nulle part,
+    pendant que le moteur, lui, lisait le bon. Un chemin affiche faux est pire qu'un
+    chemin tu — il fait chercher.
+    """
+    suffix = ".template.json" if template else ".json"
+    return aidlc_dir(root) / "reviews" / f"{stage_id}-{run}{suffix}"
+
+
 def human_review(root: Path, stage_id: str, run: int):
-    path = aidlc_dir(root) / "reviews" / f"{stage_id}-{run}.json"
+    path = review_path(root, stage_id, run)
     if not path.exists():
         return None
     try:
@@ -366,7 +379,8 @@ def gate_stage(root: Path, pipe: dict, stage_id: str, _seen: set = None) -> dict
             }, ("stage", "run"))
     elif not autonomous:
         out["blocking"].append(
-            f"Revue humaine requise : .aidlc/reviews/{stage_id}-{last.get('run')}.json absent."
+            "Revue humaine requise : {} absent.".format(
+                os.path.relpath(review_path(root, stage_id, last.get("run")), root))
         )
 
     entry["autonomous"] = compute_autonomy(root, pipe, stage_id, maturity)
@@ -478,8 +492,8 @@ def review_request(root: Path, pipe: dict, stage_id: str) -> dict:
     maturity = load_maturity(root)
     runs = stage_maturity(maturity, stage_id)["runs"]
     run = runs[-1]["run"] if runs else 1
-    target = aidlc_dir(root) / "reviews" / f"{stage_id}-{run}.json"
-    template_path = aidlc_dir(root) / "reviews" / f"{stage_id}-{run}.template.json"
+    target = review_path(root, stage_id, run)
+    template_path = review_path(root, stage_id, run, template=True)
     template = {
         "stage": stage_id,
         "run": run,
@@ -540,7 +554,7 @@ def sign_review(root: Path, pipe: dict, stage_id: str, approved: bool, reviewer:
         raise ValueError(f"Aucun score enregistré pour « {stage_id} » : faites noter "
                          "le livrable par le reviewer avant de le signer.")
     run = runs[-1]["run"]
-    path = aidlc_dir(root) / "reviews" / f"{stage_id}-{run}.json"
+    path = review_path(root, stage_id, run)
     if path.exists() and not force:
         existing = human_review(root, stage_id, run) or {}
         raise ValueError(

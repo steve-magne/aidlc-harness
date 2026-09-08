@@ -1298,6 +1298,22 @@ class TestJournalDeLInitiative(AidlcTestCase):
         runs = [event["run"] for event in history(self.root)["events"]]
         self.assertEqual(runs, sorted(runs))
 
+    def _porte_sous_initiative(self) -> str:
+        """Une etape notee sous une initiative, prete a etre signee : ce qui reste
+        bloquant est la revue humaine, donc le chemin qu'on affiche a l'humain."""
+        self.write_json("aidlc.json", {"initiative": "reco"})
+        self.write("deliverables/reco/plan/intent.md", document())
+        record_score(self.root, self.pipeline, "plan", {"scores": SCORES_HAUTS})
+        return " ".join(gate_stage(self.root, self.pipeline, "plan")["blocking"])
+
+    def test_le_bloquant_de_revue_humaine_cite_le_chemin_de_l_initiative(self):
+        self.assertIn(os.path.join(".aidlc", "reco", "reviews", "plan-1.json"),
+                      self._porte_sous_initiative())
+
+    def test_le_bloquant_de_revue_humaine_ne_cite_pas_un_chemin_hors_initiative(self):
+        self.assertNotIn(os.path.join(".aidlc", "reviews"),
+                         self._porte_sous_initiative())
+
     def test_le_journal_nomme_l_initiative_quand_elle_existe(self):
         self.write_json("aidlc.json", {"initiative": "reco"})
         self.plan_intent()
