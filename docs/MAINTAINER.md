@@ -53,7 +53,7 @@ Deux façons de travailler ici :
 claude --plugin-dir plugins/aidlc --plugin-dir plugins/aidlc-plan
 
 # En ligne de commande pure (le script s'auto-localise depuis la racine du dépôt)
-python3 plugins/aidlc/bin/aidlc status
+plugins/aidlc/bin/aidlc status
 ```
 
 Dans une session de développement, le plugin `aidlc` est chargé depuis
@@ -85,7 +85,7 @@ Le scaffolder n'a besoin d'aucune déclaration préalable. Si l'étape figure da
 l'équipe pour pré-remplir le manifeste ; sinon il part de zéro et vous complétez `agent.json`.
 
 ```bash
-python3 plugins/aidlc/bin/aidlc scaffold design
+plugins/aidlc/bin/aidlc scaffold design
 # --force écrase un plugin existant : à n'utiliser que pour tout réécrire, jamais par réflexe
 ```
 
@@ -153,24 +153,24 @@ l'étape en a). C'est l'entretien de la skill qui les rend utiles :
 ```bash
 # 1. Hygiène du dépôt — tout Python compile, tout JSON parse (règles non négociables,
 #    portes du moteur, exit 1 si fichier fautif ; rien n'est écrit)
-python3 plugins/aidlc/bin/aidlc check-python
-python3 plugins/aidlc/bin/aidlc check-json
+plugins/aidlc/bin/aidlc check-python
+plugins/aidlc/bin/aidlc check-json
 
 # 2. La suite de tests du moteur passe ; elle vérifie aussi la conformité OKF v0.2 des
 #    bundles docs/ et knowledge/ (frontmatter, fichiers réservés, dates du journal)
-python3 plugins/aidlc/bin/aidlc test
+tools/aidlc-dev test
 
 # 2ter. La couverture n'a pas baissé (exit 2 = régression)
-python3 plugins/aidlc/bin/aidlc coverage
+tools/aidlc-dev coverage
 
 # 2bis. Conformance OKF des bundles de connaissance (exit 1 si non conforme)
-python3 plugins/aidlc/bin/aidlc check-okf docs
-python3 plugins/aidlc/bin/aidlc check-okf knowledge
+plugins/aidlc/bin/aidlc check-okf docs
+plugins/aidlc/bin/aidlc check-okf knowledge
 
 # 2ter. Manifestes ET contrats du dépôt (exit 1) : agent.json valides, et chaque
 #    checks.json cohérent à vide — règle inconnue, regex fautive, section exigée hors
 #    de required_sections, dérive entre le gabarit du plugin et le contrat
-python3 plugins/aidlc/bin/aidlc agents --strict
+plugins/aidlc/bin/aidlc agents --strict
 
 # 3. Le plugin de l'étape est valide pour Claude Code (la CI .github/workflows/ci.yml
 #    rejoue la validation sur chaque plugin du dépôt à chaque PR)
@@ -178,12 +178,12 @@ claude plugin validate plugins/aidlc
 claude plugin validate plugins/aidlc-<stage>
 
 # 4. Le tableau de bord montre l'étape implémentée
-python3 plugins/aidlc/bin/aidlc status
+plugins/aidlc/bin/aidlc status
 
 # 5. La porte agrégée : la note de maturité du dépôt tient le seuil et aucun axe ne
 #    passe sous le plancher (exit 2 = bloquant). Elle rejoue les points 1, 2 et 2ter en
 #    une seule mesure et refuse en plus un module du moteur sans test en face.
-python3 plugins/aidlc/bin/aidlc selfscore
+tools/aidlc-dev selfscore
 ```
 
 Cette dernière porte est celle du hook local. Activez-la une fois par clone — elle refusera
@@ -227,7 +227,7 @@ celui qui ne l'installe pas voit une entrée `missing_producers` s'il en dépend
 1. Les vérifications de la section 2.5 passent (check-python, check-json, test, coverage, `selfscore`, `claude plugin validate`) — `selfscore` rend la note du dépôt : elle doit être au-dessus du seuil, sans axe sous le plancher.
 2. Les versions sont incrémentées pour **tous** les plugins modifiés (`aidlc` seulement si
    le noyau a changé). Le manifeste `agent.json` de chaque agent touché est valide :
-   `python3 plugins/aidlc/bin/aidlc agents --strict` (porte CI).
+   `plugins/aidlc/bin/aidlc agents --strict` (porte CI).
 3. `.claude-plugin/marketplace.json` liste chaque plugin d'étape avec un `source` relatif
    (`./plugins/aidlc-<stage>`) — les chemins relatifs sont résolus par rapport à la racine du
    marketplace, donc ils fonctionnent que le consommateur ait ajouté le dépôt par chemin local ou
@@ -305,25 +305,25 @@ pousser, annoncer aux consommateurs (`claude plugin update`).
 Depuis la racine du dépôt :
 
 ```bash
-python3 plugins/aidlc/bin/aidlc status                 # tableau de bord
-python3 plugins/aidlc/bin/aidlc status --history       # journal de passage : qui a produit, noté et signé quoi
-python3 plugins/aidlc/bin/aidlc workflow               # ce qui compose la chaîne, et ce qui est publié sans être branché
-python3 plugins/aidlc/bin/aidlc feedback --agent <id>  # ce qu'un projet a mesuré sur un agent
-python3 plugins/aidlc/bin/aidlc agents --strict        # manifestes + contrats du dépôt (exit 1 si incohérent)
-python3 plugins/aidlc/bin/aidlc check-okf <dir>        # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
-python3 plugins/aidlc/bin/aidlc check-python           # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
-python3 plugins/aidlc/bin/aidlc check-json             # tout JSON parse (règle 6, exit 1 si JSON invalide)
-python3 plugins/aidlc/bin/aidlc scaffold <stage>       # génère le plugin d'une étape planned
-python3 plugins/aidlc/bin/aidlc init                   # (côté consommateur) amorce un projet d'accueil
-python3 plugins/aidlc/bin/aidlc scaffold <stage> --force   # écrase et régénère
-python3 plugins/aidlc/bin/aidlc ratchet                # fige les planchers de sévérité des checks.json (exit 2 = régression)
-python3 plugins/aidlc/bin/aidlc ratchet --reset <stage>  # repart du contrat courant après décision humaine
-python3 plugins/aidlc/bin/aidlc watchdog                # détecteurs de stagnation sur les journaux (exit 2 = halte)
-python3 plugins/aidlc/bin/aidlc test                   # suite de tests (doit passer avant chaque release)
-python3 plugins/aidlc/bin/aidlc coverage               # non-régression de couverture (exit 2 = baisse)
-python3 plugins/aidlc/bin/aidlc selfscore              # note de maturité du dépôt, cinq axes (exit 2 = sous le seuil)
-git config core.hooksPath .githooks                                # une fois par clone : selfscore devient une porte pre-commit
-claude plugin validate plugins/aidlc                          # validité des plugins pour Claude Code
+plugins/aidlc/bin/aidlc status                    # tableau de bord
+plugins/aidlc/bin/aidlc status --history          # journal de passage : qui a produit, noté et signé quoi
+plugins/aidlc/bin/aidlc workflow                  # ce qui compose la chaîne, et ce qui est publié sans être branché
+plugins/aidlc/bin/aidlc feedback --agent <id>     # ce qu'un projet a mesuré sur un agent
+plugins/aidlc/bin/aidlc agents --strict           # manifestes + contrats du dépôt (exit 1 si incohérent)
+plugins/aidlc/bin/aidlc check-okf <dir>           # conformité OKF v0.2 d'un bundle (exit 1 si non conforme)
+plugins/aidlc/bin/aidlc check-python              # tout Python compile (règle 6, exit 1 si erreur de syntaxe)
+plugins/aidlc/bin/aidlc check-json                # tout JSON parse (règle 6, exit 1 si JSON invalide)
+plugins/aidlc/bin/aidlc scaffold <stage>          # génère le plugin d'une étape planned
+plugins/aidlc/bin/aidlc init                      # (côté consommateur) amorce un projet d'accueil
+plugins/aidlc/bin/aidlc scaffold <stage> --force  # écrase et régénère
+tools/aidlc-dev ratchet                           # fige les planchers de sévérité des checks.json (exit 2 = régression)
+tools/aidlc-dev ratchet --reset <stage>           # repart du contrat courant après décision humaine
+plugins/aidlc/bin/aidlc watchdog                  # détecteurs de stagnation sur les journaux (exit 2 = halte)
+tools/aidlc-dev test                              # suite de tests (doit passer avant chaque release)
+tools/aidlc-dev coverage                          # non-régression de couverture (exit 2 = baisse)
+tools/aidlc-dev selfscore                         # note de maturité du dépôt, cinq axes (exit 2 = sous le seuil)
+git config core.hooksPath .githooks               # une fois par clone : selfscore devient une porte pre-commit
+claude plugin validate plugins/aidlc              # validité des plugins pour Claude Code
 claude plugin validate plugins/aidlc-<stage>
 ```
 

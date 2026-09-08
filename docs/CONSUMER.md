@@ -430,7 +430,6 @@ n'existe que dans la session) :
 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" sign plan --approve --by "Nom" --why "..."  # signe et rejoue la porte (terminal humain)
 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" recall plan           # ce qui a été reproché aux runs précédents
 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" watchdog           # détecteurs de stagnation sur les journaux (exit 2 = halte)
-"${CLAUDE_PLUGIN_ROOT}/bin/aidlc" ratchet           # fige les planchers de sévérité des contrats (exit 2 = régression)
 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" knowledge index    # sommaire des bundles OKF distants déclarés
 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" knowledge search marge brute   # recherche par mots-clés
 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" knowledge get <source>/<concept-id>   # un concept, en entier
@@ -468,6 +467,75 @@ Un agent installé mais **désactivé** dans vos réglages Claude Code apparaît
 
 Découvrir un agent ne le branche pas : ajoutez-le à votre workflow (`aidlc workflow --add
 <agent>`), sinon `status` vous signalera qu'il est découvert mais hors de votre chaîne.
+
+### Écrire l'agent de votre propre équipe
+
+Les sections précédentes supposent que quelqu'un d'autre a publié l'agent dont vous avez besoin.
+Le cas le plus fréquent est l'inverse : **votre** équipe a un métier que le harnais ne connaît
+pas — un cadrage produit maison, une revue de conformité, un contrôle de données. Vous n'avez
+alors rien à installer ni à publier.
+
+**Un agent est un dossier qui porte un `agent.json` à sa racine.** C'est le seul contrat que
+l'orchestrateur lit : ni le nom du dossier, ni sa place dans une arborescence, ni une entrée de
+marketplace ne le font exister. Tout le reste — l'agent, la skill, le gabarit, le contrat — est
+désigné depuis ce manifeste.
+
+Le registre découvre les manifestes par trois voies, **dans cet ordre de précédence** :
+
+| Voie | Où | Quand la choisir |
+| --- | --- | --- |
+| `AIDLC_AGENT_PATH` | les répertoires que la variable désigne (séparés par `:`) | agent en cours de développement, ou dépôt d'équipe cloné à côté ; c'est la seule voie garantie, y compris en CI |
+| `plugins/` du projet | `plugins/<mon-agent>/agent.json`, à la racine de **votre** dépôt | **le chemin le plus court** pour une équipe projet : découvert sans rien installer, versionné avec votre code, revu dans vos merge requests |
+| plugins installés | le cache de Claude Code | l'agent d'une autre équipe, distribué par un marketplace |
+
+La deuxième voie est celle qu'on oublie : poser `plugins/<mon-agent>/agent.json` à la racine du
+projet suffit à faire entrer l'agent au registre. Aucun `claude plugin install`, aucun
+marketplace, aucune version à incrémenter — et le jour où l'agent doit servir à plusieurs
+projets, il déménage dans son propre dépôt sans que rien d'autre ne change.
+
+Découvert ne veut toujours pas dire branché : `aidlc workflow --add <mon-agent>` reste
+nécessaire, et `workflow` sans option vous montre l'écart.
+
+#### Ce que vous devez écrire à la main, et pourquoi
+
+**`/aidlc new-agent` et `aidlc scaffold` ne fonctionnent pas depuis un projet consommateur.** Le
+scaffolder écrit dans le `plugins/` et le `.claude-plugin/marketplace.json` d'un **dépôt auteur**
+(`scaffold.authoring_root()`) : votre projet n'a ni l'un ni l'autre, et la copie installée du
+harnais est en lecture seule. La skill `new-agent` s'arrête d'elle-même dans ce cas. Ce n'est pas
+un manque à contourner : générer un plugin est un geste d'auteur, versionné dans le dépôt qui le
+publie.
+
+Copiez donc `plugins/aidlc-plan/` — c'est l'exemple publié pour ça — et gardez ses six fichiers :
+
+| Fichier | Ce qu'il porte |
+| --- | --- |
+| `agent.json` | le manifeste : `id`, `team`, `description`, `capabilities`, `invocation`, et pour une étape gouvernée `produces`, `consumes`, `checks`, `review`, `human_role` |
+| `.claude-plugin/plugin.json` | nom et version, pour que Claude Code charge la skill et l'agent |
+| `checks.json` | le contrat déterministe. **Pas facultatif** : une étape gouvernée sans contrat ne franchit pas sa porte |
+| `agents/<mon-agent>-analyst.md` | le profil qui dialogue avec le rôle métier |
+| `skills/<verbe>/SKILL.md` | la recette : les questions à poser, la structure attendue |
+| `review.md` | ce que les quatre axes de maturité veulent dire pour ce métier |
+
+Trois pièges, tous constatés :
+
+- **`produces` est un chemin unique.** Un agent produit **un** fichier. Si votre métier rend trois
+  documents, ce sont trois agents chaînés par `produces` → `consumes`, chacun avec sa porte et sa
+  signature — c'est ce qui les rend auditables un par un.
+- **Déclarez vos chemins nus** (`deliverables/plan/intent.md`), dans le manifeste comme dans
+  `checks.json` : c'est le moteur qui y glisse le nom de votre initiative.
+- **Testez le contrat à vide** avant de vous en servir : copiez votre gabarit dans
+  `deliverables/<étape>/<fichier>`, lancez `validate <étape>`, et vérifiez qu'il **échoue**. Un
+  gabarit non rempli qui passe la validation signale un contrat trop lâche.
+
+#### Lequel des deux chemins prendre
+
+- **Un seul projet est concerné** — écrivez le plugin dans `plugins/` de votre dépôt. Il vit, il
+  se relit et il se corrige avec le code qu'il sert.
+- **Plusieurs projets vont s'en servir** — donnez-lui son propre dépôt. Les projets le rendent
+  visible par `AIDLC_AGENT_PATH`, ou vous le publiez dans un marketplace et ils l'installent
+  (section 8). Vous devenez alors l'équipe propriétaire de cet agent au sens du guide auteur
+  ([docs/MAINTAINER.md](MAINTAINER.md)), et les retours d'usage de vos projets vous reviennent
+  par `aidlc feedback --agent <mon-agent>`.
 
 ### Rendre à chaque équipe ce que vous avez mesuré sur son agent
 
