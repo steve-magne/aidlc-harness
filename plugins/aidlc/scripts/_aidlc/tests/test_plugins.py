@@ -417,15 +417,90 @@ class TestDocPaths(unittest.TestCase):
                         "aucun chemin plugins/... trouve dans les README de plugins.")
 
 
+class TestCommandesCiteesDansLaDoc(unittest.TestCase):
+    """La documentation est une porte comme une autre : elle est le seul contrat qu'un
+    consommateur puisse suivre, et une commande qui n'existe plus s'y lit exactement
+    comme une commande qui existe. `TestPortesLocalesEtCI` tient cette regle pour le
+    hook et la CI ; ici on la tient pour ce que des humains recopient.
+
+    Le journal (`log.md`) est exclu des deux sens : il raconte ce qui a ete fait, y
+    compris avec des commandes depuis renommees, et le reecrire serait falsifier une
+    trace.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        root = repo_root()
+        paths = sorted(root.glob("docs/*.md")) + [root / "README.md", root / "CLAUDE.md"]
+        paths += sorted(root.glob("plugins/*/README.md"))
+        paths += sorted(root.glob("plugins/*/skills/*/SKILL.md"))
+        paths += sorted(root.glob("plugins/aidlc/skills/aidlc/reference/*.md"))
+        cls.docs = [(p.relative_to(root), p.read_text(encoding="utf-8"))
+                    for p in paths if p.is_file() and p.name != "log.md"]
+        cls.choices = _all_choices()
+
+    def test_la_doc_ne_cite_aucune_sous_commande_fantome(self):
+        vues = 0
+        for rel, text in self.docs:
+            for name in _AIDLC_CALL_RE.findall(text):
+                vues += 1
+                with self.subTest(fichier=str(rel), sous_commande=name):
+                    self.assertIn(name, self.choices,
+                                  f"{rel} cite « {name} », qu'aucun parseur n'expose.")
+        self.assertTrue(vues, "aucune invocation du moteur trouvee dans la doc.")
+
+    def test_les_portes_du_depot_ne_sont_jamais_proposees_par_le_plugin(self):
+        """`test`, `coverage`, `selfscore` et `ratchet` notent CE depot. Les montrer sur
+        `bin/aidlc` promet a un consommateur une commande que son lanceur n'expose pas —
+        et l'invite a re-figer un plancher qui n'est pas le sien."""
+        for rel, text in self.docs:
+            for line in text.splitlines():
+                for name in _AIDLC_CALL_RE.findall(line):
+                    if name in cli.DEV_COMMANDS:
+                        with self.subTest(fichier=str(rel), commande=name):
+                            self.assertIn("aidlc-dev", line,
+                                          f"{rel} propose « {name} » hors de "
+                                          "tools/aidlc-dev.")
+
+    def test_la_doc_n_invoque_pas_le_lanceur_par_un_interpreteur(self):
+        """`bin/aidlc` est un script shell qui choisit `uv` ou `python3` lui-meme : le
+        prefixer d'un interpreteur ne rate pas a moitie, la commande echoue."""
+        for rel, text in self.docs:
+            with self.subTest(fichier=str(rel)):
+                self.assertNotIn("python3 plugins/aidlc/bin/aidlc", text)
+                self.assertNotIn('python3 "${CLAUDE_PLUGIN_ROOT}/bin/aidlc', text)
+
+
+class TestReferenceDesRegles(unittest.TestCase):
+    """La reference `new-agent` annonce que les regles de `checks.json` sont
+    « exactement » celles de son tableau : un auteur d'agent s'y fie pour ecrire son
+    contrat. Une regle du moteur absente du tableau est une regle que personne
+    n'emploiera, et une regle citee que le moteur ignore est un contrat mort-ne."""
+
+    @classmethod
+    def setUpClass(cls):
+        path = (repo_root()
+                / "plugins/aidlc/skills/aidlc/reference/new-agent.md")
+        cls.cited = set(re.findall(r"`(\w+)`", path.read_text(encoding="utf-8")))
+
+    def test_chaque_regle_du_moteur_est_documentee(self):
+        self.assertEqual(checks.KNOWN_RULES - self.cited, set(),
+                         "regle(s) connues du moteur, absentes de la reference.")
+
+
 if __name__ == "__main__":
     unittest.main()
 
 
-#: Appels au moteur cites dans un fichier de porte (hook shell, workflow CI).
-#: Un appel du moteur dans un fichier hors du moteur, quel que soit le point
-#: d'entree : `tools/aidlc-dev(.py)` pour les portes du depot, `bin/aidlc` pour
-#: le pilotage. Ce qui est capture, c'est la sous-commande.
-_AIDLC_CALL_RE = re.compile(r"(?:aidlc-dev(?:\.py)?|bin/aidlc)\s+([a-z][a-z-]*)")
+#: Appels au moteur cites dans un fichier hors du moteur : porte (hook shell,
+#: workflow CI) ou documentation. Quel que soit le point d'entree —
+#: `tools/aidlc-dev(.py)` pour les portes du depot, `bin/aidlc` pour le pilotage —
+#: ce qui est capture, c'est la sous-commande.
+#: Deux exigences ecartent la prose, ou les memes mots ne sont pas des commandes :
+#: le point d'entree est atteint par un CHEMIN (`bin/aidlc` nu vit dans les arbres
+#: de fichiers), et un SEUL espace le separe du verbe (un arbre aligne sa colonne
+#: de description avec plusieurs).
+_AIDLC_CALL_RE = re.compile(r"(?:aidlc-dev(?:\.py)?|/bin/aidlc)[\"']? ([a-z][a-z-]*)")
 
 
 class TestPortesLocalesEtCI(unittest.TestCase):

@@ -323,6 +323,11 @@ def compose_workflow(root: Path, add=(), remove=(), initiative=None) -> dict:
     data = _read_config_raw(root)
     catalog = registry.catalog()
     known = {agent["id"]: agent for agent in catalog["agents"]}
+    # Les agents decouverts hors du workflow comptent ici en entier, pas seulement par
+    # leur id : `--add le-mien --remove l-exemple` doit pouvoir juger ce que le nouveau
+    # produit alors qu'il n'est pas encore declare.
+    for agent in (catalog.get("undeclared_agents") or []):
+        known.setdefault(agent["id"], agent)
     for agent_id in (catalog.get("undeclared") or []):
         known.setdefault(agent_id, {"id": agent_id})
     current = list(data.get("agents") or sorted(known))
@@ -350,8 +355,14 @@ def compose_workflow(root: Path, add=(), remove=(), initiative=None) -> dict:
         current.remove(agent_id)
         changed.append("- " + agent_id)
         produced = (known.get(agent_id) or {}).get("produces")
+        # Un autre agent du workflow ecrit-il encore cette entree ? Remplacer l'agent
+        # d'une equipe par le sien est le geste d'entree d'une equipe qui publie : sans
+        # ce test, il annoncait une porte fermee que la chaine derivee tenait ouverte.
+        if not produced or any((known.get(other) or {}).get("produces") == produced
+                               for other in current):
+            continue
         for other in current:
-            if produced and produced in ((known.get(other) or {}).get("consumes") or []):
+            if produced in ((known.get(other) or {}).get("consumes") or []):
                 warnings.append(
                     "« {} » consomme {} que « {} » produisait : sans lui, sa porte restera "
                     "fermée sur une entrée que plus personne n'écrit.".format(

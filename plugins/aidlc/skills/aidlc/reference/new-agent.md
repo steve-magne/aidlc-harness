@@ -105,6 +105,10 @@ Les règles disponibles sont **exactement** celles-ci — n'en invente aucune au
 | `required_patterns` | regex obligatoires (un identifiant, une date, une unité…) |
 | `must_reference_inputs` | chaque entrée de l'étape est citée dans le texte |
 | `min_items_per_section` | nombre minimum de puces par section |
+| `proof_of_run` | liste de sections ; chacune doit porter une **valeur observée** — chiffre avec son unité, date ISO, chemin, p95/p99, identifiant. Reformuler l'attendu ne suffit pas |
+| `required_input_section` | `{entrée: section}` ; l'entrée doit être citée **dans cette section précise**, pas ailleurs dans le document. Plus fort que `must_reference_inputs` |
+| `must_not_violate_scope` | `{"section": "## Hors périmètre"}` ; ce que l'amont a déclaré hors périmètre reste exclu ici — ou le livrable le redéclare explicitement exclu |
+| `checks_do_not_self_reference` | booléen ; le livrable ne recopie aucune ligne de son propre `checks.json`. On écrit contre l'ouvrage, pas contre le mètre |
 
 16. « Citez trois défauts que vous refusez systématiquement en relecture. » Pour chacun :
     « quelle règle du tableau ci-dessus l'attrape ? ». Si aucune ne l'attrape, c'est un critère
@@ -112,6 +116,11 @@ Les règles disponibles sont **exactement** celles-ci — n'en invente aucune au
 17. « Y a-t-il un format imposé quelque part ? » (identifiant de ticket, semver, date ISO, unité
     chiffrée) -> `required_patterns`.
 18. « Quels mots signalent à coup sûr un document non fini chez vous ? » -> `forbidden_patterns`.
+
+Les quatre dernières ne se déclarent qu'à bon escient : `must_not_violate_scope` et
+`required_input_section` supposent une étape qui **consomme** quelque chose, et `agents --strict`
+signale une règle qui ne vérifie rien. `plugins/aidlc-plan/checks.json` montre `proof_of_run` et
+`checks_do_not_self_reference` en usage réel.
 
 Rappelle la frontière : `checks.json` vérifie la **forme**, le reviewer juge le **fond**. Ne fais pas
 porter à une expression régulière un jugement de qualité.

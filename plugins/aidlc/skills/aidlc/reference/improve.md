@@ -203,7 +203,7 @@ juste le changement ». Attendre est le comportement correct.
 2. Vérifie la forme :
    ```bash
    python3 -c "import json;json.load(open('plugins/aidlc-<stage>/checks.json'))" && echo "JSON OK"
-   "${CLAUDE_PLUGIN_ROOT}/bin/aidlc" test
+   tools/aidlc-dev test
    ```
 3. Rejoue la validation sur le livrable existant :
    ```bash
